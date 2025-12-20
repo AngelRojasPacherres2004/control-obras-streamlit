@@ -1,0 +1,37 @@
+{
+  "info": "La Rinconada \u2013 La Molina",
+  "avance": [
+    {
+      "fecha": "2025-12-19",
+      "responsable": "pasante-rinconada",
+      "avance": 4,
+      "obs": "",
+      "fotos": [
+        "obras/fotos/rinconada2025-12-1920251219124148_Captura de pantalla 2025-11-11 034819.png",
+        "obras/fotos/rinconada2025-12-1920251219124148_Captura de pantalla 2025-11-11 034359.png",
+        "obras/fotos/rinconada2025-12-1920251219124148_Captura de pantalla 2025-11-11 034743.png"
+      ]
+    },
+    {
+      "fecha": "2025-12-19",
+      "responsable": "admin",
+      "avance": 2,
+      "obs": "rtere",
+      "fotos": []
+    },
+    {
+      "fecha": "2025-12-19",
+      "responsable": "pasante-rinconada",
+      "avance": 26,
+      "obs": "avance",
+      "fotos": [
+        "obras/fotos/rinconada2025-12-1920251219124949_Artista1.png",
+        "obras/fotos/rinconada2025-12-1920251219124949_Captura de pantalla 2025-12-18 125201.png",
+        "obras/fotos/rinconada2025-12-1920251219124949_Captura de pantalla 2025-12-19 110831.png"
+      ]
+    }
+  ],
+  "cambios": [],
+  "stock": [],
+  "caja": []
+}
