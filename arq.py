@@ -43,80 +43,55 @@ def cargar_avances(obra_id):
 def check_password():
     if "auth" not in st.session_state:
         st.title("CONTROL DE OBRAS 2025")
-
-        user = st.text_input("Usuario")
+        username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
         if st.button("INGRESAR"):
-            doc = db.collection("users").document(user).get()
+            user_doc = db.collection("users").document(username).get()
 
-            if not doc.exists:
+            if not user_doc.exists:
                 st.error("Usuario no existe")
                 return False
 
-            data = doc.to_dict()
+            data = user_doc.to_dict()
 
             if password != data.get("password"):
                 st.error("Contraseña incorrecta")
                 return False
 
-            # ✅ AQUÍ YA NO FALLA
-            st.session_state["auth"] = data["rol"]
-
-            if data["rol"] == "pasante":
-                st.session_state["obra"] = data["obra"]
-
+            # 🔐 Login correcto
+            st.session_state["auth"] = {
+                "username": data["username"],
+                "role": data["role"],
+                "obra": data.get("obra")
+            }
             st.rerun()
-        return False
 
+        return False
     return True
 
+if not check_password():
+    st.stop()
 
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
+auth = st.session_state["auth"]
 
-if st.session_state["auth"] == "jefe":
+if auth["role"] == "jefe":
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
         options=list(OBRAS.keys()),
         format_func=lambda x: OBRAS[x]
     )
 else:
-    obra_id_sel = st.session_state["obra"]
+    obra_id_sel = auth["obra"]
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
-
 
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
 
-# ================= ADMIN: CREAR OBRA =================
-if st.session_state["auth"] == "jefe":
-    with st.sidebar.expander("➕ Crear Obra"):
-        with st.form("crear_obra"):
-            nombre = st.text_input("Nombre")
-            ubicacion = st.text_input("Ubicación")
-            estado = st.selectbox(
-                "Estado", ["en espera", "activo", "pausado", "finalizado"]
-            )
-            f_ini = st.date_input("Fecha inicio", value=date.today())
-            f_fin = st.date_input("Fecha fin estimada")
-            crear = st.form_submit_button("CREAR")
-
-        if crear:
-            obra_id = nombre.lower().replace(" ", "_")
-            db.collection("obras").document(obra_id).set({
-                "nombre": nombre,
-                "ubicacion": ubicacion,
-                "estado": estado,
-                "fecha_inicio": f_ini.isoformat(),
-                "fecha_fin_estimada": f_fin.isoformat(),
-                "creada": datetime.now()
-            })
-            st.success("Obra creada")
-            st.rerun()
-
 # ================= PASANTE: PARTE DIARIO =================
-if st.session_state["auth"] == "pasante":
+if auth["role"] == "pasante":
     st.header("📝 Parte Diario")
 
     with st.form("parte_diario"):
@@ -124,14 +99,13 @@ if st.session_state["auth"] == "pasante":
         observaciones = st.text_area("Observaciones")
         fotos = st.file_uploader(
             "Subir fotos (mínimo 3)",
-            accept_multiple_files=True,
-            type=["jpg", "png", "jpeg"]
+            accept_multiple_files=True
         )
         enviar = st.form_submit_button("GUARDAR AVANCE")
 
     if enviar:
         if not responsable or not observaciones:
-            st.error("Responsable y observaciones obligatorios")
+            st.error("Responsable y observaciones son obligatorios")
         elif len(fotos) < 3:
             st.error("Debes subir mínimo 3 fotos")
         else:
@@ -143,18 +117,17 @@ if st.session_state["auth"] == "pasante":
                 )
                 urls.append(res["secure_url"])
 
-            db.collection("obras") \
-                .document(obra_id_sel) \
-                .collection("avances") \
-                .add({
-                    "fecha": datetime.now().isoformat(),
-                    "responsable": responsable,
-                    "observaciones": observaciones,
-                    "fotos": urls
-                })
+            db.collection("obras")\
+              .document(obra_id_sel)\
+              .collection("avances")\
+              .add({
+                  "fecha": datetime.now().isoformat(),
+                  "responsable": responsable,
+                  "observaciones": observaciones,
+                  "fotos": urls
+              })
 
             st.success("Avance guardado correctamente")
-            st.balloons()
             st.rerun()
 
 # ================= HISTORIAL =================
