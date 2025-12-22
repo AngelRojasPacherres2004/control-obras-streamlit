@@ -74,7 +74,7 @@ def check_password():
                 st.error("Contraseña incorrecta")
                 return False
 
-            # 🔐 Login correcto
+            #  Login correcto
             st.session_state["auth"] = {
                 "username": data["username"],
                 "role": data["role"],
@@ -137,7 +137,7 @@ st.title(f"🏗️ {OBRAS[obra_id_sel]}")
 
 # ================= ADMIN: GESTIÓN DE MATERIALES =================
 if auth["role"] == "jefe":
-    st.header("🧱 Gestión de Materiales")
+    st.header(" Gestión de Materiales")
 
     # ---- CREAR MATERIAL ----
     with st.form("crear_material"):
@@ -158,7 +158,7 @@ if auth["role"] == "jefe":
             st.rerun()
 
     # ---- LISTA MATERIALES GENERALES ----
-    st.subheader("📋 Materiales registrados")
+    st.subheader(" Materiales registrados")
     mats = obtener_materiales()
 
     if mats:
@@ -171,7 +171,7 @@ if auth["role"] == "jefe":
         st.info("No hay materiales creados")
 
     # ---- ASIGNAR MATERIAL A OBRA ----
-    st.subheader("📦 Asignar material a esta obra")
+    st.subheader(" Asignar material a esta obra")
 
     if mats:
         with st.form("asignar_material"):
@@ -196,7 +196,7 @@ if auth["role"] == "jefe":
             st.rerun()
 
     # ---- LISTA MATERIALES DE LA OBRA ----
-    st.subheader("📦 Materiales en esta obra")
+    st.subheader("Materiales en esta obra")
     mats_obra = cargar_materiales_obra(obra_id_sel)
 
     if mats_obra:
@@ -210,7 +210,7 @@ if auth["role"] == "jefe":
 
 # ================= PASANTE: PARTE DIARIO =================
 if auth["role"] == "pasante":
-    st.header("📝 Parte Diario")
+    st.header("Parte Diario")
 
     with st.form("parte_diario"):
         responsable = st.text_input("Responsable")
@@ -249,7 +249,7 @@ if auth["role"] == "pasante":
             st.rerun()
 
 # ================= HISTORIAL =================
-st.header("📊 Historial de Avances")
+st.header("Historial de Avances")
 
 for av in cargar_avances(obra_id_sel):
     f = datetime.fromisoformat(av["fecha"])
