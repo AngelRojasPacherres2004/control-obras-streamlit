@@ -38,6 +38,21 @@ def cargar_avances(obra_id):
         .stream()
     )
     return [d.to_dict() for d in docs]
+    
+def obtener_materiales():
+    docs = db.collection("materiales").stream()
+    return [{
+        "id": d.id,
+        "nombre": d.to_dict()["nombre"],
+        "unidad": d.to_dict()["unidad"]
+    } for d in docs]
+
+def cargar_materiales_obra(obra_id):
+    docs = db.collection("obras").document(obra_id)\
+        .collection("materiales")\
+        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+        .stream()
+    return [d.to_dict() for d in docs]
 
 # ================= LOGIN CON FIREBASE =================
 def check_password():
@@ -87,8 +102,106 @@ else:
     obra_id_sel = auth["obra"]
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
 
+# ================= ADMIN: CREAR OBRA =================
+if st.session_state["auth"] == "jefe":
+    with st.sidebar.expander("➕ Crear Obra"):
+        with st.form("crear_obra"):
+            nombre = st.text_input("Nombre")
+            ubicacion = st.text_input("Ubicación")
+            estado = st.selectbox("Estado", ["en espera", "activo", "pausado", "finalizado"])
+            f_ini = st.date_input("Fecha inicio", value=date.today())
+            f_fin = st.date_input("Fecha fin estimada")
+            crear = st.form_submit_button("CREAR")
+
+        if crear:
+            obra_id = nombre.lower().replace(" ", "_")
+            db.collection("obras").document(obra_id).set({
+                "nombre": nombre,
+                "ubicacion": ubicacion,
+                "estado": estado,
+                "fecha_inicio": f_ini.isoformat(),
+                "fecha_fin_estimada": f_fin.isoformat(),
+                "fecha_fin_real": None,
+                "creada": datetime.now()
+            })
+            st.success("Obra creada")
+            st.rerun()
+
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
+
+# ================= ADMIN: GESTIÓN DE MATERIALES =================
+if st.session_state["auth"] == "jefe":
+    st.header("🧱 Gestión de Materiales")
+
+    # ---- CREAR MATERIAL ----
+    with st.form("crear_material"):
+        nom = st.text_input("Nombre del material")
+        uni = st.text_input("Unidad (kg, m3, bolsa, etc)")
+        crear_mat = st.form_submit_button("CREAR MATERIAL")
+
+    if crear_mat:
+        if not nom or not uni:
+            st.error("Nombre y unidad obligatorios")
+        else:
+            db.collection("materiales").add({
+                "nombre": nom,
+                "unidad": uni,
+                "creado": datetime.now()
+            })
+            st.success("Material creado")
+            st.rerun()
+
+    # ---- LISTA MATERIALES GENERALES ----
+    st.subheader("📋 Materiales registrados")
+    mats = obtener_materiales()
+
+    if mats:
+        st.dataframe(
+            pd.DataFrame(mats)[["nombre", "unidad"]],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("No hay materiales creados")
+
+    # ---- ASIGNAR MATERIAL A OBRA ----
+    st.subheader("📦 Asignar material a esta obra")
+
+    if mats:
+        with st.form("asignar_material"):
+            mat = st.selectbox(
+                "Material",
+                options=mats,
+                format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
+            )
+            cant = st.number_input("Cantidad", min_value=0.0, step=1.0)
+            asignar = st.form_submit_button("ASIGNAR")
+
+        if asignar and cant > 0:
+            db.collection("obras").document(obra_id_sel)\
+                .collection("materiales").add({
+                    "material_id": mat["id"],
+                    "nombre": mat["nombre"],
+                    "unidad": mat["unidad"],
+                    "cantidad": cant,
+                    "fecha": datetime.now().isoformat()
+                })
+            st.success("Material asignado a la obra")
+            st.rerun()
+
+    # ---- LISTA MATERIALES DE LA OBRA ----
+    st.subheader("📦 Materiales en esta obra")
+    mats_obra = cargar_materiales_obra(obra_id_sel)
+
+    if mats_obra:
+        st.dataframe(
+            pd.DataFrame(mats_obra)[["nombre", "unidad", "cantidad", "fecha"]],
+            use_container_width=True
+        )
+    else:
+        st.info("Esta obra aún no tiene materiales asignados")
+
 
 # ================= PASANTE: PARTE DIARIO =================
 if auth["role"] == "pasante":
