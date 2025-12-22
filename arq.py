@@ -178,7 +178,33 @@ if auth["role"] == "jefe":
     else:
         st.info("Esta obra aún no tiene materiales asignados")
 
+# ================= ADMIN: CREAR OBRA =================
+if auth["role"] == "jefe":
+    with st.sidebar.expander("➕ Crear Obra"):
+        with st.form("crear_obra"):
+            nombre = st.text_input("Nombre")
+            ubicacion = st.text_input("Ubicación")
+            estado = st.selectbox(
+                "Estado",
+                ["en espera", "activo", "pausado", "finalizado"]
+            )
+            f_ini = st.date_input("Fecha inicio", value=date.today())
+            f_fin = st.date_input("Fecha fin estimada")
+            crear = st.form_submit_button("CREAR")
 
+        if crear:
+            obra_id = nombre.lower().replace(" ", "_")
+            db.collection("obras").document(obra_id).set({
+                "nombre": nombre,
+                "ubicacion": ubicacion,
+                "estado": estado,
+                "fecha_inicio": f_ini.isoformat(),
+                "fecha_fin_estimada": f_fin.isoformat(),
+                "fecha_fin_real": None,
+                "creada": datetime.now()
+            })
+            st.success("Obra creada correctamente")
+            st.rerun()
 # ================= PASANTE: PARTE DIARIO =================
 if auth["role"] == "pasante":
     st.header("Parte Diario")
