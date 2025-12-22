@@ -180,7 +180,7 @@ if auth["role"] == "jefe":
 
 # ================= ADMIN: CREAR OBRA =================
 if auth["role"] == "jefe":
-    with st.sidebar.expander("➕ Crear Obra"):
+    with st.sidebar.expander(" Crear Obra"):
         with st.form("crear_obra"):
             nombre = st.text_input("Nombre")
             ubicacion = st.text_input("Ubicación")
