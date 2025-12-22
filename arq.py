@@ -89,8 +89,8 @@ if not check_password():
     st.stop()
 
 # ================= SELECCIÓN DE OBRA =================
-OBRAS = obtener_obras()
 auth = st.session_state["auth"]
+OBRAS = obtener_obras()
 
 if auth["role"] == "jefe":
     obra_id_sel = st.sidebar.selectbox(
@@ -102,13 +102,17 @@ else:
     obra_id_sel = auth["obra"]
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
 
+
 # ================= ADMIN: CREAR OBRA =================
-if st.session_state["auth"] == "jefe":
+if auth["role"] == "jefe":
     with st.sidebar.expander("➕ Crear Obra"):
         with st.form("crear_obra"):
             nombre = st.text_input("Nombre")
             ubicacion = st.text_input("Ubicación")
-            estado = st.selectbox("Estado", ["en espera", "activo", "pausado", "finalizado"])
+            estado = st.selectbox(
+                "Estado",
+                ["en espera", "activo", "pausado", "finalizado"]
+            )
             f_ini = st.date_input("Fecha inicio", value=date.today())
             f_fin = st.date_input("Fecha fin estimada")
             crear = st.form_submit_button("CREAR")
@@ -124,8 +128,9 @@ if st.session_state["auth"] == "jefe":
                 "fecha_fin_real": None,
                 "creada": datetime.now()
             })
-            st.success("Obra creada")
+            st.success("Obra creada correctamente")
             st.rerun()
+
 
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
