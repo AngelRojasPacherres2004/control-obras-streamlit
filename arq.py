@@ -136,7 +136,7 @@ if auth["role"] == "jefe":
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
 
 # ================= ADMIN: GESTIÓN DE MATERIALES =================
-if st.session_state["auth"] == "jefe":
+if auth["role"] == "jefe":
     st.header("🧱 Gestión de Materiales")
 
     # ---- CREAR MATERIAL ----
