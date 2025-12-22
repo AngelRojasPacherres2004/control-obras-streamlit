@@ -39,10 +39,11 @@ def cargar_avances(obra_id):
     )
     return [d.to_dict() for d in docs]
 
-# ================= LOGIN DESDE FIREBASE =================
+# ================= LOGIN CON FIREBASE =================
 def check_password():
     if "auth" not in st.session_state:
         st.title("CONTROL DE OBRAS 2025")
+
         user = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
@@ -59,18 +60,17 @@ def check_password():
                 st.error("Contraseña incorrecta")
                 return False
 
-            # Login correcto
+            # ✅ AQUÍ YA NO FALLA
             st.session_state["auth"] = data["rol"]
-            st.session_state["user"] = user
-            st.session_state["obra"] = data.get("obra")
-            st.rerun()
 
+            if data["rol"] == "pasante":
+                st.session_state["obra"] = data["obra"]
+
+            st.rerun()
         return False
+
     return True
 
-
-if not check_password():
-    st.stop()
 
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
@@ -84,6 +84,7 @@ if st.session_state["auth"] == "jefe":
 else:
     obra_id_sel = st.session_state["obra"]
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
+
 
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
