@@ -1,88 +1,157 @@
+# ================================
+# CONTROL DE OBRAS 2025 – FINAL
+# Firebase + Cloudinary
+# ================================
+
 import streamlit as st
-from datetime import datetime
+import pandas as pd
+from datetime import datetime, date
+
 import firebase_admin
 from firebase_admin import credentials, firestore
+
 import cloudinary
 import cloudinary.uploader
 
-# ----------------------------
-# CONFIG STREAMLIT
-# ----------------------------
-st.set_page_config(page_title="Control de Obras", layout="wide")
+# ---------------- CONFIG STREAMLIT ----------------
+st.set_page_config(page_title="Arq. Supervisor 2025", layout="wide")
 
-# ----------------------------
-# FIREBASE INIT (SOLO UNA VEZ)
-# ----------------------------
+# ---------------- OBRAS ----------------
+OBRAS = {
+    "rinconada": "La Rinconada – La Molina",
+    "pachacutec": "Ciudad Pachacútec – Ventanilla"
+}
+
+# ---------------- FIREBASE ----------------
 if not firebase_admin._apps:
     cred = credentials.Certificate(dict(st.secrets["firebase"]))
     firebase_admin.initialize_app(cred)
 
 db = firestore.client()
 
-# ----------------------------
-# CLOUDINARY CONFIG
-# ----------------------------
+# ---------------- CLOUDINARY ----------------
 cloudinary.config(
     cloud_name=st.secrets["cloudinary"]["cloud_name"],
     api_key=st.secrets["cloudinary"]["api_key"],
-    api_secret=st.secrets["cloudinary"]["api_secret"]
+    api_secret=st.secrets["cloudinary"]["api_secret"],
+    secure=True
 )
 
-CARPETA_OBRAS = st.secrets["cloudinary_folders"]["obras"]
+# ================== LOGIN ==================
+def check_password():
+    def password_entered():
+        users = st.secrets["users"]
+        if (
+            st.session_state["password"] == users["jefe_pass"]
+            and st.session_state["user"] == users["jefe_user"]
+        ):
+            st.session_state["auth"] = "jefe"
+        elif (
+            st.session_state["password"] == users["pasante_pass"]
+            and st.session_state["user"].startswith(users["pasante_user_prefix"])
+        ):
+            st.session_state["auth"] = st.session_state["user"]
+        else:
+            st.session_state["auth"] = False
 
-# ----------------------------
-# UI
-# ----------------------------
-st.title("🏗️ Registro de Obras")
+    if "auth" not in st.session_state:
+        st.title("CONTROL DE OBRAS 2025")
+        st.text_input("Usuario", key="user")
+        st.text_input("Contraseña", type="password", key="password")
+        st.button("INGRESAR", on_click=password_entered)
+        return False
 
-with st.form("form_obra"):
-    titulo = st.text_input("Título de la obra")
-    descripcion = st.text_area("Descripción")
-    imagen = st.file_uploader("Subir imagen", type=["jpg", "jpeg", "png"])
-    guardar = st.form_submit_button("Guardar obra")
+    if not st.session_state["auth"]:
+        st.error("Usuario o contraseña incorrecta")
+        return False
 
-# ----------------------------
-# LOGICA
-# ----------------------------
-if guardar:
-    if not titulo or not imagen:
-        st.error("❌ Título e imagen son obligatorios")
+    return True
+
+
+if not check_password():
+    st.stop()
+
+# ================== OBRA ACTUAL ==================
+if st.session_state["auth"] == "jefe":
+    obra_actual = st.sidebar.selectbox(
+        "Seleccionar obra",
+        options=list(OBRAS.keys()),
+        format_func=lambda x: OBRAS[x],
+    )
+else:
+    obra_actual = st.session_state["auth"].split("-")[1]
+    st.sidebar.success(f"Obra asignada: {OBRAS[obra_actual]}")
+
+# ================== INTERFAZ ==================
+st.title(f"Obra: {OBRAS[obra_actual]}")
+
+if st.session_state["auth"] == "jefe":
+    st.sidebar.success("MODO JEFE – Acceso total")
+else:
+    st.sidebar.info("MODO PASANTE – Solo parte diario")
+
+# ================== PARTE DIARIO ==================
+st.header("Parte Diario del Día")
+
+hoy = date.today()
+responsable = st.text_input("Tu nombre", key="nombre_responsable")
+avance = st.slider("Avance logrado hoy (%)", 0, 30, 5)
+obs = st.text_area("Observaciones")
+fotos = st.file_uploader(
+    "Fotos del avance (mínimo 3)",
+    accept_multiple_files=True,
+    type=["jpg", "jpeg", "png"],
+)
+
+# ================== ENVIAR ==================
+if st.button("ENVIAR PARTE DIARIO", type="primary"):
+
+    if "pasante" in st.session_state["auth"] and len(fotos) < 3:
+        st.error("¡Sube mínimo 3 fotos!")
     else:
-        with st.spinner("Subiendo imagen a Cloudinary..."):
-            upload = cloudinary.uploader.upload(
-                imagen,
-                folder=CARPETA_OBRAS
+        urls = []
+
+        for foto in fotos:
+            subida = cloudinary.uploader.upload(
+                foto,
+                folder=f"obras/{obra_actual}",
+                public_id=f"{obra_actual}_{hoy}_{datetime.now().timestamp()}",
             )
+            urls.append(subida["secure_url"])
 
-        image_url = upload["secure_url"]
-
-        obra_data = {
-            "title": titulo,
-            "description": descripcion,
-            "imageUrl": image_url,
-            "createdAt": datetime.utcnow(),
-            "status": "published"
+        registro = {
+            "obra": obra_actual,
+            "fecha": str(hoy),
+            "responsable": responsable,
+            "avance": avance,
+            "observaciones": obs,
+            "fotos": urls,
+            "created_at": firestore.SERVER_TIMESTAMP,
         }
 
-        db.collection("obras").add(obra_data)
+        db.collection("avances").add(registro)
 
-        st.success("✅ Obra guardada correctamente")
+        st.success("¡Parte enviado correctamente!")
+        st.balloons()
+        st.rerun()
 
-# ----------------------------
-# LISTADO
-# ----------------------------
-st.divider()
-st.subheader("📸 Obras registradas")
+# ================== HISTORIAL ==================
+st.header("Historial de Avances")
 
-obras = db.collection("obras").order_by("createdAt", direction=firestore.Query.DESCENDING).stream()
+docs = (
+    db.collection("avances")
+    .where("obra", "==", obra_actual)
+    .order_by("created_at", direction=firestore.Query.DESCENDING)
+    .stream()
+)
 
-cols = st.columns(3)
-
-i = 0
-for obra in obras:
-    data = obra.to_dict()
-    with cols[i % 3]:
-        st.image(data["imageUrl"], use_container_width=True)
-        st.markdown(f"**{data['title']}**")
-        st.caption(data.get("description", ""))
-    i += 1
+for doc in docs:
+    d = doc.to_dict()
+    with st.expander(
+        f"Avance {d['fecha']} – {d['responsable']} ({d['avance']}%)"
+    ):
+        st.write(d["observaciones"])
+        cols = st.columns(min(3, len(d["fotos"])))
+        for i, url in enumerate(d["fotos"]):
+            with cols[i % 3]:
+                st.image(url, use_column_width=True)
