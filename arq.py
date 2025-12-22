@@ -27,38 +27,28 @@ st.set_page_config(page_title="Arq. Supervisor 2025", layout="wide")
 
 # ================= FUNCIONES =================
 def obtener_obras():
-    return {d.id: d.to_dict()["nombre"] for d in db.collection("obras").stream()}
+    return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    docs = db.collection("obras").document(obra_id)\
-        .collection("avances")\
-        .order_by("fecha", direction=firestore.Query.DESCENDING)\
-        .stream()
-    return [d.to_dict() for d in docs]
-
-def obtener_materiales():
     return [
-        {**d.to_dict(), "id": d.id}
-        for d in db.collection("materiales").stream()
-    ]
-
-def cargar_materiales_obra(obra_id):
-    docs = db.collection("obras").document(obra_id)\
-        .collection("materiales")\
-        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+        d.to_dict()
+        for d in db.collection("obras")
+        .document(obra_id)
+        .collection("avances")
+        .order_by("fecha", direction=firestore.Query.DESCENDING)
         .stream()
-    return [d.to_dict() for d in docs]
+    ]
 
 # ================= LOGIN FIREBASE =================
 def check_login():
     if "auth" not in st.session_state:
         st.title("CONTROL DE OBRAS 2025")
 
-        user = st.text_input("Usuario")
+        usuario = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
         if st.button("INGRESAR"):
-            doc = db.collection("users").document(user).get()
+            doc = db.collection("users").document(usuario).get()
 
             if not doc.exists:
                 st.error("Usuario no existe")
@@ -70,8 +60,12 @@ def check_login():
                 st.error("Contraseña incorrecta")
                 return False
 
+            if "rol" not in data:
+                st.error("Usuario mal configurado (sin rol)")
+                return False
+
             st.session_state["auth"] = data["rol"]
-            st.session_state["user"] = user
+            st.session_state["user"] = usuario
             st.session_state["obra"] = data.get("obra")
             st.rerun()
 
@@ -85,7 +79,7 @@ if not check_login():
 OBRAS = obtener_obras()
 
 if not OBRAS:
-    st.error("No hay obras creadas en Firebase")
+    st.error("No hay obras registradas en Firebase")
     st.stop()
 
 # ================= SELECCIÓN DE OBRA =================
@@ -93,13 +87,13 @@ if st.session_state["auth"] == "jefe":
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
         options=list(OBRAS.keys()),
-        format_func=lambda x: OBRAS[x]
+        format_func=lambda x: OBRAS.get(x, x)
     )
 else:
     obra_id_sel = st.session_state.get("obra")
 
-    if not obra_id_sel or obra_id_sel not in OBRAS:
-        st.error("Este usuario no tiene una obra válida asignada")
+    if obra_id_sel not in OBRAS:
+        st.error("Obra asignada inválida o no existe")
         st.stop()
 
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
@@ -107,58 +101,41 @@ else:
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
 
-# ================= ADMIN: CREAR OBRA =================
-if st.session_state["auth"] == "jefe":
-    with st.sidebar.expander("➕ Crear Obra"):
-        with st.form("crear_obra"):
-            nombre = st.text_input("Nombre")
-            ubicacion = st.text_input("Ubicación")
-            estado = st.selectbox("Estado", ["activo", "pausado", "finalizado"])
-            crear = st.form_submit_button("CREAR")
-
-        if crear:
-            obra_id = nombre.lower().replace(" ", "_")
-            db.collection("obras").document(obra_id).set({
-                "nombre": nombre,
-                "ubicacion": ubicacion,
-                "estado": estado,
-                "creada": datetime.now()
-            })
-            st.success("Obra creada")
-            st.rerun()
-
 # ================= PASANTE =================
-if st.session_state["auth"] != "jefe":
+if st.session_state["auth"] == "pasante":
     st.header("📝 Parte Diario")
 
     with st.form("parte_diario"):
         responsable = st.text_input("Responsable")
-        obs = st.text_area("Observaciones")
+        observaciones = st.text_area("Observaciones")
         fotos = st.file_uploader(
             "Subir fotos (mínimo 3)",
-            accept_multiple_files=True
+            accept_multiple_files=True,
+            type=["jpg", "png", "jpeg"]
         )
-        enviar = st.form_submit_button("GUARDAR")
+        enviar = st.form_submit_button("GUARDAR AVANCE")
 
     if enviar:
-        if len(fotos) < 3:
-            st.error("Mínimo 3 fotos")
+        if not responsable or not observaciones:
+            st.error("Campos obligatorios")
+        elif len(fotos) < 3:
+            st.error("Sube mínimo 3 fotos")
         else:
             urls = []
             for f in fotos:
-                res = cloudinary.uploader.upload(
+                r = cloudinary.uploader.upload(
                     f,
                     folder=f"obras/{obra_id_sel}"
                 )
-                urls.append(res["secure_url"])
+                urls.append(r["secure_url"])
 
-            db.collection("obras")\
-              .document(obra_id_sel)\
-              .collection("avances")\
+            db.collection("obras") \
+              .document(obra_id_sel) \
+              .collection("avances") \
               .add({
                   "fecha": datetime.now().isoformat(),
                   "responsable": responsable,
-                  "observaciones": obs,
+                  "observaciones": observaciones,
                   "fotos": urls
               })
 
@@ -170,7 +147,7 @@ st.header("📊 Historial de Avances")
 
 for av in cargar_avances(obra_id_sel):
     f = datetime.fromisoformat(av["fecha"])
-    with st.expander(f"{f:%d/%m/%Y %H:%M} - {av['responsable']}"):
-        st.write(av["observaciones"])
-        for img in av["fotos"]:
+    with st.expander(f"{f:%d/%m/%Y %H:%M} - {av.get('responsable','')}"):
+        st.write(av.get("observaciones", ""))
+        for img in av.get("fotos", []):
             st.image(img, use_container_width=True)
