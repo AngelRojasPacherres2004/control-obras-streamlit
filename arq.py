@@ -30,25 +30,33 @@ def obtener_obras():
     return {d.id: d.to_dict()["nombre"] for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    docs = db.collection("obras").document(obra_id)\
-        .collection("avances")\
-        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+    docs = (
+        db.collection("obras")
+        .document(obra_id)
+        .collection("avances")
+        .order_by("fecha", direction=firestore.Query.DESCENDING)
         .stream()
+    )
     return [d.to_dict() for d in docs]
 
 def obtener_materiales():
-    docs = db.collection("materiales").stream()
-    return [{
-        "id": d.id,
-        "nombre": d.to_dict()["nombre"],
-        "unidad": d.to_dict()["unidad"]
-    } for d in docs]
+    return [
+        {
+            "id": d.id,
+            "nombre": d.to_dict()["nombre"],
+            "unidad": d.to_dict()["unidad"]
+        }
+        for d in db.collection("materiales").stream()
+    ]
 
 def cargar_materiales_obra(obra_id):
-    docs = db.collection("obras").document(obra_id)\
-        .collection("materiales")\
-        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+    docs = (
+        db.collection("obras")
+        .document(obra_id)
+        .collection("materiales")
+        .order_by("fecha", direction=firestore.Query.DESCENDING)
         .stream()
+    )
     return [d.to_dict() for d in docs]
 
 # ================= LOGIN CON FIREBASE =================
@@ -73,18 +81,16 @@ def check_password():
                 return False
 
             # LOGIN OK
-            st.session_state["auth"] = data["rol"]
+            st.session_state["auth"] = data.get("rol")
             st.session_state["user"] = usuario
-            st.session_state["obra"] = data.get("obra")
+            st.session_state["obra"] = data.get("obra")  # solo pasante
             st.rerun()
 
         return False
-
     return True
 
 if not check_password():
     st.stop()
-
 
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
@@ -96,8 +102,8 @@ if st.session_state["auth"] == "jefe":
         format_func=lambda x: OBRAS[x]
     )
 else:
-    obra_id_sel = st.session_state["auth"].split("-")[1]
-    st.sidebar.success(f"Obra: {OBRAS[obra_id_sel]}")
+    obra_id_sel = st.session_state["obra"]
+    st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
 
 # ================= ADMIN: CREAR OBRA =================
 if st.session_state["auth"] == "jefe":
@@ -105,7 +111,10 @@ if st.session_state["auth"] == "jefe":
         with st.form("crear_obra"):
             nombre = st.text_input("Nombre")
             ubicacion = st.text_input("Ubicación")
-            estado = st.selectbox("Estado", ["en espera", "activo", "pausado", "finalizado"])
+            estado = st.selectbox(
+                "Estado",
+                ["en espera", "activo", "pausado", "finalizado"]
+            )
             f_ini = st.date_input("Fecha inicio", value=date.today())
             f_fin = st.date_input("Fecha fin estimada")
             crear = st.form_submit_button("CREAR")
@@ -127,20 +136,17 @@ if st.session_state["auth"] == "jefe":
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
 
-# ================= ADMIN: GESTIÓN DE MATERIALES =================
+# ================= ADMIN: MATERIALES =================
 if st.session_state["auth"] == "jefe":
     st.header("🧱 Gestión de Materiales")
 
-    # ---- CREAR MATERIAL ----
     with st.form("crear_material"):
         nom = st.text_input("Nombre del material")
-        uni = st.text_input("Unidad (kg, m3, bolsa, etc)")
+        uni = st.text_input("Unidad")
         crear_mat = st.form_submit_button("CREAR MATERIAL")
 
     if crear_mat:
-        if not nom or not uni:
-            st.error("Nombre y unidad obligatorios")
-        else:
+        if nom and uni:
             db.collection("materiales").add({
                 "nombre": nom,
                 "unidad": uni,
@@ -149,58 +155,34 @@ if st.session_state["auth"] == "jefe":
             st.success("Material creado")
             st.rerun()
 
-    # ---- LISTA MATERIALES GENERALES ----
-    st.subheader("📋 Materiales registrados")
     mats = obtener_materiales()
 
     if mats:
-        st.dataframe(
-            pd.DataFrame(mats)[["nombre", "unidad"]],
-            use_container_width=True,
-            hide_index=True
+        st.dataframe(pd.DataFrame(mats)[["nombre", "unidad"]], hide_index=True)
+
+    with st.form("asignar_material"):
+        mat = st.selectbox(
+            "Material",
+            options=mats,
+            format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
         )
-    else:
-        st.info("No hay materiales creados")
+        cant = st.number_input("Cantidad", min_value=0.0)
+        asignar = st.form_submit_button("ASIGNAR")
 
-    # ---- ASIGNAR MATERIAL A OBRA ----
-    st.subheader("📦 Asignar material a esta obra")
+    if asignar and cant > 0:
+        db.collection("obras").document(obra_id_sel)\
+            .collection("materiales").add({
+                "material_id": mat["id"],
+                "nombre": mat["nombre"],
+                "unidad": mat["unidad"],
+                "cantidad": cant,
+                "fecha": datetime.now().isoformat()
+            })
+        st.success("Material asignado")
+        st.rerun()
 
-    if mats:
-        with st.form("asignar_material"):
-            mat = st.selectbox(
-                "Material",
-                options=mats,
-                format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
-            )
-            cant = st.number_input("Cantidad", min_value=0.0, step=1.0)
-            asignar = st.form_submit_button("ASIGNAR")
-
-        if asignar and cant > 0:
-            db.collection("obras").document(obra_id_sel)\
-                .collection("materiales").add({
-                    "material_id": mat["id"],
-                    "nombre": mat["nombre"],
-                    "unidad": mat["unidad"],
-                    "cantidad": cant,
-                    "fecha": datetime.now().isoformat()
-                })
-            st.success("Material asignado a la obra")
-            st.rerun()
-
-    # ---- LISTA MATERIALES DE LA OBRA ----
-    st.subheader("📦 Materiales en esta obra")
-    mats_obra = cargar_materiales_obra(obra_id_sel)
-
-    if mats_obra:
-        st.dataframe(
-            pd.DataFrame(mats_obra)[["nombre", "unidad", "cantidad", "fecha"]],
-            use_container_width=True
-        )
-    else:
-        st.info("Esta obra aún no tiene materiales asignados")
-
-# ================= PASANTE: PARTE DIARIO =================
-if st.session_state["auth"] != "jefe":
+# ================= PASANTE =================
+if st.session_state["auth"] == "pasante":
     st.header("📝 Parte Diario")
 
     with st.form("parte_diario"):
@@ -213,14 +195,15 @@ if st.session_state["auth"] != "jefe":
         enviar = st.form_submit_button("GUARDAR AVANCE")
 
     if enviar:
-        if not responsable or not observaciones:
-            st.error("Responsable y observaciones son obligatorios")
-        elif len(fotos) < 3:
-            st.error("Debes subir mínimo 3 fotos")
+        if len(fotos) < 3:
+            st.error("Sube mínimo 3 fotos")
         else:
             urls = []
             for f in fotos:
-                res = cloudinary.uploader.upload(f)
+                res = cloudinary.uploader.upload(
+                    f,
+                    folder=f"obras/{obra_id_sel}"
+                )
                 urls.append(res["secure_url"])
 
             db.collection("obras")\
@@ -233,16 +216,15 @@ if st.session_state["auth"] != "jefe":
                   "fotos": urls
               })
 
-            st.success("Avance guardado correctamente")
+            st.success("Avance guardado")
             st.rerun()
-
 
 # ================= HISTORIAL =================
 st.header("📊 Historial de Avances")
 
 for av in cargar_avances(obra_id_sel):
     f = datetime.fromisoformat(av["fecha"])
-    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} - {av.get('responsable','N/D')}"):
-        st.write(av.get("observaciones", "Sin observaciones"))
+    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} - {av.get('responsable','')}"):
+        st.write(av.get("observaciones", ""))
         for img in av.get("fotos", []):
             st.image(img, use_container_width=True)
