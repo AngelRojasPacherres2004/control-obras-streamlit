@@ -57,7 +57,7 @@ def cargar_materiales_obra(obra_id):
 # ================= LOGIN CON FIREBASE =================
 def check_password():
     if "auth" not in st.session_state:
-        st.title("CONTROL DE OBRAS 2025")
+        st.title("CONTROL DE OBRAS 2026")
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
