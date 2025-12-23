@@ -104,7 +104,7 @@ else:
 
 
 # ================= TITULO =================
-st.title(f"{OBRAS[obra_id_sel]}")
+st.title(f"🏗️  {OBRAS[obra_id_sel]}")
 
 # ================= ADMIN: GESTIÓN DE MATERIALES =================
 if auth["role"] == "jefe":
