@@ -114,4 +114,4 @@ st.markdown("""
     .stDataFrame { border: 1px solid #f0f2f6; border-radius: 10px; }
     div[data-testid="stExpander"] { border: none !important; }
     </style>
-    """, unsafe_allow_width=True)
+    """, unsafe_allow_html=True)
