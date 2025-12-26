@@ -54,6 +54,8 @@ def cargar_materiales_obra(obra_id):
         .stream()
     return [d.to_dict() for d in docs]
 
+
+
 # ================= ESTILOS =================
 def set_login_background():
     img_url = "https://res.cloudinary.com/ddqe5f2br/image/upload/v1766781058/logo_xevz4h.jpg"
@@ -65,21 +67,24 @@ def set_login_background():
         background-position: center;
         background-repeat: no-repeat;
     }}
-    .css-1d391kg {
+    .css-1d391kg {{
         background: rgba(255, 255, 255, 0.85);
         padding: 2rem;
         border-radius: 12px;
-    }
+    }}
     </style>
     """
     st.markdown(page_bg_img, unsafe_allow_html=True)
 
 
 
+
+
+
 # ================= LOGIN CON FIREBASE =================
 def check_password():
     if "auth" not in st.session_state:
-           # ---- PONER IMAGEN DE FONDO ----
+         # ---- PONER IMAGEN DE FONDO ----
         set_login_background()
         st.title("CONTROL DE OBRAS 2025")
         username = st.text_input("Usuario")
