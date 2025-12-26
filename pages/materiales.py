@@ -148,28 +148,48 @@ with col_der:
                 else:
                     st.error("Campos obligatorios")
 
-# ================= MATERIALES DE LA OBRA =================
-st.divider()
-st.subheader("🧾 Materiales asignados a la obra")
+# ================= ADMIN: GESTIONAR OBRAS =================
+if auth["role"] == "jefe":
+    st.header(" Gestión de Obras")
+    mats = obtener_materiales()
 
-mats_obra = cargar_materiales_obra(obra_sel)
+    # ---- ASIGNAR MATERIAL A OBRA ----
+    st.subheader(" Asignar material a esta obra")
 
-if mats_obra:
-    df_obra = pd.DataFrame(mats_obra)
+    if mats:
+        with st.form("asignar_material"):
+            mat = st.selectbox(
+                "Material",
+                options=mats,
+                format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
+            )
+            cant = st.number_input("Cantidad", min_value=0.0, step=1.0)
+            asignar = st.form_submit_button("ASIGNAR")
 
-    sel_obra = st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]],
-        hide_index=True,
-        use_container_width=True,
-        selection_mode="single-row",
-        on_select="rerun"
-    )
+        if asignar and cant > 0:
+            db.collection("obras").document(obra_id_sel)\
+                .collection("materiales").add({
+                    "material_id": mat["id"],
+                    "nombre": mat["nombre"],
+                    "unidad": mat["unidad"],
+                    "cantidad": cant,
+                    "precio_unitario": mat["precio_unitario"],
+                    "fecha": datetime.now().isoformat()
+                })
+            st.success("Material asignado a la obra")
+            st.rerun()
 
-    if sel_obra and sel_obra["selection"]["rows"]:
-        idx = sel_obra["selection"]["rows"][0]
-        st.session_state.mat_obra_edit = mats_obra[idx]
-else:
-    st.info("No hay materiales asignados")
+    # ---- LISTA MATERIALES DE LA OBRA ----
+    st.subheader("Materiales en esta obra")
+    mats_obra = cargar_materiales_obra(obra_id_sel)
+
+    if mats_obra:
+        st.dataframe(
+            pd.DataFrame(mats_obra)[["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]],
+            use_container_width=True
+        )
+    else:
+        st.info("Esta obra aún no tiene materiales asignados")
 
 # ================= EDITAR MATERIAL DE OBRA =================
 mat_obra = st.session_state.mat_obra_edit
