@@ -6,163 +6,211 @@ import cloudinary.uploader
 import firebase_admin
 from firebase_admin import credentials, firestore
 
-# ================= 1. CONFIGURACIÓN DE NUBE =================
+# ================= FIREBASE =================
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
         credentials.Certificate(dict(st.secrets["firebase"]))
     )
+
 db = firestore.client()
 
-# Configuración de Cloudinary (ACTIVA)
-cloudinary.config(
-    cloud_name=st.secrets["cloudinary"]["cloud_name"],
-    api_key=st.secrets["cloudinary"]["api_key"],
-    api_secret=st.secrets["cloudinary"]["api_secret"],
-    secure=True
+# ================= CLOUDINARY =================
+#cloudinary.config(
+    #cloud_name=st.secrets["cloudinary"]["cloud_name"],
+    #api_key=st.secrets["cloudinary"]["api_key"],
+    #api_secret=st.secrets["cloudinary"]["api_secret"],
+    #secure=True
+#) 
+
+
+# ================= PAGE SETUP =================
+usuarios_page = st.Page(
+    page = "pages/usuarios.py",
+    title = "Usuarios",
+    icon = ":material/account_circle:"
+)
+materiales_page = st.Page(
+    page = "pages/materiales.py",
+    title = "Materiales",
+    icon = ":material/account_circle:"
+)
+obras_page = st.Page(
+    page = "pages/obras.py",
+    title = "Obras",
+    icon = ":material/account_circle:",
+    default = True
 )
 
+# ================= STREAMLIT =================
 st.set_page_config(page_title="Arq. Supervisor 2025", layout="wide")
 
-# ================= 2. FUNCIONES DE DATOS =================
+# ================= FUNCIONES =================
 def obtener_obras():
-    docs = db.collection("obras").stream()
-    return {d.id: d.to_dict().get("nombre", d.id) for d in docs}
+    return {d.id: d.to_dict()["nombre"] for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    docs = db.collection("obras").document(obra_id).collection("avances")\
-             .order_by("fecha", direction=firestore.Query.DESCENDING).stream()
+    docs = (
+        db.collection("obras")
+        .document(obra_id)
+        .collection("avances")
+        .order_by("fecha", direction=firestore.Query.DESCENDING)
+        .stream()
+    )
     return [d.to_dict() for d in docs]
-
+    
 def obtener_materiales():
     docs = db.collection("materiales").stream()
-    return [{"id": d.id, **d.to_dict()} for d in docs]
+    return [{
+        "id": d.id,
+        "nombre": d.to_dict()["nombre"],
+        "unidad": d.to_dict()["unidad"],
+        "precio_unitario": d.to_dict()["precio_unitario"]
+    } for d in docs]
 
 def cargar_materiales_obra(obra_id):
-    docs = db.collection("obras").document(obra_id).collection("materiales")\
-             .order_by("fecha", direction=firestore.Query.DESCENDING).stream()
+    docs = db.collection("obras").document(obra_id)\
+        .collection("materiales")\
+        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+        .stream()
     return [d.to_dict() for d in docs]
 
-# ================= 3. SISTEMA DE LOGIN =================
-def login():
+# ================= LOGIN CON FIREBASE =================
+def check_password():
     if "auth" not in st.session_state:
-        st.title("🏗️ CONTROL DE OBRAS 2025")
-        col1, _ = st.columns([1, 1])
-        with col1:
-            user = st.text_input("Usuario")
-            pw = st.text_input("Contraseña", type="password")
-            if st.button("INGRESAR", use_container_width=True):
-                u_doc = db.collection("users").document(user).get()
-                if u_doc.exists and u_doc.to_dict().get("password") == pw:
-                    st.session_state["auth"] = u_doc.to_dict()
-                    st.rerun()
-                else:
-                    st.error("Credenciales incorrectas")
+        st.title("CONTROL DE OBRAS 2025")
+        db = firestore.client()
+        username = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
+
+        if st.button("INGRESAR"):
+            user_doc = db.collection("users").document(username).get()
+
+            if not user_doc.exists:
+                st.error("Usuario no existe")
+                return False
+
+            data = user_doc.to_dict()
+
+            if password != data.get("password"):
+                st.error("Contraseña incorrecta")
+                return False
+
+            #  Login correcto
+            st.session_state["auth"] = {
+                "username": data["username"],
+                "role": data["role"],
+                "obra": data.get("obra")
+            }
+            st.rerun()
+
         return False
     return True
 
-if not login():
+if not check_password():
     st.stop()
 
+# ================= SELECCIÓN DE OBRA =================
 auth = st.session_state["auth"]
-
-# ================= 4. NAVEGACIÓN Y SELECCIÓN =================
-st.sidebar.title(f"Bienvenido, {auth['username']}")
-menu = st.sidebar.radio("MENÚ", ["Obras", "Materiales", "Configuración"])
-
 OBRAS = obtener_obras()
+
+
 if auth["role"] == "jefe":
-    obra_id_sel = st.sidebar.selectbox("Obra Actual", options=list(OBRAS.keys()), format_func=lambda x: OBRAS[x])
+    obra_id_sel = st.sidebar.selectbox(
+        "Seleccionar obra",
+        options=list(OBRAS.keys()),
+        format_func=lambda x: OBRAS[x],
+        key="obra_selector"
+    )
 else:
     obra_id_sel = auth["obra"]
-    st.sidebar.success(f"Obra: {OBRAS[obra_id_sel]}")
+    st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
 
-st.markdown(f"# 🏗️ {OBRAS[obra_id_sel]}")
-st.divider()
+st.session_state["obra_id_sel"] = obra_id_sel
 
-# ================= 5. LÓGICA DE PÁGINAS =================
 
-if menu == "Obras":
-    tab1, tab2 = st.tabs(["📋 Parte Diario", "History Historial"])
+# ================= PAGINAS =================
+pg = st.navigation(pages=[usuarios_page, materiales_page, obras_page])
+pg.run()
 
-    with tab1:
-        if auth["role"] in ["jefe", "pasante"]:
-            with st.form("parte_diario"):
-                st.subheader("Registrar Avance")
-                resp = st.text_input("Responsable", value=auth["username"])
-                obs = st.text_area("Observaciones")
-                fotos = st.file_uploader("Fotos (Mín. 3)", accept_multiple_files=True, type=['jpg','png','jpeg'])
-                if st.form_submit_button("GUARDAR REPORTE"):
-                    if len(fotos) < 3: st.error("Subir mínimo 3 fotos")
-                    else:
-                        with st.spinner("Subiendo fotos..."):
-                            urls = [cloudinary.uploader.upload(f, folder=f"obras/{obra_id_sel}")["secure_url"] for f in fotos]
-                            db.collection("obras").document(obra_id_sel).collection("avances").add({
-                                "fecha": datetime.now().isoformat(),
-                                "responsable": resp,
-                                "observaciones": obs,
-                                "fotos": urls
-                            })
-                            st.success("Reporte Guardado"); st.rerun()
 
-    with tab2:
-        avances = cargar_avances(obra_id_sel)
-        for av in avances:
-            fecha_f = datetime.fromisoformat(av["fecha"]).strftime("%d/%m/%Y %H:%M")
-            with st.expander(f"📅 {fecha_f} - {av['responsable']}"):
-                st.write(av["observaciones"])
-                cols = st.columns(3)
-                for i, img in enumerate(av.get("fotos", [])):
-                    cols[i%3].image(img, use_container_width=True)
+# ================= ADMIN: CREAR OBRA =================
+if auth["role"] == "jefe":
+    with st.sidebar.expander("➕ Crear Obra"):
+        with st.form("crear_obra"):
+            nombre = st.text_input("Nombre")
+            ubicacion = st.text_input("Ubicación")
+            estado = st.selectbox(
+                "Estado",
+                ["en espera", "activo", "pausado", "finalizado"]
+            )
+            f_ini = st.date_input("Fecha inicio", value=date.today())
+            f_fin = st.date_input("Fecha fin estimada")
+            crear = st.form_submit_button("CREAR")
 
-elif menu == "Materiales":
-    if auth["role"] == "jefe":
-        col1, col2 = st.columns(2)
-        with col1:
-            st.subheader("📦 Catálogo Maestro")
-            with st.form("nuevo_mat"):
-                n = st.text_input("Nombre Material")
-                u = st.text_input("Unidad")
-                p = st.number_input("Precio Unitario", min_value=0.0)
-                if st.form_submit_button("Añadir al Catálogo"):
-                    db.collection("materiales").add({"nombre": n, "unidad": u, "precio_unitario": p})
-                    st.rerun()
-        
-        with col2:
-            st.subheader("➕ Asignar a Obra")
-            mats = obtener_materiales()
-            if mats:
-                with st.form("asig_mat"):
-                    m_sel = st.selectbox("Material", mats, format_func=lambda x: f"{x['nombre']} ({x['unidad']})")
-                    c = st.number_input("Cantidad", min_value=1.0)
-                    if st.form_submit_button("Asignar a esta Obra"):
-                        db.collection("obras").document(obra_id_sel).collection("materiales").add({
-                            **m_sel, "cantidad": c, "fecha": datetime.now().isoformat()
-                        })
-                        st.success("Asignado"); st.rerun()
+        if crear:
+            obra_id = nombre.lower().replace(" ", "_")
+            db.collection("obras").document(obra_id).set({
+                "nombre": nombre,
+                "ubicacion": ubicacion,
+                "estado": estado,
+                "fecha_inicio": f_ini.isoformat(),
+                "fecha_fin_estimada": f_fin.isoformat(),
+                "fecha_fin_real": None,
+                "creada": datetime.now()
+            })
+            st.success("Obra creada correctamente")
+            st.rerun()
 
-    st.subheader("📊 Inventario en esta Obra")
-    mats_obra = cargar_materiales_obra(obra_id_sel)
-    if mats_obra:
-        df = pd.DataFrame(mats_obra)
-        st.dataframe(df[["nombre", "cantidad", "unidad", "precio_unitario", "fecha"]], use_container_width=True)
+# ================= TITULO =================
+st.title(f"🏗️ {OBRAS[obra_id_sel]}")
 
-elif menu == "Configuración" and auth["role"] == "jefe":
-    st.subheader("🛠️ Administración de Obras")
-    with st.expander("➕ Crear Nueva Obra"):
-        with st.form("nueva_obra"):
-            nom = st.text_input("Nombre de Obra")
-            ubi = st.text_input("Ubicación")
-            est = st.selectbox("Estado", ["activo", "en espera", "pausado"])
-            f_i = st.date_input("Inicio")
-            f_e = st.date_input("Fin Estimado")
-            if st.form_submit_button("CREAR OBRA"):
-                db.collection("obras").document(nom.lower().replace(" ","_")).set({
-                    "nombre": nom, "ubicacion": ubi, "estado": est,
-                    "fecha_inicio": f_i.isoformat(), "fecha_fin_estimada": f_e.isoformat(),
-                    "fecha_fin_real": None, "creada": datetime.now()
-                })
-                st.success("Obra creada"); st.rerun()
 
-if st.sidebar.button("Cerrar Sesión"):
-    del st.session_state["auth"]
-    st.rerun()
+# ================= PASANTE: PARTE DIARIO =================
+if auth["role"] == "pasante":
+    st.header("Parte Diario")
+
+    with st.form("parte_diario"):
+        responsable = st.text_input("Responsable")
+        observaciones = st.text_area("Observaciones")
+        fotos = st.file_uploader(
+            "Subir fotos (mínimo 3)",
+            accept_multiple_files=True
+        )
+        enviar = st.form_submit_button("GUARDAR AVANCE")
+
+    if enviar:
+        if not responsable or not observaciones:
+            st.error("Responsable y observaciones son obligatorios")
+        elif len(fotos) < 3:
+            st.error("Debes subir mínimo 3 fotos")
+        else:
+            urls = []
+            for f in fotos:
+                res = cloudinary.uploader.upload(
+                    f,
+                    folder=f"obras/{obra_id_sel}"
+                )
+                urls.append(res["secure_url"])
+
+            db.collection("obras")\
+              .document(obra_id_sel)\
+              .collection("avances")\
+              .add({
+                  "fecha": datetime.now().isoformat(),
+                  "responsable": responsable,
+                  "observaciones": observaciones,
+                  "fotos": urls
+              })
+
+            st.success("Avance guardado correctamente")
+            st.rerun()
+
+# ================= HISTORIAL =================
+st.header("Historial de Avances")
+
+for av in cargar_avances(obra_id_sel):
+    f = datetime.fromisoformat(av["fecha"])
+    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} - {av.get('responsable','N/D')}"):
+        st.write(av.get("observaciones", "Sin observaciones"))
+        for img in av.get("fotos", []):
+            st.image(img, use_container_width=True)
