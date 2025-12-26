@@ -3,10 +3,13 @@ import pandas as pd
 from datetime import datetime
 from firebase_admin import firestore
 
+# Configuración de página
 st.set_page_config(page_title="Materiales", layout="wide")
 
-# Inicializar Firestore y Auth
+# Inicializar Firestore
 db = firestore.client()
+
+# Verificar autenticación
 if "auth" not in st.session_state:
     st.error("Inicia sesión primero"); st.stop()
 
@@ -15,9 +18,8 @@ if auth["role"] != "jefe":
     st.warning("Acceso restringido"); st.stop()
 
 # ================= ESTADO DE LA APP =================
-# Usamos session_state para saber si estamos editando o creando
 if "edit_mat" not in st.session_state:
-    st.session_state.edit_mat = None # Almacenará el dict del material seleccionado
+    st.session_state.edit_mat = None
 
 # ================= FUNCIONES =================
 def obtener_materiales():
@@ -28,58 +30,61 @@ def limpiar_seleccion():
     st.session_state.edit_mat = None
     st.rerun()
 
-# ================= DISEÑO DE INTERFAZ =================
+# ================= INTERFAZ =================
 st.title("🧱 Administración de Materiales")
 
-# Cargamos datos
 materiales = obtener_materiales()
 df = pd.DataFrame(materiales)
 
-# Layout de dos columnas
 col_tabla, col_form = st.columns([1.8, 1], gap="large")
 
 # --- COLUMNA IZQUIERDA: LISTADO ---
 with col_tabla:
     st.subheader("📋 Inventario General")
     
-    # Buscador rápido
-    busqueda = st.text_input("🔍 Buscar material...", placeholder="Escribe el nombre...")
-    if busqueda and not df.empty:
-        df = df[df['nombre'].str.contains(busqueda, case=False)]
+    busqueda = st.text_input("🔍 Buscar material...", placeholder="Ej: Cemento, Ladrillo...")
+    
+    filtered_df = df.copy()
+    if busqueda and not filtered_df.empty:
+        filtered_df = filtered_df[filtered_df['nombre'].str.contains(busqueda, case=False)]
 
-    if not df.empty:
-        # Mostramos la tabla. Usamos st.dataframe con selección.
-        selected_rows = st.dataframe(
-            df[["nombre", "unidad", "precio_unitario"]],
+    if not filtered_df.empty:
+        # CORRECCIÓN AQUÍ: selection_mode="single-row"
+        event = st.dataframe(
+            filtered_df[["nombre", "unidad", "precio_unitario"]],
             use_container_width=True,
             hide_index=True,
             on_select="rerun",
-            selection_mode="single",
+            selection_mode="single-row", 
             column_config={
+                "nombre": "Material",
+                "unidad": "Und",
                 "precio_unitario": st.column_config.NumberColumn("Precio", format="$ %.2f")
             }
         )
 
-        # Si el usuario hace clic en una fila de la tabla
-        if len(selected_rows["selection"]["rows"]) > 0:
-            idx = selected_rows["selection"]["rows"][0]
-            st.session_state.edit_mat = materiales[idx]
+        # Manejo de selección de fila
+        # El evento devuelve un diccionario con los índices de las filas seleccionadas
+        if event and "selection" in event and event["selection"]["rows"]:
+            idx = event["selection"]["rows"][0]
+            # Mapeamos el índice filtrado de vuelta al material original
+            selected_id = filtered_df.iloc[idx]["id"]
+            st.session_state.edit_mat = next(m for m in materiales if m["id"] == selected_id)
     else:
-        st.info("No se encontraron materiales.")
+        st.info("No hay materiales que coincidan.")
 
-# --- COLUMNA DERECHA: FORMULARIO DINÁMICO ---
+# --- COLUMNA DERECHA: FORMULARIO ---
 with col_form:
     edit_data = st.session_state.edit_mat
     
-    # Título dinámico
-    if edit_data:
-        st.subheader("📝 Editar Material")
-        st.caption(f"ID: {edit_data['id']}")
-    else:
-        st.subheader("➕ Nuevo Material")
+    st.subheader("📝 Gestión de Datos")
     
-    # Formulario Único
     with st.container(border=True):
+        if edit_data:
+            st.caption(f"Editando: {edit_data['nombre']}")
+        else:
+            st.caption("Crear nuevo registro")
+
         nombre = st.text_input("Nombre", value=edit_data["nombre"] if edit_data else "")
         unidad = st.text_input("Unidad", value=edit_data["unidad"] if edit_data else "")
         precio = st.number_input("Precio Unitario", min_value=0.0, step=0.01, 
@@ -88,35 +93,26 @@ with col_form:
         st.write("---")
         
         if edit_data:
-            # Botones para modo EDICIÓN
             c1, c2 = st.columns(2)
             if c1.button("💾 Actualizar", type="primary", use_container_width=True):
                 db.collection("materiales").document(edit_data["id"]).update({
                     "nombre": nombre, "unidad": unidad, "precio_unitario": precio
                 })
-                st.toast("Material actualizado"); limpiar_seleccion()
+                st.toast("✅ Actualizado"); limpiar_seleccion()
             
-            if c2.button("🗑️ Eliminar", type="secondary", use_container_width=True):
+            if c2.button("🗑️ Borrar", use_container_width=True):
                 db.collection("materiales").document(edit_data["id"]).delete()
-                st.toast("Material eliminado"); limpiar_seleccion()
+                st.toast("🗑️ Eliminado"); limpiar_seleccion()
             
-            if st.button("✖️ Cancelar", use_container_width=True):
+            if st.button("✖️ Cancelar Selección", use_container_width=True):
                 limpiar_seleccion()
         else:
-            # Botón para modo CREACIÓN
-            if st.button("🚀 Crear Material", type="primary", use_container_width=True):
+            if st.button("🚀 Guardar Nuevo Material", type="primary", use_container_width=True):
                 if nombre and unidad:
                     db.collection("materiales").add({
                         "nombre": nombre, "unidad": unidad, 
                         "precio_unitario": precio, "creado": datetime.now()
                     })
-                    st.toast("Material creado"); st.rerun()
+                    st.toast("✨ Creado correctamente"); st.rerun()
                 else:
-                    st.error("Completa los campos")
-
-st.markdown("""
-    <style>
-    [data-testid="stMetricValue"] { font-size: 1.5rem; }
-    .stButton button { border-radius: 8px; }
-    </style>
-    """, unsafe_allow_width=True)
+                    st.error("Nombre y Unidad son obligatorios")
