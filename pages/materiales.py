@@ -3,139 +3,120 @@ import pandas as pd
 from datetime import datetime
 from firebase_admin import firestore
 
-# Configuración de página (solo si se accede directamente, 
-# aunque en multipage suele heredarse del main)
-st.set_page_config(page_title="Gestión de Materiales", layout="wide")
+st.set_page_config(page_title="Materiales", layout="wide")
 
-# Inicializar Firestore
+# Inicializar Firestore y Auth
 db = firestore.client()
-
-# Verificar autenticación
 if "auth" not in st.session_state:
-    st.error("No has iniciado sesión")
-    st.stop()
+    st.error("Inicia sesión primero"); st.stop()
 
 auth = st.session_state["auth"]
-
-# Bloqueo de seguridad: Solo el Jefe administra el catálogo maestro
 if auth["role"] != "jefe":
-    st.warning("⚠️ No tienes permisos para administrar el catálogo global de materiales.")
-    st.info("Contacta con el administrador para solicitar nuevos materiales.")
-    st.stop()
+    st.warning("Acceso restringido"); st.stop()
 
-# ================= FUNCIONES DE DATOS =================
+# ================= ESTADO DE LA APP =================
+# Usamos session_state para saber si estamos editando o creando
+if "edit_mat" not in st.session_state:
+    st.session_state.edit_mat = None # Almacenará el dict del material seleccionado
+
+# ================= FUNCIONES =================
 def obtener_materiales():
-    """Obtiene la lista de materiales desde Firestore."""
-    docs = db.collection("materiales").stream()
-    data = []
-    for d in docs:
-        doc = d.to_dict()
-        data.append({
-            "id": d.id,
-            "nombre": doc.get("nombre", "Sin nombre"),
-            "unidad": doc.get("unidad", "N/D"),
-            "precio_unitario": float(doc.get("precio_unitario", 0.0))
-        })
-    return data
+    docs = db.collection("materiales").order_by("nombre").stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
 
-# ================= INTERFAZ PRINCIPAL =================
-st.title("🧱 Catálogo Maestro de Materiales")
-st.markdown("Administra los insumos base que estarán disponibles para todas las obras.")
+def limpiar_seleccion():
+    st.session_state.edit_mat = None
+    st.rerun()
 
-# Organizamos por pestañas para una interfaz más limpia
-tab_lista, tab_crear, tab_editar = st.tabs([
-    "📋 Inventario Global", 
-    "➕ Registrar Nuevo", 
-    "⚙️ Modificar / Eliminar"
-])
+# ================= DISEÑO DE INTERFAZ =================
+st.title("🧱 Administración de Materiales")
 
+# Cargamos datos
 materiales = obtener_materiales()
+df = pd.DataFrame(materiales)
 
-# ---------- PESTAÑA 1: LISTADO ----------
-with tab_lista:
-    st.subheader("Lista de Materiales Existentes")
-    if materiales:
-        df = pd.DataFrame(materiales)
-        # Configuración de columnas para mejorar la visualización
-        st.dataframe(
+# Layout de dos columnas
+col_tabla, col_form = st.columns([1.8, 1], gap="large")
+
+# --- COLUMNA IZQUIERDA: LISTADO ---
+with col_tabla:
+    st.subheader("📋 Inventario General")
+    
+    # Buscador rápido
+    busqueda = st.text_input("🔍 Buscar material...", placeholder="Escribe el nombre...")
+    if busqueda and not df.empty:
+        df = df[df['nombre'].str.contains(busqueda, case=False)]
+
+    if not df.empty:
+        # Mostramos la tabla. Usamos st.dataframe con selección.
+        selected_rows = st.dataframe(
             df[["nombre", "unidad", "precio_unitario"]],
             use_container_width=True,
             hide_index=True,
+            on_select="rerun",
+            selection_mode="single",
             column_config={
-                "nombre": "Descripción del Material",
-                "unidad": "Unidad de Medida",
-                "precio_unitario": st.column_config.NumberColumn(
-                    "Precio Unitario",
-                    format="$ %.2f"
-                )
+                "precio_unitario": st.column_config.NumberColumn("Precio", format="$ %.2f")
             }
         )
-        st.caption(f"Total de materiales en catálogo: {len(materiales)}")
-    else:
-        st.info("Aún no hay materiales registrados en el sistema.")
 
-# ---------- PESTAÑA 2: CREAR ----------
-with tab_crear:
-    st.subheader("Añadir nuevo material al catálogo")
-    with st.form("form_crear", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        n_nombre = col1.text_input("Nombre del Material", placeholder="Ej: Cemento Sol")
-        n_unidad = col2.text_input("Unidad", placeholder="Ej: Bolsa 42.5kg")
-        n_precio = st.number_input("Precio Unitario Estimado", min_value=0.0, step=0.01)
+        # Si el usuario hace clic en una fila de la tabla
+        if len(selected_rows["selection"]["rows"]) > 0:
+            idx = selected_rows["selection"]["rows"][0]
+            st.session_state.edit_mat = materiales[idx]
+    else:
+        st.info("No se encontraron materiales.")
+
+# --- COLUMNA DERECHA: FORMULARIO DINÁMICO ---
+with col_form:
+    edit_data = st.session_state.edit_mat
+    
+    # Título dinámico
+    if edit_data:
+        st.subheader("📝 Editar Material")
+        st.caption(f"ID: {edit_data['id']}")
+    else:
+        st.subheader("➕ Nuevo Material")
+    
+    # Formulario Único
+    with st.container(border=True):
+        nombre = st.text_input("Nombre", value=edit_data["nombre"] if edit_data else "")
+        unidad = st.text_input("Unidad", value=edit_data["unidad"] if edit_data else "")
+        precio = st.number_input("Precio Unitario", min_value=0.0, step=0.01, 
+                                value=float(edit_data["precio_unitario"]) if edit_data else 0.0)
         
-        btn_crear = st.form_submit_button("✅ Guardar Material")
+        st.write("---")
         
-    if btn_crear:
-        if n_nombre and n_unidad:
-            db.collection("materiales").add({
-                "nombre": n_nombre.strip(),
-                "unidad": n_unidad.strip(),
-                "precio_unitario": n_precio,
-                "creado": datetime.now()
-            })
-            st.success(f"Material '{n_nombre}' añadido correctamente.")
-            st.rerun()
+        if edit_data:
+            # Botones para modo EDICIÓN
+            c1, c2 = st.columns(2)
+            if c1.button("💾 Actualizar", type="primary", use_container_width=True):
+                db.collection("materiales").document(edit_data["id"]).update({
+                    "nombre": nombre, "unidad": unidad, "precio_unitario": precio
+                })
+                st.toast("Material actualizado"); limpiar_seleccion()
+            
+            if c2.button("🗑️ Eliminar", type="secondary", use_container_width=True):
+                db.collection("materiales").document(edit_data["id"]).delete()
+                st.toast("Material eliminado"); limpiar_seleccion()
+            
+            if st.button("✖️ Cancelar", use_container_width=True):
+                limpiar_seleccion()
         else:
-            st.error("Por favor, completa los campos de nombre y unidad.")
+            # Botón para modo CREACIÓN
+            if st.button("🚀 Crear Material", type="primary", use_container_width=True):
+                if nombre and unidad:
+                    db.collection("materiales").add({
+                        "nombre": nombre, "unidad": unidad, 
+                        "precio_unitario": precio, "creado": datetime.now()
+                    })
+                    st.toast("Material creado"); st.rerun()
+                else:
+                    st.error("Completa los campos")
 
-# ---------- PESTAÑA 3: EDITAR / ELIMINAR ----------
-with tab_editar:
-    st.subheader("Gestión de materiales existentes")
-    if not materiales:
-        st.info("No hay materiales para gestionar.")
-    else:
-        # Buscador/Selector de material
-        mat_nombres = {m["id"]: f"{m['nombre']} ({m['unidad']})" for m in materiales}
-        id_a_gestionar = st.selectbox(
-            "Selecciona el material a modificar",
-            options=list(mat_nombres.keys()),
-            format_func=lambda x: mat_nombres[x]
-        )
-        
-        # Recuperar datos del material seleccionado
-        mat_data = next(m for m in materiales if m["id"] == id_a_gestionar)
-        
-        with st.form("form_edicion"):
-            st.markdown(f"**Editando ID:** `{id_a_gestionar}`")
-            e_nombre = st.text_input("Editar Nombre", value=mat_data["nombre"])
-            e_unidad = st.text_input("Editar Unidad", value=mat_data["unidad"])
-            e_precio = st.number_input("Editar Precio", value=mat_data["precio_unitario"], min_value=0.0, step=0.01)
-            
-            c1, c2, c3 = st.columns([1, 1, 2])
-            btn_actualizar = c1.form_submit_button("💾 Actualizar")
-            btn_borrar = c2.form_submit_button("🗑️ Eliminar")
-            
-        if btn_actualizar:
-            db.collection("materiales").document(id_a_gestionar).update({
-                "nombre": e_nombre,
-                "unidad": e_unidad,
-                "precio_unitario": e_precio
-            })
-            st.success("Cambios guardados.")
-            st.rerun()
-            
-        if btn_borrar:
-            # Confirmación simple antes de borrar
-            db.collection("materiales").document(id_a_gestionar).delete()
-            st.warning(f"Material '{e_nombre}' eliminado del sistema.")
-            st.rerun()
+st.markdown("""
+    <style>
+    [data-testid="stMetricValue"] { font-size: 1.5rem; }
+    .stButton button { border-radius: 8px; }
+    </style>
+    """, unsafe_allow_width=True)
