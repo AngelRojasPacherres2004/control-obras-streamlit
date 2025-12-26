@@ -18,6 +18,9 @@ if auth["role"] != "jefe":
 if "mat_edit" not in st.session_state:
     st.session_state.mat_edit = None
 
+if "mat_obra_edit" not in st.session_state:
+    st.session_state.mat_obra_edit = None
+
 # ================= FUNCIONES =================
 def cargar_materiales():
     docs = db.collection("materiales").order_by("nombre").stream()
@@ -31,16 +34,17 @@ def cargar_materiales_obra(obra_id):
         .collection("materiales")\
         .order_by("fecha", direction=firestore.Query.DESCENDING)\
         .stream()
-    return [d.to_dict() for d in docs]
+    return [{"id": d.id, **d.to_dict()} for d in docs]
 
 def limpiar():
     st.session_state.mat_edit = None
+    st.session_state.mat_obra_edit = None
     st.rerun()
 
 # ================= UI =================
-st.title("🧱 Catálogo de Materiales")
+st.title("🧱 Gestión de Materiales por Obra")
 
-# --------- SELECCIÓN DE OBRA ---------
+# ================= SELECCIÓN OBRA =================
 OBRAS = obtener_obras()
 obra_sel = st.sidebar.selectbox(
     "Seleccionar obra",
@@ -52,13 +56,13 @@ obra_sel = st.sidebar.selectbox(
 materiales = cargar_materiales()
 df = pd.DataFrame(materiales)
 
-col_izq, col_der = st.columns([1.6, 1], gap="medium")
+col_izq, col_der = st.columns([1.4, 1], gap="medium")
 
-# ================= LISTA =================
+# ================= MATERIALES GLOBALES =================
 with col_izq:
-    st.subheader("📋 Materiales")
+    st.subheader("📦 Catálogo de materiales")
 
-    q = st.text_input("Buscar", placeholder="Cemento...")
+    q = st.text_input("Buscar material")
     df_v = df.copy()
 
     if q and not df_v.empty:
@@ -77,18 +81,22 @@ with col_izq:
             idx = sel["selection"]["rows"][0]
             st.session_state.mat_edit = materiales[df_v.index[idx]]
     else:
-        st.info("Sin materiales")
+        st.info("Sin materiales registrados")
 
-# ================= FORM =================
+# ================= CRUD MATERIAL =================
 with col_der:
     mat = st.session_state.mat_edit
-    st.subheader("➕ " + ("Editar" if mat else "Nuevo"))
+    st.subheader("📝 " + ("Editar material" if mat else "Nuevo material"))
 
     with st.container(border=True):
         nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
         unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
-        precio = st.number_input("Precio", min_value=0.0, step=0.01,
-                                 value=float(mat["precio_unitario"]) if mat else 0.0)
+        precio = st.number_input(
+            "Precio unitario",
+            min_value=0.0,
+            step=0.01,
+            value=float(mat["precio_unitario"]) if mat else 0.0
+        )
 
         st.divider()
 
@@ -106,8 +114,9 @@ with col_der:
                 db.collection("materiales").document(mat["id"]).delete()
                 limpiar()
 
-            # ===== ASIGNAR A OBRA =====
-            st.subheader("Asignar a obra")
+            st.divider()
+
+            st.subheader("➕ Asignar a obra")
             cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
 
             if st.button("Asignar material"):
@@ -140,18 +149,58 @@ with col_der:
                     st.error("Campos obligatorios")
 
 # ================= MATERIALES DE LA OBRA =================
-st.subheader("🧾 Materiales en la obra")
+st.divider()
+st.subheader("🧾 Materiales asignados a la obra")
+
 mats_obra = cargar_materiales_obra(obra_sel)
 
 if mats_obra:
-    st.dataframe(
-        pd.DataFrame(mats_obra)[
-            ["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]
-        ],
-        use_container_width=True
+    df_obra = pd.DataFrame(mats_obra)
+
+    sel_obra = st.dataframe(
+        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]],
+        hide_index=True,
+        use_container_width=True,
+        selection_mode="single-row",
+        on_select="rerun"
     )
+
+    if sel_obra and sel_obra["selection"]["rows"]:
+        idx = sel_obra["selection"]["rows"][0]
+        st.session_state.mat_obra_edit = mats_obra[idx]
 else:
     st.info("No hay materiales asignados")
+
+# ================= EDITAR MATERIAL DE OBRA =================
+mat_obra = st.session_state.mat_obra_edit
+
+if mat_obra:
+    st.subheader("✏️ Editar material en obra")
+
+    with st.container(border=True):
+        nueva_cantidad = st.number_input(
+            "Cantidad",
+            min_value=0.0,
+            step=1.0,
+            value=float(mat_obra["cantidad"])
+        )
+
+        c1, c2 = st.columns(2)
+
+        if c1.button("Actualizar cantidad", type="primary", use_container_width=True):
+            db.collection("obras").document(obra_sel)\
+                .collection("materiales").document(mat_obra["id"])\
+                .update({
+                    "cantidad": nueva_cantidad,
+                    "fecha": datetime.now().isoformat()
+                })
+            limpiar()
+
+        if c2.button("Eliminar de la obra", use_container_width=True):
+            db.collection("obras").document(obra_sel)\
+                .collection("materiales").document(mat_obra["id"])\
+                .delete()
+            limpiar()
 
 # ================= CSS =================
 st.markdown("""
