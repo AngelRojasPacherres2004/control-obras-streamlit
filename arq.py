@@ -59,22 +59,32 @@ def cargar_materiales_obra(obra_id):
 # ================= ESTILOS =================
 def set_login_background():
     img_url = "https://res.cloudinary.com/ddqe5f2br/image/upload/v1766781058/logo_xevz4h.jpg"
-    page_bg_img = f"""
-    <style>
-    .stApp {{
-        background-image: url("{img_url}");
-        background-size: cover;
-        background-position: center;
-        background-repeat: no-repeat;
-    }}
-    .css-1d391kg {{
-        background: rgba(255, 255, 255, 0.85);
-        padding: 2rem;
-        border-radius: 12px;
-    }}
-    </style>
-    """
-    st.markdown(page_bg_img, unsafe_allow_html=True)
+
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("{img_url}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }}
+
+        /* Contenedor del login */
+        section[data-testid="stSidebar"], 
+        div[data-testid="stVerticalBlock"] {{
+            background-color: rgba(255, 255, 255, 0.88);
+            padding: 2rem;
+            border-radius: 14px;
+            max-width: 420px;
+            margin: auto;
+            margin-top: 120px;
+            box-shadow: 0px 10px 30px rgba(0,0,0,0.35);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
 
 
 
