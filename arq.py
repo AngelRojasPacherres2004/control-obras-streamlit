@@ -15,30 +15,11 @@ if not firebase_admin._apps:
 db = firestore.client()
 
 # ================= CLOUDINARY =================
-#cloudinary.config(
-    #cloud_name=st.secrets["cloudinary"]["cloud_name"],
-    #api_key=st.secrets["cloudinary"]["api_key"],
-    #api_secret=st.secrets["cloudinary"]["api_secret"],
-    #secure=True
-#) 
-
-
-# ================= PAGE SETUP =================
-usuarios_page = st.Page(
-    page = "pages/usuarios.py",
-    title = "Usuarios",
-    icon = ":material/account_circle:"
-)
-materiales_page = st.Page(
-    page = "pages/materiales.py",
-    title = "Materiales",
-    icon = ":material/account_circle:"
-)
-obras_page = st.Page(
-    page = "pages/obras.py",
-    title = "Obras",
-    icon = ":material/account_circle:",
-    default = True
+cloudinary.config(
+    cloud_name=st.secrets["cloudinary"]["cloud_name"],
+    api_key=st.secrets["cloudinary"]["api_key"],
+    api_secret=st.secrets["cloudinary"]["api_secret"],
+    secure=True
 )
 
 # ================= STREAMLIT =================
@@ -63,8 +44,7 @@ def obtener_materiales():
     return [{
         "id": d.id,
         "nombre": d.to_dict()["nombre"],
-        "unidad": d.to_dict()["unidad"],
-        "precio_unitario": d.to_dict()["precio_unitario"]
+        "unidad": d.to_dict()["unidad"]
     } for d in docs]
 
 def cargar_materiales_obra(obra_id):
@@ -74,11 +54,49 @@ def cargar_materiales_obra(obra_id):
         .stream()
     return [d.to_dict() for d in docs]
 
+
+
+# ================= ESTILOS =================
+def set_login_background():
+    img_url = "https://res.cloudinary.com/ddqe5f2br/image/upload/v1766781058/logo_xevz4h.jpg"
+
+    st.markdown(
+        f"""
+        <style>
+        .stApp {{
+            background-image: url("{img_url}");
+            background-size: cover;
+            background-position: center;
+            background-repeat: no-repeat;
+        }}
+
+        /* Contenedor del login */
+        section[data-testid="stSidebar"], 
+        div[data-testid="stVerticalBlock"] {{
+            background-color: rgba(255, 255, 255, 0.88);
+            padding: 2rem;
+            border-radius: 14px;
+            max-width: 420px;
+            margin: auto;
+            margin-top: 120px;
+            box-shadow: 0px 10px 30px rgba(0,0,0,0.35);
+        }}
+        </style>
+        """,
+        unsafe_allow_html=True
+    )
+
+
+
+
+
+
 # ================= LOGIN CON FIREBASE =================
 def check_password():
     if "auth" not in st.session_state:
+         # ---- PONER IMAGEN DE FONDO ----
+        set_login_background()
         st.title("CONTROL DE OBRAS 2025")
-        db = firestore.client()
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
@@ -113,24 +131,15 @@ if not check_password():
 auth = st.session_state["auth"]
 OBRAS = obtener_obras()
 
-
 if auth["role"] == "jefe":
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
         options=list(OBRAS.keys()),
-        format_func=lambda x: OBRAS[x],
-        key="obra_selector"
+        format_func=lambda x: OBRAS[x]
     )
 else:
     obra_id_sel = auth["obra"]
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
-
-st.session_state["obra_id_sel"] = obra_id_sel
-
-
-# ================= PAGINAS =================
-pg = st.navigation(pages=[usuarios_page, materiales_page, obras_page])
-pg.run()
 
 
 # ================= ADMIN: CREAR OBRA =================
@@ -161,8 +170,81 @@ if auth["role"] == "jefe":
             st.success("Obra creada correctamente")
             st.rerun()
 
+
 # ================= TITULO =================
 st.title(f"🏗️ {OBRAS[obra_id_sel]}")
+
+# ================= ADMIN: GESTIÓN DE MATERIALES =================
+if auth["role"] == "jefe":
+    st.header(" Gestión de Materiales")
+
+    # ---- CREAR MATERIAL ----
+    with st.form("crear_material"):
+        nom = st.text_input("Nombre del material")
+        uni = st.text_input("Unidad (kg, m3, bolsa, etc)")
+        crear_mat = st.form_submit_button("CREAR MATERIAL")
+
+    if crear_mat:
+        if not nom or not uni:
+            st.error("Nombre y unidad obligatorios")
+        else:
+            db.collection("materiales").add({
+                "nombre": nom,
+                "unidad": uni,
+                "creado": datetime.now()
+            })
+            st.success("Material creado")
+            st.rerun()
+
+    # ---- LISTA MATERIALES GENERALES ----
+    st.subheader(" Materiales registrados")
+    mats = obtener_materiales()
+
+    if mats:
+        st.dataframe(
+            pd.DataFrame(mats)[["nombre", "unidad"]],
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("No hay materiales creados")
+
+    # ---- ASIGNAR MATERIAL A OBRA ----
+    st.subheader(" Asignar material a esta obra")
+
+    if mats:
+        with st.form("asignar_material"):
+            mat = st.selectbox(
+                "Material",
+                options=mats,
+                format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
+            )
+            cant = st.number_input("Cantidad", min_value=0.0, step=1.0)
+            asignar = st.form_submit_button("ASIGNAR")
+
+        if asignar and cant > 0:
+            db.collection("obras").document(obra_id_sel)\
+                .collection("materiales").add({
+                    "material_id": mat["id"],
+                    "nombre": mat["nombre"],
+                    "unidad": mat["unidad"],
+                    "cantidad": cant,
+                    "fecha": datetime.now().isoformat()
+                })
+            st.success("Material asignado a la obra")
+            st.rerun()
+
+    # ---- LISTA MATERIALES DE LA OBRA ----
+    st.subheader("Materiales en esta obra")
+    mats_obra = cargar_materiales_obra(obra_id_sel)
+
+    if mats_obra:
+        st.dataframe(
+            pd.DataFrame(mats_obra)[["nombre", "unidad", "cantidad", "fecha"]],
+            use_container_width=True
+        )
+    else:
+        st.info("Esta obra aún no tiene materiales asignados")
 
 
 # ================= PASANTE: PARTE DIARIO =================
