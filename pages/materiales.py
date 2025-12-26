@@ -3,115 +3,159 @@ import pandas as pd
 from datetime import datetime
 from firebase_admin import firestore
 
-# 1. Conexión a Base de Datos
+# ================= DB =================
 db = firestore.client()
 
-# 2. Protección de Ruta y Roles
+# ================= SEGURIDAD =================
 if "auth" not in st.session_state:
-    st.error("Por favor, inicia sesión."); st.stop()
+    st.error("Inicia sesión"); st.stop()
 
 auth = st.session_state["auth"]
 if auth["role"] != "jefe":
-    st.warning("No tienes permisos para gestionar el catálogo."); st.stop()
+    st.warning("Sin permisos"); st.stop()
 
-# 3. Estado de Selección
+# ================= ESTADO =================
 if "mat_edit" not in st.session_state:
     st.session_state.mat_edit = None
 
-# 4. Funciones de Datos
+# ================= FUNCIONES =================
 def cargar_materiales():
     docs = db.collection("materiales").order_by("nombre").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
-def limpiar_y_recargar():
+def obtener_obras():
+    return {d.id: d.to_dict()["nombre"] for d in db.collection("obras").stream()}
+
+def cargar_materiales_obra(obra_id):
+    docs = db.collection("obras").document(obra_id)\
+        .collection("materiales")\
+        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+        .stream()
+    return [d.to_dict() for d in docs]
+
+def limpiar():
     st.session_state.mat_edit = None
     st.rerun()
 
-# ================= INTERFAZ VISUAL =================
+# ================= UI =================
 st.title("🧱 Catálogo de Materiales")
 
+# --------- SELECCIÓN DE OBRA ---------
+OBRAS = obtener_obras()
+obra_sel = st.sidebar.selectbox(
+    "Seleccionar obra",
+    options=list(OBRAS.keys()),
+    format_func=lambda x: OBRAS[x]
+)
+
+# ================= DATOS =================
 materiales = cargar_materiales()
 df = pd.DataFrame(materiales)
 
-# Layout de dos columnas: Tabla a la izquierda, Formulario a la derecha
 col_izq, col_der = st.columns([1.6, 1], gap="medium")
 
+# ================= LISTA =================
 with col_izq:
-    st.subheader("📋 Lista de Insumos")
-    
-    # Buscador dinámico
-    query = st.text_input("Buscar material...", placeholder="Ej: Cemento, Ladrillo...", label_visibility="collapsed")
-    
-    df_ver = df.copy()
-    if query and not df_ver.empty:
-        df_ver = df_ver[df_ver['nombre'].str.contains(query, case=False)]
+    st.subheader("📋 Materiales")
 
-    if not df_ver.empty:
-        # Tabla interactiva con selección de fila única
-        seleccion = st.dataframe(
-            df_ver[["nombre", "unidad", "precio_unitario"]],
-            use_container_width=True,
+    q = st.text_input("Buscar", placeholder="Cemento...")
+    df_v = df.copy()
+
+    if q and not df_v.empty:
+        df_v = df_v[df_v["nombre"].str.contains(q, case=False, na=False)]
+
+    if not df_v.empty:
+        sel = st.dataframe(
+            df_v[["nombre", "unidad", "precio_unitario"]],
             hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row", 
-            column_config={
-                "nombre": "Descripción",
-                "unidad": "Medida",
-                "precio_unitario": st.column_config.NumberColumn("Precio", format="$ %.2f")
-            }
+            use_container_width=True,
+            selection_mode="single-row",
+            on_select="rerun"
         )
 
-        # Detectar clic en fila
-        if seleccion and "selection" in seleccion and seleccion["selection"]["rows"]:
-            idx = seleccion["selection"]["rows"][0]
-            id_real = df_ver.iloc[idx]["id"]
-            st.session_state.mat_edit = next(m for m in materiales if m["id"] == id_real)
+        if sel and sel["selection"]["rows"]:
+            idx = sel["selection"]["rows"][0]
+            st.session_state.mat_edit = materiales[df_v.index[idx]]
     else:
-        st.info("No hay materiales registrados.")
+        st.info("Sin materiales")
 
+# ================= FORM =================
 with col_der:
     mat = st.session_state.mat_edit
-    st.subheader("➕ " + ("Editar registro" if mat else "Nuevo material"))
-    
+    st.subheader("➕ " + ("Editar" if mat else "Nuevo"))
+
     with st.container(border=True):
-        nombre = st.text_input("Nombre del material", value=mat["nombre"] if mat else "")
-        unidad = st.text_input("Unidad de medida", value=mat["unidad"] if mat else "")
-        precio = st.number_input("Precio Unitario", min_value=0.0, step=0.01, 
-                                value=float(mat["precio_unitario"]) if mat else 0.0)
-        
-        st.write("---")
-        
+        nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
+        unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
+        precio = st.number_input("Precio", min_value=0.0, step=0.01,
+                                 value=float(mat["precio_unitario"]) if mat else 0.0)
+
+        st.divider()
+
         if mat:
-            # BOTONES MODO EDICIÓN
             c1, c2 = st.columns(2)
-            if c1.button("💾 Actualizar", type="primary", use_container_width=True):
+            if c1.button("Actualizar", type="primary", use_container_width=True):
                 db.collection("materiales").document(mat["id"]).update({
-                    "nombre": nombre, "unidad": unidad, "precio_unitario": precio
+                    "nombre": nombre,
+                    "unidad": unidad,
+                    "precio_unitario": precio
                 })
-                st.toast("✅ Cambios guardados"); limpiar_y_recargar()
-            
-            if c2.button("🗑️ Eliminar", use_container_width=True):
+                limpiar()
+
+            if c2.button("Eliminar", use_container_width=True):
                 db.collection("materiales").document(mat["id"]).delete()
-                st.toast("🗑️ Material borrado"); limpiar_y_recargar()
-            
-            if st.button("✖️ Cancelar selección", use_container_width=True):
-                limpiar_y_recargar()
+                limpiar()
+
+            # ===== ASIGNAR A OBRA =====
+            st.subheader("Asignar a obra")
+            cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
+
+            if st.button("Asignar material"):
+                if cantidad > 0:
+                    db.collection("obras").document(obra_sel)\
+                        .collection("materiales").add({
+                            "material_id": mat["id"],
+                            "nombre": mat["nombre"],
+                            "unidad": mat["unidad"],
+                            "cantidad": cantidad,
+                            "precio_unitario": mat["precio_unitario"],
+                            "fecha": datetime.now().isoformat()
+                        })
+                    st.success("Material asignado")
+                    st.rerun()
+
+            if st.button("Cancelar"):
+                limpiar()
         else:
-            # BOTÓN MODO CREACIÓN
-            if st.button("🚀 Crear Material", type="primary", use_container_width=True):
+            if st.button("Crear material", type="primary", use_container_width=True):
                 if nombre and unidad:
                     db.collection("materiales").add({
-                        "nombre": nombre, "unidad": unidad, 
-                        "precio_unitario": precio, "creado": datetime.now()
+                        "nombre": nombre,
+                        "unidad": unidad,
+                        "precio_unitario": precio,
+                        "creado": datetime.now()
                     })
-                    st.toast("✨ Registro exitoso"); st.rerun()
+                    st.rerun()
                 else:
-                    st.error("Nombre y Unidad requeridos")
+                    st.error("Campos obligatorios")
 
+# ================= MATERIALES DE LA OBRA =================
+st.subheader("🧾 Materiales en la obra")
+mats_obra = cargar_materiales_obra(obra_sel)
 
+if mats_obra:
+    st.dataframe(
+        pd.DataFrame(mats_obra)[
+            ["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]
+        ],
+        use_container_width=True
+    )
+else:
+    st.info("No hay materiales asignados")
+
+# ================= CSS =================
 st.markdown("""
-    <style>
-    .stDataFrame { border: 1px solid #e6e9ef; border-radius: 8px; }
-    div[data-testid="stForm"] { background-color: #f9f9f9; }
-    </style>
-    """, unsafe_allow_html=True)
+<style>
+.stDataFrame { border-radius: 8px; }
+</style>
+""", unsafe_allow_html=True)
