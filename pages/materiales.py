@@ -3,116 +3,115 @@ import pandas as pd
 from datetime import datetime
 from firebase_admin import firestore
 
-# Configuración de página
-st.set_page_config(page_title="Materiales", layout="wide")
-
-# Inicializar Firestore
+# 1. Configuración y Seguridad
 db = firestore.client()
 
-# Verificar autenticación
 if "auth" not in st.session_state:
-    st.error("Inicia sesión primero"); st.stop()
+    st.error("Sesión no iniciada"); st.stop()
 
 auth = st.session_state["auth"]
 if auth["role"] != "jefe":
-    st.warning("Acceso restringido"); st.stop()
+    st.warning("No tienes permisos de administrador"); st.stop()
 
-# ================= ESTADO DE LA APP =================
-if "edit_mat" not in st.session_state:
-    st.session_state.edit_mat = None
+# 2. Estado de selección
+if "material_seleccionado" not in st.session_state:
+    st.session_state.material_seleccionado = None
 
-# ================= FUNCIONES =================
+# 3. Funciones de datos
 def obtener_materiales():
     docs = db.collection("materiales").order_by("nombre").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
-def limpiar_seleccion():
-    st.session_state.edit_mat = None
+def reset_form():
+    st.session_state.material_seleccionado = None
     st.rerun()
 
 # ================= INTERFAZ =================
-st.title("🧱 Administración de Materiales")
+st.title("🧱 Catálogo de Materiales")
 
 materiales = obtener_materiales()
 df = pd.DataFrame(materiales)
 
-col_tabla, col_form = st.columns([1.8, 1], gap="large")
+# Layout: Lista (Izquierda) | Formulario (Derecha)
+col_lista, col_form = st.columns([1.5, 1], gap="medium")
 
-# --- COLUMNA IZQUIERDA: LISTADO ---
-with col_tabla:
-    st.subheader("📋 Inventario General")
+with col_lista:
+    st.subheader("📦 Existencias")
     
-    busqueda = st.text_input("🔍 Buscar material...", placeholder="Ej: Cemento, Ladrillo...")
+    # Buscador integrado
+    search = st.text_input("🔍 Buscar...", label_visibility="collapsed", placeholder="Buscar material...")
     
-    filtered_df = df.copy()
-    if busqueda and not filtered_df.empty:
-        filtered_df = filtered_df[filtered_df['nombre'].str.contains(busqueda, case=False)]
+    df_display = df.copy()
+    if search:
+        df_display = df_display[df_display['nombre'].str.contains(search, case=False)]
 
-    if not filtered_df.empty:
-        # CORRECCIÓN AQUÍ: selection_mode="single-row"
-        event = st.dataframe(
-            filtered_df[["nombre", "unidad", "precio_unitario"]],
-            use_container_width=True,
-            hide_index=True,
-            on_select="rerun",
-            selection_mode="single-row", 
-            column_config={
-                "nombre": "Material",
-                "unidad": "Und",
-                "precio_unitario": st.column_config.NumberColumn("Precio", format="$ %.2f")
-            }
-        )
+    # TABLA INTERACTIVA (CORREGIDA)
+    # Usamos "single-row" para evitar el error de la API
+    seleccion = st.dataframe(
+        df_display[["nombre", "unidad", "precio_unitario"]],
+        use_container_width=True,
+        hide_index=True,
+        on_select="rerun",
+        selection_mode="single-row", 
+        column_config={
+            "nombre": "Material",
+            "unidad": "Und",
+            "precio_unitario": st.column_config.NumberColumn("Precio", format="$ %.2f")
+        }
+    )
 
-        # Manejo de selección de fila
-        # El evento devuelve un diccionario con los índices de las filas seleccionadas
-        if event and "selection" in event and event["selection"]["rows"]:
-            idx = event["selection"]["rows"][0]
-            # Mapeamos el índice filtrado de vuelta al material original
-            selected_id = filtered_df.iloc[idx]["id"]
-            st.session_state.edit_mat = next(m for m in materiales if m["id"] == selected_id)
-    else:
-        st.info("No hay materiales que coincidan.")
+    # Lógica para detectar selección
+    if seleccion and seleccion["selection"]["rows"]:
+        idx = seleccion["selection"]["rows"][0]
+        # Obtenemos el ID real del material seleccionado
+        selected_id = df_display.iloc[idx]["id"]
+        st.session_state.material_seleccionado = next(m for m in materiales if m["id"] == selected_id)
 
-# --- COLUMNA DERECHA: FORMULARIO ---
 with col_form:
-    edit_data = st.session_state.edit_mat
+    mat = st.session_state.material_seleccionado
     
-    st.subheader("📝 Gestión de Datos")
+    # Encabezado dinámico
+    st.subheader("📝 " + ("Editar" if mat else "Nuevo"))
     
     with st.container(border=True):
-        if edit_data:
-            st.caption(f"Editando: {edit_data['nombre']}")
-        else:
-            st.caption("Crear nuevo registro")
-
-        nombre = st.text_input("Nombre", value=edit_data["nombre"] if edit_data else "")
-        unidad = st.text_input("Unidad", value=edit_data["unidad"] if edit_data else "")
+        nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
+        unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
         precio = st.number_input("Precio Unitario", min_value=0.0, step=0.01, 
-                                value=float(edit_data["precio_unitario"]) if edit_data else 0.0)
+                                value=float(mat["precio_unitario"]) if mat else 0.0)
         
-        st.write("---")
+        st.divider()
         
-        if edit_data:
+        if mat:
+            # MODO EDICIÓN
             c1, c2 = st.columns(2)
-            if c1.button("💾 Actualizar", type="primary", use_container_width=True):
-                db.collection("materiales").document(edit_data["id"]).update({
+            if c1.button("💾 Guardar", type="primary", use_container_width=True):
+                db.collection("materiales").document(mat["id"]).update({
                     "nombre": nombre, "unidad": unidad, "precio_unitario": precio
                 })
-                st.toast("✅ Actualizado"); limpiar_seleccion()
+                st.toast("Actualizado ✅"); reset_form()
             
             if c2.button("🗑️ Borrar", use_container_width=True):
-                db.collection("materiales").document(edit_data["id"]).delete()
-                st.toast("🗑️ Eliminado"); limpiar_seleccion()
-            
-            if st.button("✖️ Cancelar Selección", use_container_width=True):
-                limpiar_seleccion()
+                db.collection("materiales").document(mat["id"]).delete()
+                st.toast("Eliminado 🗑️"); reset_form()
+                
+            if st.button("➕ Crear uno nuevo", use_container_width=True):
+                reset_form()
         else:
-            if st.button("🚀 Guardar Nuevo Material", type="primary", use_container_width=True):
+            # MODO CREACIÓN
+            if st.button("🚀 Registrar Material", type="primary", use_container_width=True):
                 if nombre and unidad:
                     db.collection("materiales").add({
                         "nombre": nombre, "unidad": unidad, 
                         "precio_unitario": precio, "creado": datetime.now()
                     })
-                    st.toast("✨ Creado correctamente"); st.rerun()
+                    st.toast("Creado con éxito ✨"); st.rerun()
                 else:
-                    st.error("Nombre y Unidad son obligatorios")
+                    st.error("Completa los datos")
+
+# Estilo CSS para mejorar el diseño compacto
+st.markdown("""
+    <style>
+    .stDataFrame { border: 1px solid #f0f2f6; border-radius: 10px; }
+    div[data-testid="stExpander"] { border: none !important; }
+    </style>
+    """, unsafe_allow_width=True)
