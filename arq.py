@@ -5,6 +5,7 @@ import cloudinary
 import cloudinary.uploader
 import firebase_admin
 from firebase_admin import credentials, firestore
+from styles import load_styles,set_login_background
 
 # ================= FIREBASE =================
 if not firebase_admin._apps:
@@ -56,44 +57,10 @@ def cargar_materiales_obra(obra_id):
 
 
 
-# ================= ESTILOS =================
-def set_login_background():
-    img_url = "https://res.cloudinary.com/ddqe5f2br/image/upload/v1766781058/logo_xevz4h.jpg"
-
-    st.markdown(
-        f"""
-        <style>
-        .stApp {{
-            background-image: url("{img_url}");
-            background-size: cover;
-            background-position: center;
-            background-repeat: no-repeat;
-        }}
-
-        /* Contenedor del login */
-        section[data-testid="stSidebar"], 
-        div[data-testid="stVerticalBlock"] {{
-            background-color: rgba(255, 255, 255, 0.88);
-            padding: 2rem;
-            border-radius: 14px;
-            max-width: 420px;
-            margin: auto;
-            margin-top: 120px;
-            box-shadow: 0px 10px 30px rgba(0,0,0,0.35);
-        }}
-        </style>
-        """,
-        unsafe_allow_html=True
-    )
-
-
-
-
-
-
 # ================= LOGIN CON FIREBASE =================
 def check_password():
     if "auth" not in st.session_state:
+        load_styles()
          # ---- PONER IMAGEN DE FONDO ----
         set_login_background()
         st.title("CONTROL DE OBRAS 2025")
