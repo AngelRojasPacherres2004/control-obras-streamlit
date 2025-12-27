@@ -1,176 +1,121 @@
 import streamlit as st
-import pandas as pd
 from datetime import datetime
+import cloudinary.uploader
 from firebase_admin import firestore
 
-# ================= DB =================
+# ================= CONFIG =================
+st.set_page_config(page_title="Parte Diario", layout="centered")
 db = firestore.client()
 
 # ================= SEGURIDAD =================
 if "auth" not in st.session_state:
-    st.error("Inicia sesión"); st.stop()
+    st.error("Sesión no válida")
+    st.stop()
 
-if st.session_state["auth"]["role"] != "jefe":
-    st.warning("Sin permisos"); st.stop()
+auth = st.session_state["auth"]
 
-# ================= ESTADO =================
-st.session_state.setdefault("mat_global", None)
-st.session_state.setdefault("mat_obra", None)
+if auth["role"] != "pasante":
+    st.warning("Acceso solo para pasantes")
+    st.stop()
 
-# ================= FUNCIONES =================
-def cargar_materiales():
-    return [{"id": d.id, **d.to_dict()}
-            for d in db.collection("materiales").order_by("nombre").stream()]
+obra_id = auth.get("obra")
+username = auth.get("username", "desconocido")
 
-def obtener_obras():
-    return {d.id: d.to_dict()["nombre"]
-            for d in db.collection("obras").stream()}
+if not obra_id:
+    st.error("No tienes una obra asignada")
+    st.stop()
 
-def cargar_materiales_obra(obra_id):
-    return [{"id": d.id, **d.to_dict()}
-            for d in db.collection("obras")
-            .document(obra_id)
-            .collection("materiales")
-            .order_by("fecha", direction=firestore.Query.DESCENDING)
-            .stream()]
+# ================= DATOS DE LA OBRA =================
+obra_doc = db.collection("obras").document(obra_id).get()
 
-def reset():
-    st.session_state.mat_global = None
-    st.session_state.mat_obra = None
-    st.rerun()
+if not obra_doc.exists:
+    st.error("La obra asignada no existe")
+    st.stop()
+
+obra = obra_doc.to_dict()
+
+# ================= SIDEBAR =================
+with st.sidebar:
+    st.header("🏗️ Obra asignada")
+    st.markdown(f"**Nombre:** {obra.get('nombre','-')}")
+    st.markdown(f"**Ubicación:** {obra.get('ubicacion','-')}")
+    st.markdown(f"**Estado:** {obra.get('estado','-')}")
+    st.markdown(f"**Inicio:** {obra.get('fecha_inicio','-')}")
+    st.markdown(f"**Fin estimado:** {obra.get('fecha_fin_estimada','-')}")
 
 # ================= UI =================
-st.title("🧱 Materiales")
+st.title("📝 Parte Diario de Avance")
+st.caption("Registra el avance diario de tu obra asignada")
 
-# -------- SELECCIÓN DE OBRA --------
-OBRAS = obtener_obras()
-obra_id = st.sidebar.selectbox(
-    "Seleccionar obra",
-    options=list(OBRAS.keys()),
-    format_func=lambda x: OBRAS[x]
-)
+with st.form("form_avance", clear_on_submit=True):
+    responsable = st.text_input("Responsable")
+    descripcion = st.text_area("Descripción del avance", height=120)
 
-# ================== SECCIÓN A ==================
-st.header("📦 Materiales globales")
-
-materiales = cargar_materiales()
-df_mat = pd.DataFrame(materiales)
-
-col1, col2 = st.columns([1.5, 1])
-
-# ----- LISTA -----
-with col1:
-    busq = st.text_input("Buscar material")
-    df_v = df_mat if not busq else df_mat[df_mat["nombre"].str.contains(busq, case=False)]
-
-    if not df_v.empty:
-        sel = st.dataframe(
-            df_v[["nombre", "unidad", "precio_unitario"]],
-            hide_index=True,
-            use_container_width=True,
-            selection_mode="single-row",
-            on_select="rerun"
-        )
-        if sel and sel["selection"]["rows"]:
-            st.session_state.mat_global = materiales[df_v.index[sel["selection"]["rows"][0]]]
-    else:
-        st.info("No hay materiales")
-
-# ----- FORM CRUD -----
-with col2:
-    mat = st.session_state.mat_global
-    st.subheader("✏️ Editar" if mat else "➕ Nuevo")
-
-    nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
-    unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
-    precio = st.number_input("Precio", 0.0, step=0.01,
-                             value=float(mat["precio_unitario"]) if mat else 0.0)
-
-    if mat:
-        if st.button("Actualizar", type="primary", use_container_width=True):
-            db.collection("materiales").document(mat["id"]).update({
-                "nombre": nombre, "unidad": unidad, "precio_unitario": precio
-            })
-            reset()
-
-        if st.button("Eliminar", use_container_width=True):
-            db.collection("materiales").document(mat["id"]).delete()
-            reset()
-    else:
-        if st.button("Crear material", type="primary", use_container_width=True):
-            if nombre and unidad:
-                db.collection("materiales").add({
-                    "nombre": nombre,
-                    "unidad": unidad,
-                    "precio_unitario": precio,
-                    "creado": datetime.now()
-                })
-                reset()
-            else:
-                st.error("Campos obligatorios")
-
-# ================== SECCIÓN B ==================
-st.divider()
-st.header("➕ Asignar material a la obra")
-
-if materiales:
-    mat_sel = st.selectbox(
-        "Material",
-        options=materiales,
-        format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
+    fotos = st.file_uploader(
+        "Subir fotos (mínimo 3)",
+        accept_multiple_files=True,
+        type=["jpg", "png", "jpeg"]
     )
-    cantidad = st.number_input("Cantidad", min_value=1.0, step=1.0)
 
-    if st.button("Asignar a obra", type="primary"):
-        db.collection("obras").document(obra_id).collection("materiales").add({
-            "material_id": mat_sel["id"],
-            "nombre": mat_sel["nombre"],
-            "unidad": mat_sel["unidad"],
-            "cantidad": cantidad,
-            "precio_unitario": mat_sel["precio_unitario"],
-            "subtotal": round(cantidad * mat_sel["precio_unitario"], 2),
-            "fecha": datetime.now()
-        })
-        st.success("Material asignado")
+    guardar = st.form_submit_button("Guardar avance")
+
+# ================= GUARDAR AVANCE =================
+if guardar:
+    if not responsable.strip() or not descripcion.strip():
+        st.error("Responsable y descripción son obligatorios")
+    elif not fotos or len(fotos) < 3:
+        st.error("Debes subir al menos 3 fotos")
+    else:
+        urls = []
+
+        with st.spinner("Subiendo fotos..."):
+            for f in fotos:
+                res = cloudinary.uploader.upload(
+                    f,
+                    folder=f"obras/{obra_id}"
+                )
+                urls.append(res["secure_url"])
+
+        db.collection("obras") \
+            .document(obra_id) \
+            .collection("avances") \
+            .add({
+                "fecha": datetime.now().isoformat(),
+                "timestamp": datetime.now(),
+                "usuario": username,
+                "responsable": responsable,
+                "observaciones": descripcion,
+                "fotos": urls
+            })
+
+        st.success("Avance registrado correctamente")
         st.rerun()
 
-# ================== SECCIÓN C ==================
+# ================= HISTORIAL =================
 st.divider()
-st.header("🧾 Materiales de la obra")
+st.subheader("📂 Historial de avances")
 
-mats_obra = cargar_materiales_obra(obra_id)
+avances = (
+    db.collection("obras")
+    .document(obra_id)
+    .collection("avances")
+    .order_by("fecha", direction=firestore.Query.DESCENDING)
+    .stream()
+)
 
-if mats_obra:
-    df_obra = pd.DataFrame(mats_obra)
-    sel = st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal"]],
-        hide_index=True,
-        use_container_width=True,
-        selection_mode="single-row",
-        on_select="rerun"
-    )
-    if sel and sel["selection"]["rows"]:
-        st.session_state.mat_obra = mats_obra[sel["selection"]["rows"][0]]
-else:
-    st.info("No hay materiales asignados")
+hay_avances = False
 
-# ----- EDITAR MATERIAL OBRA -----
-mat_o = st.session_state.mat_obra
-if mat_o:
-    st.subheader("✏️ Editar material en obra")
-    nueva = st.number_input("Cantidad", min_value=1.0,
-                            value=float(mat_o["cantidad"]))
+for av in avances:
+    hay_avances = True
+    data = av.to_dict()
+    f = datetime.fromisoformat(data["fecha"])
 
-    if st.button("Actualizar cantidad", type="primary"):
-        db.collection("obras").document(obra_id)\
-            .collection("materiales").document(mat_o["id"]).update({
-                "cantidad": nueva,
-                "subtotal": round(nueva * mat_o["precio_unitario"], 2),
-                "fecha": datetime.now()
-            })
-        reset()
+    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} — {data.get('responsable','N/D')}"):
+        st.write(data.get("observaciones", "Sin observaciones"))
+        st.caption(f"Registrado por: {data.get('usuario','-')}")
 
-    if st.button("Eliminar de la obra"):
-        db.collection("obras").document(obra_id)\
-            .collection("materiales").document(mat_o["id"]).delete()
-        reset()
+        for img in data.get("fotos", []):
+            st.image(img, use_container_width=True)
+
+if not hay_avances:
+    st.info("Aún no hay avances registrados para esta obra.")
