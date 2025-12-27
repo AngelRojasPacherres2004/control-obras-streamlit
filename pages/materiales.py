@@ -15,11 +15,8 @@ if auth["role"] != "jefe":
     st.warning("Sin permisos"); st.stop()
 
 # ================= ESTADO =================
-if "mat_edit" not in st.session_state:
-    st.session_state.mat_edit = None
-
-if "mat_obra_edit" not in st.session_state:
-    st.session_state.mat_obra_edit = None
+st.session_state.setdefault("mat_edit", None)
+st.session_state.setdefault("mat_obra_edit", None)
 
 # ================= FUNCIONES =================
 def cargar_materiales():
@@ -30,10 +27,13 @@ def obtener_obras():
     return {d.id: d.to_dict()["nombre"] for d in db.collection("obras").stream()}
 
 def cargar_materiales_obra(obra_id):
-    docs = db.collection("obras").document(obra_id)\
-        .collection("materiales")\
-        .order_by("fecha", direction=firestore.Query.DESCENDING)\
+    docs = (
+        db.collection("obras")
+        .document(obra_id)
+        .collection("materiales")
+        .order_by("fecha", direction=firestore.Query.DESCENDING)
         .stream()
+    )
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
 def limpiar():
@@ -58,7 +58,7 @@ df = pd.DataFrame(materiales)
 
 col_izq, col_der = st.columns([1.4, 1], gap="medium")
 
-# ================= MATERIALES GLOBALES =================
+# ================= CATÁLOGO =================
 with col_izq:
     st.subheader("📦 Catálogo de materiales")
 
@@ -81,7 +81,7 @@ with col_izq:
             idx = sel["selection"]["rows"][0]
             st.session_state.mat_edit = materiales[df_v.index[idx]]
     else:
-        st.info("Sin materiales registrados")
+        st.info("Sin materiales")
 
 # ================= CRUD MATERIAL =================
 with col_der:
@@ -115,8 +115,8 @@ with col_der:
                 limpiar()
 
             st.divider()
+            st.subheader("➕ Asignar a esta obra")
 
-            st.subheader("➕ Asignar a obra")
             cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
 
             if st.button("Asignar material"):
@@ -148,54 +148,34 @@ with col_der:
                 else:
                     st.error("Campos obligatorios")
 
-# ================= ADMIN: GESTIONAR OBRAS =================
-if auth["role"] == "jefe":
-    st.header(" Gestión de Obras")
-    mats = obtener_materiales()
+# ================= MATERIALES DE LA OBRA =================
+st.divider()
+st.subheader("🧾 Materiales de la obra")
 
-    # ---- ASIGNAR MATERIAL A OBRA ----
-    st.subheader(" Asignar material a esta obra")
+mats_obra = cargar_materiales_obra(obra_sel)
 
-    if mats:
-        with st.form("asignar_material"):
-            mat = st.selectbox(
-                "Material",
-                options=mats,
-                format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
-            )
-            cant = st.number_input("Cantidad", min_value=0.0, step=1.0)
-            asignar = st.form_submit_button("ASIGNAR")
+if mats_obra:
+    df_obra = pd.DataFrame(mats_obra)
 
-        if asignar and cant > 0:
-            db.collection("obras").document(obra_id_sel)\
-                .collection("materiales").add({
-                    "material_id": mat["id"],
-                    "nombre": mat["nombre"],
-                    "unidad": mat["unidad"],
-                    "cantidad": cant,
-                    "precio_unitario": mat["precio_unitario"],
-                    "fecha": datetime.now().isoformat()
-                })
-            st.success("Material asignado a la obra")
-            st.rerun()
+    sel_obra = st.dataframe(
+        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]],
+        hide_index=True,
+        use_container_width=True,
+        selection_mode="single-row",
+        on_select="rerun"
+    )
 
-    # ---- LISTA MATERIALES DE LA OBRA ----
-    st.subheader("Materiales en esta obra")
-    mats_obra = cargar_materiales_obra(obra_id_sel)
+    if sel_obra and sel_obra["selection"]["rows"]:
+        idx = sel_obra["selection"]["rows"][0]
+        st.session_state.mat_obra_edit = mats_obra[idx]
+else:
+    st.info("Esta obra no tiene materiales")
 
-    if mats_obra:
-        st.dataframe(
-            pd.DataFrame(mats_obra)[["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]],
-            use_container_width=True
-        )
-    else:
-        st.info("Esta obra aún no tiene materiales asignados")
-
-# ================= EDITAR MATERIAL DE OBRA =================
+# ================= EDITAR MATERIAL EN OBRA =================
 mat_obra = st.session_state.mat_obra_edit
 
 if mat_obra:
-    st.subheader("✏️ Editar material en obra")
+    st.subheader("✏️ Editar material asignado")
 
     with st.container(border=True):
         nueva_cantidad = st.number_input(
