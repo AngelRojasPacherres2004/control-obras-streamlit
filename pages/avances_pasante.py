@@ -25,6 +25,24 @@ if not obra_id:
     st.error("No tienes una obra asignada")
     st.stop()
 
+# ================= DATOS DE LA OBRA =================
+obra_ref = db.collection("obras").document(obra_id).get()
+
+if not obra_ref.exists:
+    st.error("La obra asignada no existe")
+    st.stop()
+
+obra = obra_ref.to_dict()
+
+# ================= SIDEBAR =================
+with st.sidebar:
+    st.header("🏗️ Obra asignada")
+    st.markdown(f"**Nombre:** {obra.get('nombre','-')}")
+    st.markdown(f"**Ubicación:** {obra.get('ubicacion','-')}")
+    st.markdown(f"**Estado:** {obra.get('estado','-')}")
+    st.markdown(f"**Inicio:** {obra.get('fecha_inicio','-')}")
+    st.markdown(f"**Fin estimado:** {obra.get('fecha_fin_estimada','-')}")
+
 # ================= UI =================
 st.title("📝 Parte Diario de Avance")
 st.caption("Registra el avance diario de tu obra")
