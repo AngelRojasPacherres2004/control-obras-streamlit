@@ -8,11 +8,13 @@ db = firestore.client()
 
 # ================= SEGURIDAD =================
 if "auth" not in st.session_state:
-    st.error("Inicia sesión"); st.stop()
+    st.error("Inicia sesión")
+    st.stop()
 
 auth = st.session_state["auth"]
 if auth["role"] != "jefe":
-    st.warning("Sin permisos"); st.stop()
+    st.warning("Sin permisos")
+    st.stop()
 
 # ================= ESTADO =================
 st.session_state.setdefault("mat_edit", None)
@@ -35,6 +37,24 @@ def cargar_materiales_obra(obra_id):
         .stream()
     )
     return [{"id": d.id, **d.to_dict()} for d in docs]
+
+def asignar_material_a_obra(obra_id, material, cantidad):
+    if not obra_id or not material or cantidad <= 0:
+        return False
+
+    db.collection("obras") \
+        .document(obra_id) \
+        .collection("materiales") \
+        .add({
+            "material_id": material["id"],
+            "nombre": material["nombre"],
+            "unidad": material["unidad"],
+            "cantidad": cantidad,
+            "precio_unitario": material["precio_unitario"],
+            "subtotal": round(cantidad * material["precio_unitario"], 2),
+            "fecha": datetime.now(),
+        })
+    return True
 
 def limpiar():
     st.session_state.mat_edit = None
@@ -119,19 +139,13 @@ with col_der:
 
             cantidad = st.number_input("Cantidad", min_value=0.0, step=1.0)
 
-            if st.button("Asignar material"):
-                if cantidad > 0:
-                    db.collection("obras").document(obra_sel)\
-                        .collection("materiales").add({
-                            "material_id": mat["id"],
-                            "nombre": mat["nombre"],
-                            "unidad": mat["unidad"],
-                            "cantidad": cantidad,
-                            "precio_unitario": mat["precio_unitario"],
-                            "fecha": datetime.now().isoformat()
-                        })
+            if st.button("Asignar material", type="primary"):
+                ok = asignar_material_a_obra(obra_sel, mat, cantidad)
+                if ok:
                     st.success("Material asignado")
                     st.rerun()
+                else:
+                    st.error("Cantidad inválida")
 
             if st.button("Cancelar"):
                 limpiar()
@@ -158,7 +172,7 @@ if mats_obra:
     df_obra = pd.DataFrame(mats_obra)
 
     sel_obra = st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "fecha"]],
+        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "fecha"]],
         hide_index=True,
         use_container_width=True,
         selection_mode="single-row",
@@ -188,17 +202,18 @@ if mat_obra:
         c1, c2 = st.columns(2)
 
         if c1.button("Actualizar cantidad", type="primary", use_container_width=True):
-            db.collection("obras").document(obra_sel)\
-                .collection("materiales").document(mat_obra["id"])\
+            db.collection("obras").document(obra_sel) \
+                .collection("materiales").document(mat_obra["id"]) \
                 .update({
                     "cantidad": nueva_cantidad,
-                    "fecha": datetime.now().isoformat()
+                    "subtotal": round(nueva_cantidad * mat_obra["precio_unitario"], 2),
+                    "fecha": datetime.now()
                 })
             limpiar()
 
         if c2.button("Eliminar de la obra", use_container_width=True):
-            db.collection("obras").document(obra_sel)\
-                .collection("materiales").document(mat_obra["id"])\
+            db.collection("obras").document(obra_sel) \
+                .collection("materiales").document(mat_obra["id"]) \
                 .delete()
             limpiar()
 
