@@ -5,7 +5,6 @@ from firebase_admin import firestore
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Parte Diario", layout="centered")
-
 db = firestore.client()
 
 # ================= SEGURIDAD =================
@@ -20,14 +19,33 @@ if auth["role"] != "pasante":
     st.stop()
 
 obra_id = auth.get("obra")
+username = auth.get("username", "desconocido")
 
 if not obra_id:
     st.error("No tienes una obra asignada")
     st.stop()
 
+# ================= DATOS DE LA OBRA =================
+obra_doc = db.collection("obras").document(obra_id).get()
+
+if not obra_doc.exists:
+    st.error("La obra asignada no existe")
+    st.stop()
+
+obra = obra_doc.to_dict()
+
+# ================= SIDEBAR =================
+with st.sidebar:
+    st.header("🏗️ Obra asignada")
+    st.markdown(f"**Nombre:** {obra.get('nombre','-')}")
+    st.markdown(f"**Ubicación:** {obra.get('ubicacion','-')}")
+    st.markdown(f"**Estado:** {obra.get('estado','-')}")
+    st.markdown(f"**Inicio:** {obra.get('fecha_inicio','-')}")
+    st.markdown(f"**Fin estimado:** {obra.get('fecha_fin_estimada','-')}")
+
 # ================= UI =================
 st.title("📝 Parte Diario de Avance")
-st.caption("Registra el avance diario de tu obra")
+st.caption("Registra el avance diario de tu obra asignada")
 
 with st.form("form_avance", clear_on_submit=True):
     responsable = st.text_input("Responsable")
@@ -41,9 +59,9 @@ with st.form("form_avance", clear_on_submit=True):
 
     guardar = st.form_submit_button("Guardar avance")
 
-# ================= LÓGICA =================
+# ================= GUARDAR AVANCE =================
 if guardar:
-    if not responsable or not descripcion:
+    if not responsable.strip() or not descripcion.strip():
         st.error("Responsable y descripción son obligatorios")
     elif not fotos or len(fotos) < 3:
         st.error("Debes subir al menos 3 fotos")
@@ -63,9 +81,41 @@ if guardar:
             .collection("avances") \
             .add({
                 "fecha": datetime.now().isoformat(),
+                "timestamp": datetime.now(),
+                "usuario": username,
                 "responsable": responsable,
                 "observaciones": descripcion,
                 "fotos": urls
             })
 
         st.success("Avance registrado correctamente")
+        st.rerun()
+
+# ================= HISTORIAL =================
+st.divider()
+st.subheader("📂 Historial de avances")
+
+avances = (
+    db.collection("obras")
+    .document(obra_id)
+    .collection("avances")
+    .order_by("fecha", direction=firestore.Query.DESCENDING)
+    .stream()
+)
+
+hay_avances = False
+
+for av in avances:
+    hay_avances = True
+    data = av.to_dict()
+    f = datetime.fromisoformat(data["fecha"])
+
+    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} — {data.get('responsable','N/D')}"):
+        st.write(data.get("observaciones", "Sin observaciones"))
+        st.caption(f"Registrado por: {data.get('usuario','-')}")
+
+        for img in data.get("fotos", []):
+            st.image(img, use_container_width=True)
+
+if not hay_avances:
+    st.info("Aún no hay avances registrados para esta obra.")
