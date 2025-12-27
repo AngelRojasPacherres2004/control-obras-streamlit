@@ -51,9 +51,10 @@ if auth["role"] == "jefe":
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
         options=list(OBRAS.keys()),
-        format_func=lambda x: OBRAS[x]
+        format_func=lambda x: OBRAS[x],
         on_change=lambda: st.session_state.update({"crear_obra": False})
     )
+
     st.sidebar.divider()
 
     if st.sidebar.button("➕ Crear Obra", use_container_width=True):
@@ -67,64 +68,55 @@ else:
 
 
 
-
 # ================= CREAR OBRA (FORMULARIO) =================
 if auth["role"] == "jefe" and st.session_state["crear_obra"]:
 
-    with st.container(border=True):
-        st.subheader("➕ Crear nueva obra")
+    st.title("➕ Crear nueva obra")
 
-        with st.form("form_crear_obra"):
-            nombre = st.text_input("Nombre de la obra")
-            ubicacion = st.text_input("Ubicación")
+    with st.form("form_crear_obra"):
+        nombre = st.text_input("Nombre de la obra")
+        ubicacion = st.text_input("Ubicación")
 
-            estado = st.selectbox(
-                "Estado",
-                ["en espera", "en progreso", "pausado", "finalizado"],
-                index=0
-            )
+        estado = st.selectbox(
+            "Estado",
+            ["en espera", "en progreso", "pausado", "finalizado"]
+        )
 
-            col1, col2 = st.columns(2)
-            with col1:
-                fecha_inicio = st.date_input(
-                    "Fecha inicio",
-                    value=date(2025, 12, 27)
-                )
-            with col2:
-                fecha_fin = st.date_input(
-                    "Fecha fin estimada",
-                    value=date(2025, 12, 27)
-                )
+        col1, col2 = st.columns(2)
+        fecha_inicio = col1.date_input("Fecha inicio")
+        fecha_fin = col2.date_input("Fecha fin estimada")
 
-            col1, col2 = st.columns(2)
-            guardar = col1.form_submit_button("💾 Crear obra")
-            cancelar = col2.form_submit_button("❌ Cancelar")
+        col1, col2 = st.columns(2)
+        guardar = col1.form_submit_button("💾 Crear obra")
+        cancelar = col2.form_submit_button("❌ Cancelar")
 
-        if guardar:
-            if not nombre or not ubicacion:
-                st.error("Nombre y ubicación son obligatorios")
-            else:
-                # generar id a partir del nombre
-                obra_id = nombre.lower().strip().replace(" ", "_")
+    if guardar:
+        if not nombre or not ubicacion:
+            st.error("Nombre y ubicación son obligatorios")
+        else:
+            obra_id = nombre.lower().strip().replace(" ", "_")
 
-                db.collection("obras").document(obra_id).set({
-                    "nombre": nombre,
-                    "ubicacion": ubicacion,
-                    "estado": estado,
-                    "fecha_inicio": fecha_inicio.isoformat(),
-                    "fecha_fin_estimada": fecha_fin.isoformat(),
-                    "creado_en": datetime.now().isoformat()
-                })
+            db.collection("obras").document(obra_id).set({
+                "nombre": nombre,
+                "ubicacion": ubicacion,
+                "estado": estado,
+                "fecha_inicio": fecha_inicio.isoformat(),
+                "fecha_fin_estimada": fecha_fin.isoformat(),
+                "creado_en": datetime.now().isoformat()
+            })
 
-
-                st.success("Obra creada correctamente")
-                st.session_state["crear_obra"] = False
-                st.rerun()
-
-        if cancelar:
             st.session_state["crear_obra"] = False
+            st.success("Obra creada correctamente")
             st.rerun()
+
+    if cancelar:
+        st.session_state["crear_obra"] = False
+        st.rerun()
+
+    # ⛔ CORTA TODO LO DEMÁS
     st.stop()
+
+           
 
 
 
