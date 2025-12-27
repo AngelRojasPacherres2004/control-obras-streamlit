@@ -123,8 +123,8 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
         if cancelar:
             st.session_state["crear_obra"] = False
             st.rerun()
-    st.stop()
-           
+    
+      st.stop()       
 
 
 
