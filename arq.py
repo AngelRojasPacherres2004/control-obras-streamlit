@@ -3,9 +3,11 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 
-# ================= FIREBASE & CLOUDINARY =================
+# ================= INIT =================
 if not firebase_admin._apps:
-    firebase_admin.initialize_app(credentials.Certificate(dict(st.secrets["firebase"])))
+    firebase_admin.initialize_app(
+        credentials.Certificate(dict(st.secrets["firebase"]))
+    )
 
 db = firestore.client()
 
@@ -16,38 +18,50 @@ cloudinary.config(
     secure=True
 )
 
-# ================= CONFIGURACIÓN DE PÁGINAS =================
-# Define las páginas apuntando a sus archivos en la carpeta /pages
-usuarios_page = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
-materiales_page = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
-obras_page = st.Page("pages/obras.py", title="Gestión de Obras", icon=":material/construction:", default=True)
+st.set_page_config(page_title="Control de Obras", layout="centered")
 
 # ================= LOGIN =================
-def check_password():
-    if "auth" not in st.session_state:
-        st.title("🏗️ CONTROL DE OBRAS 2025")
-        username = st.text_input("Usuario")
-        password = st.text_input("Contraseña", type="password")
-        if st.button("INGRESAR"):
-            user_doc = db.collection("users").document(username).get()
-            if user_doc.exists and user_doc.to_dict().get("password") == password:
-                st.session_state["auth"] = user_doc.to_dict()
-                st.rerun()
-            else:
-                st.error("Credenciales incorrectas")
-        return False
-    return True
+def login():
+    st.markdown("## 🏗️ Control de Obras 2025")
+    st.caption("Ingrese sus credenciales")
 
-if not check_password():
+    with st.container(border=True):
+        user = st.text_input("Usuario")
+        pwd = st.text_input("Contraseña", type="password")
+
+        if st.button("INGRESAR", type="primary", use_container_width=True):
+            doc = db.collection("users").document(user).get()
+
+            if not doc.exists:
+                st.error("Usuario no existe")
+                return False
+
+            data = doc.to_dict()
+
+            if pwd != data.get("password"):
+                st.error("Contraseña incorrecta")
+                return False
+
+            st.session_state["auth"] = data
+            st.rerun()
+
+    return False
+
+if "auth" not in st.session_state:
+    login()
     st.stop()
 
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
 
-# Si es jefe ve todo, si es pasante quizás solo quieras mostrarle "Obras"
+usuarios_page   = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
+materiales_page = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
+obras_page      = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
+avances_page    = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+
 if auth["role"] == "jefe":
     pg = st.navigation([obras_page, materiales_page, usuarios_page])
 else:
-    pg = st.navigation([obras_page])
+    pg = st.navigation([avances_page])
 
-pg.run() # <--- AQUÍ TERMINA ESTE ARCHIVO. No pongas lógica de UI debajo.
+pg.run()
