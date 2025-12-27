@@ -76,7 +76,7 @@ def set_login_background():
             background-size: contain;
             background-position:  center right;
              background-position: right top ;
-             pointer-events: none;  /* ⚡ permite clics en los inputs */
+          
         }}
 
         /* TEXTO */
