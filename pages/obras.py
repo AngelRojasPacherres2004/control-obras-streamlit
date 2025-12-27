@@ -37,6 +37,9 @@ def cargar_avances(obra_id):
 # ================= AUTH =================
 auth = st.session_state["auth"]
 
+if "crear_obra" not in st.session_state:
+    st.session_state["crear_obra"] = False
+
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
 
@@ -50,9 +53,84 @@ if auth["role"] == "jefe":
         options=list(OBRAS.keys()),
         format_func=lambda x: OBRAS[x]
     )
+    st.sidebar.divider()
+
+    if st.sidebar.button("➕ Crear Obra", use_container_width=True):
+        st.session_state["crear_obra"] = True
+
 else:
     obra_id_sel = auth["obra"]
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
+
+
+
+
+
+
+# ================= CREAR OBRA (FORMULARIO) =================
+if auth["role"] == "jefe" and st.session_state["crear_obra"]:
+
+    with st.container(border=True):
+        st.subheader("➕ Crear nueva obra")
+
+        with st.form("form_crear_obra"):
+            nombre = st.text_input("Nombre de la obra")
+            ubicacion = st.text_input("Ubicación")
+
+            estado = st.selectbox(
+                "Estado",
+                ["en espera", "en progreso", "pausado", "finalizado"],
+                index=0
+            )
+
+            col1, col2 = st.columns(2)
+            with col1:
+                fecha_inicio = st.date_input(
+                    "Fecha inicio",
+                    value=date(2025, 12, 27)
+                )
+            with col2:
+                fecha_fin = st.date_input(
+                    "Fecha fin estimada",
+                    value=date(2025, 12, 27)
+                )
+
+            col1, col2 = st.columns(2)
+            guardar = col1.form_submit_button("💾 Crear obra")
+            cancelar = col2.form_submit_button("❌ Cancelar")
+
+        if guardar:
+            if not nombre or not ubicacion:
+                st.error("Nombre y ubicación son obligatorios")
+            else:
+                # generar id a partir del nombre
+                obra_id = nombre.lower().strip().replace(" ", "_")
+
+                db.collection("obras").document(obra_id).set({
+                    "nombre": nombre,
+                    "ubicacion": ubicacion,
+                    "estado": estado,
+                    "fecha_inicio": fecha_inicio.isoformat(),
+                    "fecha_fin_estimada": fecha_fin.isoformat(),
+                    "creado_en": datetime.now().isoformat()
+                })
+
+
+                st.success("Obra creada correctamente")
+                st.session_state["crear_obra"] = False
+                st.rerun()
+
+        if cancelar:
+            st.session_state["crear_obra"] = False
+            st.rerun()
+    st.stop()
+           
+
+
+
+
+
+
 
 # ================= INFO OBRA =================
 obra_doc = db.collection("obras").document(obra_id_sel).get().to_dict()
