@@ -52,7 +52,7 @@ if auth["role"] == "jefe":
         "Seleccionar obra",
         options=list(OBRAS.keys()),
         format_func=lambda x: OBRAS[x]
-         on_change=lambda: st.session_state.update({"crear_obra": False})
+        on_change=lambda: st.session_state.update({"crear_obra": False})
     )
     st.sidebar.divider()
 
