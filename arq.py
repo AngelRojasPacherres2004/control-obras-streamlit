@@ -58,28 +58,45 @@ def cargar_materiales_obra(obra_id):
 def check_password():
     if "auth" not in st.session_state:
 
-        st.markdown(
-            """
+        st.markdown("""
         <style>
         .stApp {
             background-image: url("https://s7d2.scene7.com/is/image/Caterpillar/CM20200330-6edbb-11f86?$highres$");
             background-size: cover;
             background-position: center;
+            background-repeat: no-repeat;
+        }
+
+        /* Capa oscura para mejorar legibilidad */
+        .overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0,0,0,0.55);
+            z-index: 0;
         }
 
         .login-box {
-            background-color: rgba(255,255,255,0.9);
+            position: relative;
+            z-index: 1;
+            background-color: rgba(255,255,255,0.95);
             padding: 30px;
             border-radius: 12px;
-            max-width: 400px;
+            max-width: 420px;
             margin: auto;
-            margin-top: 150px;
-            box-shadow: 0px 10px 30px rgba(0,0,0,0.2);
+            margin-top: 140px;
+            box-shadow: 0px 10px 30px rgba(0,0,0,0.4);
         }
         </style>
         """, unsafe_allow_html=True
         )
         
+        st.markdown("<div class='overlay'></div>", unsafe_allow_html=True)
+        st.markdown("<div class='login-box'>", unsafe_allow_html=True)
+
+
         st.title("CONTROL DE OBRAS 2025")
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
