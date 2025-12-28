@@ -58,34 +58,74 @@ def cargar_materiales_obra(obra_id):
 def check_password():
     if "auth" not in st.session_state:
 
+        # ================= CSS LOGIN =================
         st.markdown("""
         <style>
-        .stApp {
+        html, body, [data-testid="stAppViewContainer"] {
+            height: 100%;
+        }
+
+        /* Fondo */
+        [data-testid="stAppViewContainer"] {
             background-image: url("https://s7d2.scene7.com/is/image/Caterpillar/CM20200330-6edbb-11f86?$highres$");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
         }
+
+        /* Overlay oscuro */
+        [data-testid="stAppViewContainer"]::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.55);
+            z-index: 0;
+        }
+
+        /* Ocultar sidebar */
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+
+        /* Caja login */
         .login-box {
             position: relative;
             z-index: 1;
-            background-color: rgba(255,255,255,0.95);
-            padding: 30px;
-            border-radius: 12px;
+            background: rgba(255,255,255,0.95);
+            padding: 32px;
+            border-radius: 14px;
             max-width: 420px;
             margin: auto;
-            margin-top: 140px;
-            box-shadow: 0px 10px 30px rgba(0,0,0,0.4);
+            margin-top: 160px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+        }
+
+        /* Título */
+        h1 {
+            color: #f4b400;
+            text-align: center;
+            font-weight: 700;
+            text-shadow: 2px 2px 6px rgba(0,0,0,0.6);
+        }
+
+        /* Contorno etiquetas Usuario / Contraseña */
+        div[data-testid="stTextInput"] label {
+            display: inline-block;
+            border: 2px solid #f4b400;
+            border-radius: 6px;
+            padding: 4px 10px;
+            margin-bottom: 6px;
+            font-weight: 600;
+            background-color: rgba(255,255,255,0.95);
         }
         </style>
-        """, unsafe_allow_html=True
-        )
-        
-        st.markdown("<div class='overlay'></div>", unsafe_allow_html=True)
+        """, unsafe_allow_html=True)
+
+        # ================= LOGIN =================
         st.markdown("<div class='login-box'>", unsafe_allow_html=True)
 
-
         st.title("CONTROL DE OBRAS 2025")
+
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
@@ -102,7 +142,6 @@ def check_password():
                 st.error("Contraseña incorrecta")
                 return False
 
-            #  Login correcto
             st.session_state["auth"] = {
                 "username": data["username"],
                 "role": data["role"],
@@ -110,8 +149,11 @@ def check_password():
             }
             st.rerun()
 
+        st.markdown("</div>", unsafe_allow_html=True)
         return False
+
     return True
+
 
 if not check_password():
     st.stop()
