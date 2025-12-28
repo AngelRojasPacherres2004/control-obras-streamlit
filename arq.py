@@ -57,6 +57,29 @@ def cargar_materiales_obra(obra_id):
 # ================= LOGIN CON FIREBASE =================
 def check_password():
     if "auth" not in st.session_state:
+
+        st.markdown(
+            """
+        <style>
+        .stApp {
+            background-image: url("https://s7d2.scene7.com/is/image/Caterpillar/CM20200330-6edbb-11f86?$highres$");
+            background-size: cover;
+            background-position: center;
+        }
+
+        .login-box {
+            background-color: rgba(255,255,255,0.9);
+            padding: 30px;
+            border-radius: 12px;
+            max-width: 400px;
+            margin: auto;
+            margin-top: 150px;
+            box-shadow: 0px 10px 30px rgba(0,0,0,0.2);
+        }
+        </style>
+        """, unsafe_allow_html=True
+        )
+        
         st.title("CONTROL DE OBRAS 2025")
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
