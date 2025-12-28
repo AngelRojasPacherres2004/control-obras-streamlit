@@ -58,14 +58,12 @@ def cargar_materiales_obra(obra_id):
 def check_password():
     if "auth" not in st.session_state:
 
-        # ================= CSS LOGIN =================
         st.markdown("""
         <style>
         html, body, [data-testid="stAppViewContainer"] {
             height: 100%;
         }
 
-        /* Fondo */
         [data-testid="stAppViewContainer"] {
             background-image: url("https://s7d2.scene7.com/is/image/Caterpillar/CM20200330-6edbb-11f86?$highres$");
             background-size: cover;
@@ -73,40 +71,68 @@ def check_password():
             background-repeat: no-repeat;
         }
 
+        [data-testid="stAppViewContainer"]::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 0;
+        }
+
         [data-testid="stSidebar"] {
             display: none;
         }
-
-        /* Caja login */
         .login-box {
             position: relative;
             z-index: 1;
-            background: rgba(255,255,255,0.95);
+            background: rgba(0,0,0,0.65);
             padding: 32px;
             border-radius: 14px;
             max-width: 420px;
             margin: auto;
             margin-top: 160px;
-            box-shadow: 0 10px 30px rgba(0,0,0,0.4);
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
         }
-
-        /* Título */
         h1 {
-            color: #f4b400;
+            color: #ffffff;
             text-align: center;
-            font-weight: 700;
-            text-shadow: 2px 2px 6px rgba(0,0,0,0.6);
+            font-weight: 800;
+            text-shadow:
+                -1px -1px 0 #000,
+                 1px -1px 0 #000,
+                -1px  1px 0 #000,
+                 1px  1px 0 #000;
         }
 
-        /* Contorno etiquetas Usuario / Contraseña */
         div[data-testid="stTextInput"] label {
             display: inline-block;
-            border: 2px solid #000000;
+            color: #ffffff;
+            border: 2px solid #ffffff;
             border-radius: 6px;
             padding: 4px 10px;
             margin-bottom: 6px;
             font-weight: 600;
-            background-color: rgba(255,255,255,0.95);
+            text-shadow:
+                -1px -1px 0 #000,
+                 1px -1px 0 #000,
+                -1px  1px 0 #000,
+                 1px  1px 0 #000;
+        }
+
+        div[data-testid="stTextInput"] input {
+            color: #ffffff;
+            font-weight: 600;
+            background-color: rgba(0,0,0,0.3);
+            border: 1px solid #ffffff;
+        }
+
+        div[data-testid="stTextInput"] input::placeholder {
+            color: #dddddd;
+        }
+
+        div[data-testid="stTextInput"] input:focus {
+            border: 2px solid #ffffff;
+            color: #ffffff;
         }
         </style>
         """, unsafe_allow_html=True)
@@ -143,10 +169,6 @@ def check_password():
         return False
 
     return True
-
-
-if not check_password():
-    st.stop()
 
 # ================= SELECCIÓN DE OBRA =================
 auth = st.session_state["auth"]
