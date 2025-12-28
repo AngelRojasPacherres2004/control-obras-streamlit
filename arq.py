@@ -111,7 +111,7 @@ def check_password():
         /* Contorno etiquetas Usuario / Contraseña */
         div[data-testid="stTextInput"] label {
             display: inline-block;
-            border: 2px solid #f4b400;
+            border: 2px solid #000000;
             border-radius: 6px;
             padding: 4px 10px;
             margin-bottom: 6px;
