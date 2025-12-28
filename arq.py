@@ -73,16 +73,6 @@ def check_password():
             background-repeat: no-repeat;
         }
 
-        /* Overlay oscuro */
-        [data-testid="stAppViewContainer"]::before {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background: rgba(0,0,0,0.55);
-            z-index: 0;
-        }
-
-        /* Ocultar sidebar */
         [data-testid="stSidebar"] {
             display: none;
         }
