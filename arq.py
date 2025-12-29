@@ -5,6 +5,8 @@ import cloudinary
 import cloudinary.uploader
 import firebase_admin
 from firebase_admin import credentials, firestore
+# ====== CAMBIO 1: Importar función para el fondo de pantalla ======
+from util import set_background
 
 # ================= FIREBASE =================
 if not firebase_admin._apps:
@@ -24,6 +26,10 @@ cloudinary.config(
 
 # ================= STREAMLIT =================
 st.set_page_config(page_title="Arq. Supervisor 2025", layout="wide")
+
+# ====== CAMBIO 2: Inicializar estado para controlar pantalla inicial ======
+if "show_login" not in st.session_state:
+    st.session_state.show_login = False
 
 # ================= FUNCIONES =================
 def obtener_obras():
@@ -54,9 +60,57 @@ def cargar_materiales_obra(obra_id):
         .stream()
     return [d.to_dict() for d in docs]
 
-# ================= LOGIN CON FIREBASE =================
+# ====== CAMBIO 3: Nueva función para mostrar pantalla inicial ======
+def pantalla_inicial():
+    # Aplicar imagen de fondo
+    set_background("Empresalogo.jpg")
+    
+    # Espaciado para bajar el botón MUCHO más abajo (cerca del final de la pantalla)
+    st.markdown("<br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br><br>", unsafe_allow_html=True)
+    
+    # Crear 3 columnas para centrar el botón horizontalmente
+    col1, col2, col3 = st.columns([1, 1, 1])
+    
+    with col2:
+        # Botón que cambia el estado para mostrar el login
+        if st.button("Iniciar Sesión", use_container_width=True):
+            st.session_state.show_login = True
+            st.rerun()
+
+# ================= LOGIN CON FIREBASE (con modificaciones) =================
 def check_password():
     if "auth" not in st.session_state:
+        # ====== CAMBIO 4: Aplicar fondo con overlay oscuro en el login ======
+        set_background("Empresalogo.jpg")
+        st.markdown("""
+        <style>
+        /* Capa oscura semitransparente sobre el fondo */
+        .stApp::after {
+            content: "";
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.6);
+            z-index: 0;
+            pointer-events: none;
+        }
+        /* Título en blanco con sombra para que se vea sobre el fondo */
+        h1 {
+            color: white !important;
+            text-shadow: 2px 2px 4px rgba(0, 0, 0, 0.8);
+        }
+        /* Labels en blanco para que contrasten */
+        label {
+            color: white !important;
+        }
+        </style>
+        """, unsafe_allow_html=True)
+        
+        # ====== CAMBIO 5: Espaciado para bajar el formulario de login ======
+        st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+        
         st.title("CONTROL DE OBRAS 2025")
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
@@ -85,10 +139,19 @@ def check_password():
         return False
     return True
 
+# ====== CAMBIO 6: Verificar si mostrar pantalla inicial o login ======
+if not st.session_state.show_login:
+    pantalla_inicial()
+    st.stop()
+
 if not check_password():
     st.stop()
 
-# ================= SELECCIÓN DE OBRA =================
+# ================= SELECCIÓN DE OBRA (código original sin cambios) =================
+# Verificar que el usuario esté autenticado antes de continuar
+if "auth" not in st.session_state:
+    st.stop()
+
 auth = st.session_state["auth"]
 OBRAS = obtener_obras()
 
@@ -103,7 +166,7 @@ else:
     st.sidebar.success(f"Obra asignada: {OBRAS[obra_id_sel]}")
 
 
-# ================= ADMIN: CREAR OBRA =================
+# ================= ADMIN: CREAR OBRA (código original sin cambios) =================
 if auth["role"] == "jefe":
     with st.sidebar.expander("➕ Crear Obra"):
         with st.form("crear_obra"):
@@ -132,10 +195,10 @@ if auth["role"] == "jefe":
             st.rerun()
 
 
-# ================= TITULO =================
+# ================= TITULO (código original sin cambios) =================
 st.title(f" {OBRAS[obra_id_sel]}")
 
-# ================= ADMIN: GESTIÓN DE MATERIALES =================
+# ================= ADMIN: GESTIÓN DE MATERIALES (código original sin cambios) =================
 if auth["role"] == "jefe":
     st.header(" Gestión de Materiales")
 
@@ -208,7 +271,7 @@ if auth["role"] == "jefe":
         st.info("Esta obra aún no tiene materiales asignados")
 
 
-# ================= PASANTE: PARTE DIARIO =================
+# ================= PASANTE: PARTE DIARIO (código original sin cambios) =================
 if auth["role"] == "pasante":
     st.header("Parte Diario")
 
@@ -248,7 +311,7 @@ if auth["role"] == "pasante":
             st.success("Avance guardado correctamente")
             st.rerun()
 
-# ================= HISTORIAL =================
+# ================= HISTORIAL (código original sin cambios) =================
 st.header("Historial de Avances")
 
 for av in cargar_avances(obra_id_sel):
@@ -257,3 +320,12 @@ for av in cargar_avances(obra_id_sel):
         st.write(av.get("observaciones", "Sin observaciones"))
         for img in av.get("fotos", []):
             st.image(img, use_container_width=True)
+
+
+# ====== RESUMEN DE CAMBIOS REALIZADOS ======
+# CAMBIO 1 (línea 8): Importar función set_background desde util.py
+# CAMBIO 2 (líneas 32-33): Inicializar variable show_login en session_state
+# CAMBIO 3 (líneas 66-80): Crear función pantalla_inicial() con logo y botón
+# CAMBIO 4 (líneas 86-117): Agregar overlay oscuro y estilos CSS en el login
+# CAMBIO 5 (línea 119): Agregar espaciado vertical en el formulario de login
+# CAMBIO 6 (líneas 151-156): Verificar estado para mostrar pantalla inicial antes del login
