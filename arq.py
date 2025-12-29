@@ -60,21 +60,100 @@ def check_password():
 
         st.markdown("""
         <style>
-                    
+        html, body, [data-testid="stAppViewContainer"] {
+            height: 100%;
+        }
+
+        /* Fondo */
         [data-testid="stAppViewContainer"] {
             background-image: url("https://s7d2.scene7.com/is/image/Caterpillar/CM20200330-6edbb-11f86?$highres$");
             background-size: cover;
             background-position: center;
             background-repeat: no-repeat;
         }
+
+        /* Overlay oscuro */
+        [data-testid="stAppViewContainer"]::before {
+            content: "";
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.6);
+            z-index: 0;
+        }
+
+        /* Ocultar sidebar */
+        [data-testid="stSidebar"] {
+            display: none;
+        }
+
+        /* Caja login */
+        .login-box {
+            position: relative;
+            z-index: 1;
+            background: rgba(0,0,0,0.65);
+            padding: 32px;
+            border-radius: 14px;
+            max-width: 420px;
+            margin: auto;
+            margin-top: 160px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.6);
+        }
+
+        /* Título */
+        h1 {
+            color: #ffffff;
+            text-align: center;
+            font-weight: 800;
+            text-shadow:
+                -1px -1px 0 #000,
+                 1px -1px 0 #000,
+                -1px  1px 0 #000,
+                 1px  1px 0 #000;
+        }
+
+        /* Labels Usuario / Contraseña */
+        div[data-testid="stTextInput"] label {
+            display: inline-block;
+            color: #ffffff;
+            border: 2px solid #ffffff;
+            border-radius: 6px;
+            padding: 4px 10px;
+            margin-bottom: 6px;
+            font-weight: 600;
+            text-shadow:
+                -1px -1px 0 #000,
+                 1px -1px 0 #000,
+                -1px  1px 0 #000,
+                 1px  1px 0 #000;
+        }
+
+        /* Texto que escribe el usuario */
+        div[data-testid="stTextInput"] input {
+            color: #ffffff;
+            font-weight: 600;
+            background-color: rgba(0,0,0,0.3);
+            border: 1px solid #ffffff;
+        }
+
+        /* Placeholder */
+        div[data-testid="stTextInput"] input::placeholder {
+            color: #dddddd;
+        }
+
+        /* Focus */
+        div[data-testid="stTextInput"] input:focus {
+            border: 2px solid #ffffff;
+            color: #ffffff;
+        }
         </style>
         """, unsafe_allow_html=True)
 
         # ================= LOGIN =================
+        st.markdown("<div class='login-box'>", unsafe_allow_html=True)
 
         st.title("CONTROL DE OBRAS 2025")
 
-        username = st.text_input(" :green[Usuario]")
+        username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
 
         if st.button("INGRESAR"):
