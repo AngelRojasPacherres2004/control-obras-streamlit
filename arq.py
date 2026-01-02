@@ -11,7 +11,9 @@ from auth import (
     verificar_autenticacion
 )
 
-
+if debe_mostrar_pantalla_inicial():
+    mostrar_pantalla_inicial()
+    st.stop()
 # ================= INIT =================
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
