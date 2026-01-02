@@ -3,13 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 
-# ====== IMPORTAR MÓDULOS PROPIOS ======
-from auth import (
-    inicializar_estado_auth,
-    debe_mostrar_pantalla_inicial,
-    mostrar_pantalla_inicial,
-    verificar_autenticacion
-)
+
 
 
 # ================= INIT =================
