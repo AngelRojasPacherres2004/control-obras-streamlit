@@ -2,12 +2,8 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
-
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
-
 # ================= INIT =================
-st.set_page_config(page_title="Control de Obras", layout="centered")
-
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
         credentials.Certificate(dict(st.secrets["firebase"]))
@@ -21,6 +17,8 @@ cloudinary.config(
     api_secret=st.secrets["cloudinary"]["api_secret"],
     secure=True
 )
+
+st.set_page_config(page_title="Control de Obras", layout="centered")
 
 # ====== ESTADO ======
 if "show_login" not in st.session_state:
