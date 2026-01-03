@@ -2,6 +2,12 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
+from streamlit_cookies_controller import CookieController
+
+st.set_page_config(page_title="Control de Obras", layout="centered")
+
+# ================= COOKIES =================
+controller = CookieController()
 
 # ================= INIT =================
 if not firebase_admin._apps:
@@ -18,9 +24,17 @@ cloudinary.config(
     secure=True
 )
 
-st.set_page_config(page_title="Control de Obras", layout="centered")
+# ================= RESTAURAR SESIÓN =================
+if "auth" not in st.session_state:
+    user = controller.get("user")
+    role = controller.get("role")
 
-# ================= LOGIN =================
+    if user and role:
+        st.session_state["auth"] = {
+            "username": user,
+            "role": role
+        }
+
 def login():
     st.markdown("## 🏗️ Control de Obras 2025")
     st.caption("Ingrese sus credenciales")
@@ -34,26 +48,47 @@ def login():
 
             if not doc.exists:
                 st.error("Usuario no existe")
-                return False
+                st.stop()
 
             data = doc.to_dict()
 
             if pwd != data.get("password"):
                 st.error("Contraseña incorrecta")
-                return False
+                st.stop()
 
-            st.session_state["auth"] = data
+            st.session_state["auth"] = {
+                "username": user,
+                "role": data.get("role")
+            }
+
+            controller.set("user", user)
+            controller.set("role", data.get("role"))
+
             st.rerun()
 
-    return False
 
+
+# ================= CONTROL DE ACCESO =================
 if "auth" not in st.session_state:
     login()
     st.stop()
 
-# ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
 
+# ================= SIDEBAR =================
+with st.sidebar:
+    st.write(f"👤 Usuario: {auth['username']}")
+
+    if st.button("Cerrar sesión"):
+        controller.remove("user")
+        controller.remove("role")
+        st.session_state.clear()
+
+        st.rerun()
+
+
+
+# ================= NAVEGACIÓN =================
 usuarios_page   = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
 materiales_page = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
 obras_page      = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
@@ -65,3 +100,5 @@ else:
     pg = st.navigation([avances_page])
 
 pg.run()
+
+
