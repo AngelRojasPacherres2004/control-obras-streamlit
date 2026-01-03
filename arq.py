@@ -3,7 +3,6 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 
-# ====== IMPORTAR MÓDULOS PROPIOS ======
 from auth import (
     inicializar_estado_auth,
     debe_mostrar_pantalla_inicial,
@@ -11,9 +10,15 @@ from auth import (
     verificar_autenticacion
 )
 
+# 👇 ESTO ES CLAVE
+inicializar_estado_auth()
+
 if debe_mostrar_pantalla_inicial():
     mostrar_pantalla_inicial()
     st.stop()
+
+
+
 # ================= INIT =================
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
