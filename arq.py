@@ -20,36 +20,7 @@ cloudinary.config(
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
-# ================= LOGIN =================
-def login():
-    st.markdown("## 🏗️ Control de Obras 2025")
-    st.caption("Ingrese sus credenciales")
 
-    with st.container(border=True):
-        user = st.text_input("Usuario")
-        pwd = st.text_input("Contraseña", type="password")
-
-        if st.button("INGRESAR", type="primary", use_container_width=True):
-            doc = db.collection("users").document(user).get()
-
-            if not doc.exists:
-                st.error("Usuario no existe")
-                return False
-
-            data = doc.to_dict()
-
-            if pwd != data.get("password"):
-                st.error("Contraseña incorrecta")
-                return False
-
-            st.session_state["auth"] = data
-            st.rerun()
-
-    return False
-
-if "auth" not in st.session_state:
-    login()
-    st.stop()
 
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
