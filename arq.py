@@ -2,7 +2,7 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
-from auth import pantalla_inicio, pantalla_login
+from auth import mostrar_pantalla_inicial, verificar_autenticacion
 
 
 
