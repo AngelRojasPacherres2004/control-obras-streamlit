@@ -84,14 +84,4 @@ def verificar_autenticacion(db):
 
         return False
 
-    return True
-
-
-# ====== ESTADO ======
-def inicializar_estado_auth():
-    if "show_login" not in st.session_state:
-        st.session_state.show_login = False
-
-
-def debe_mostrar_pantalla_inicial():
-    return not st.session_state.show_login
+ 
