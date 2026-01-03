@@ -2,20 +2,8 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
+from auth import pantalla_inicio, pantalla_login
 
-from auth import (
-    inicializar_estado_auth,
-    debe_mostrar_pantalla_inicial,
-    mostrar_pantalla_inicial,
-    verificar_autenticacion
-)
-
-# 👇 ESTO ES CLAVE
-inicializar_estado_auth()
-
-if debe_mostrar_pantalla_inicial():
-    mostrar_pantalla_inicial()
-    st.stop()
 
 
 
@@ -65,6 +53,16 @@ def login():
 
 if "auth" not in st.session_state:
     login()
+    st.stop()
+# ====== FLUJO VISUAL ======
+# 1️⃣ Pantalla inicial
+if not st.session_state.show_login:
+    pantalla_inicio()
+    st.stop()
+
+# 2️⃣ Login
+if "auth" not in st.session_state:
+    pantalla_login(db)
     st.stop()
 
 # ================= NAVEGACIÓN =================
