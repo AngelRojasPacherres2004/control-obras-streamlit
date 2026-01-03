@@ -20,7 +20,21 @@ cloudinary.config(
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
+# ====== ESTADO ======
+if "show_login" not in st.session_state:
+    st.session_state.show_login = False
 
+# ====== FLUJO VISUAL ======
+
+# 1️⃣ Pantalla inicial (solo diseño)
+if not st.session_state.show_login:
+    mostrar_pantalla_inicial()
+    st.stop()
+
+# 2️⃣ Login (diseño + autenticación)
+if "auth" not in st.session_state:
+    verificar_autenticacion(db)
+    st.stop()
 
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
