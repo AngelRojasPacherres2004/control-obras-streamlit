@@ -115,25 +115,36 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
 
     # ⛔ CORTA TODO LO DEMÁS
     st.stop()
-
-           
-
-
-
-
-
-
-
 # ================= INFO OBRA =================
 obra_doc = db.collection("obras").document(obra_id_sel).get().to_dict()
 
-st.subheader(f"🏗️ {obra_doc['nombre']}")
-st.write(f"📍 **Ubicación:** {obra_doc['ubicacion']}")
-st.write(f"📌 **Estado:** {obra_doc['estado']}")
-st.write(f"📅 **Inicio:** {obra_doc['fecha_inicio']}")
-st.write(f"📅 **Fin estimado:** {obra_doc['fecha_fin_estimada']}")
+st.subheader(f"🏗️ {obra_doc.get('nombre','-')}")
+st.write(f"📍 **Ubicación:** {obra_doc.get('ubicacion','-')}")
+st.write(f"📌 **Estado:** {obra_doc.get('estado','-')}")
+st.write(f"📅 **Inicio:** {obra_doc.get('fecha_inicio','-')}")
+st.write(f"📅 **Fin estimado:** {obra_doc.get('fecha_fin_estimada', 'No definido')}")
+
 
 st.divider()
+
+# ================= PROGRESO DE LA OBRA =================
+avances = (
+    db.collection("obras")
+    .document(obra_id_sel)
+    .collection("avances")
+    .stream()
+)
+
+total = 0
+for av in avances:
+    total += int(av.to_dict().get("avance_porcentaje", 0))
+
+total = min(total, 100)
+
+st.subheader("📊 Progreso de la obra")
+st.progress(total / 100)
+st.caption(f"{total}% completado")
+
 
 # ================= PASANTE: REGISTRAR AVANCE =================
 if auth["role"] == "pasante":
