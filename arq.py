@@ -54,15 +54,17 @@ def login():
 if "auth" not in st.session_state:
     login()
     st.stop()
-# ====== FLUJO VISUAL ======
-# 1️⃣ Pantalla inicial
+    
+# ====== FLUJO ======
+
+# 1️⃣ Pantalla inicial (diseño)
 if not st.session_state.show_login:
-    pantalla_inicio()
+    mostrar_pantalla_inicial()
     st.stop()
 
-# 2️⃣ Login
+# 2️⃣ Login (diseño + auth)
 if "auth" not in st.session_state:
-    pantalla_login(db)
+    verificar_autenticacion(db)
     st.stop()
 
 # ================= NAVEGACIÓN =================
