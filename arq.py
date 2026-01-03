@@ -54,6 +54,10 @@ def login():
 if "auth" not in st.session_state:
     login()
     st.stop()
+
+# ====== ESTADO ======
+if "show_login" not in st.session_state:
+    st.session_state.show_login = False
     
 # ====== FLUJO ======
 
