@@ -34,18 +34,19 @@ if not obra_doc.exists:
 
 obra = obra_doc.to_dict()
 
-# ---- fechas (ROBUSTO) ----
+# ================= FECHAS (CORRECTO + ROBUSTO) =================
 fecha_inicio_raw = obra.get("fecha_inicio")
-fecha_fin_raw = obra.get("fecha_fin_estimada")
+fecha_fin_raw = obra.get("fecha_fin_estimado")  # 👈 NOMBRE REAL EN FIREBASE
 
 if not fecha_inicio_raw or not fecha_fin_raw:
     st.error("La obra no tiene fechas configuradas")
     st.stop()
 
+# Firestore Timestamp → datetime → date
 fecha_inicio = fecha_inicio_raw.date()
 fecha_fin = fecha_fin_raw.date()
 
-# ================= MATERIALES ASIGNADOS (ADMIN) =================
+# ================= MATERIALES ASIGNADOS =================
 mats_admin_docs = (
     db.collection("obras")
     .document(obra_id)
@@ -58,7 +59,7 @@ presupuesto_total = 0.0
 
 for m in mats_admin_docs:
     d = m.to_dict()
-    d["doc_id"] = m.id  # id del documento en la obra
+    d["doc_id"] = m.id
     materiales.append(d)
     presupuesto_total += float(d.get("subtotal", 0))
 
