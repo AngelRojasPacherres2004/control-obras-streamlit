@@ -15,7 +15,7 @@ if "auth" not in st.session_state:
 
 auth = st.session_state["auth"]
 
-if auth["role"] != "pasante":
+if auth.get("role") != "pasante":
     st.warning("Acceso solo para pasantes")
     st.stop()
 
@@ -33,40 +33,48 @@ if not obra_doc.exists:
     st.stop()
 
 obra = obra_doc.to_dict()
-fecha_inicio = obra["fecha_inicio"].date()
-fecha_fin = obra["fecha_fin_estimada"].date()
 
+# ---- fechas (ROBUSTO) ----
+fecha_inicio_raw = obra.get("fecha_inicio")
+fecha_fin_raw = obra.get("fecha_fin_estimada")
+
+if not fecha_inicio_raw or not fecha_fin_raw:
+    st.error("La obra no tiene fechas configuradas")
+    st.stop()
+
+fecha_inicio = fecha_inicio_raw.date()
+fecha_fin = fecha_fin_raw.date()
 
 # ================= MATERIALES ASIGNADOS (ADMIN) =================
-mats_admin = list(
+mats_admin_docs = (
     db.collection("obras")
     .document(obra_id)
     .collection("materiales")
     .stream()
 )
 
-if not mats_admin:
+materiales = []
+presupuesto_total = 0.0
+
+for m in mats_admin_docs:
+    d = m.to_dict()
+    d["doc_id"] = m.id  # id del documento en la obra
+    materiales.append(d)
+    presupuesto_total += float(d.get("subtotal", 0))
+
+if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
-materiales = []
-presupuesto_total = 0
-
-for m in mats_admin:
-    d = m.to_dict()
-    d["id"] = m.id
-    materiales.append(d)
-    presupuesto_total += d["subtotal"]
-
 # ================= GASTO ACUMULADO =================
-usados = list(
+usados_docs = (
     db.collection("obras")
     .document(obra_id)
     .collection("materiales_usados")
     .stream()
 )
 
-gasto_actual = sum(u.to_dict().get("subtotal", 0) for u in usados)
+gasto_actual = sum(float(u.to_dict().get("subtotal", 0)) for u in usados_docs)
 
 # ================= SEMÁFORO =================
 hoy = date.today()
@@ -122,7 +130,8 @@ if guardar:
     elif not fotos or len(fotos) < 3:
         st.error("Debes subir al menos 3 fotos")
     else:
-        subtotal = round(cantidad * mat_sel["precio_unitario"], 2)
+        precio_unitario = float(mat_sel.get("precio_unitario", 0))
+        subtotal = round(cantidad * precio_unitario, 2)
 
         urls = []
         with st.spinner("Subiendo fotos..."):
@@ -133,22 +142,22 @@ if guardar:
                 )
                 urls.append(res["secure_url"])
 
-        # guardar material usado
+        # ---- guardar material usado ----
         db.collection("obras") \
             .document(obra_id) \
             .collection("materiales_usados") \
             .add({
                 "fecha": datetime.now(),
-                "material_id": mat_sel["material_id"],
+                "material_doc_id": mat_sel["doc_id"],
                 "nombre": mat_sel["nombre"],
                 "unidad": mat_sel["unidad"],
                 "cantidad": cantidad,
-                "precio_unitario": mat_sel["precio_unitario"],
+                "precio_unitario": precio_unitario,
                 "subtotal": subtotal,
                 "usuario": username
             })
 
-        # guardar avance
+        # ---- guardar avance ----
         db.collection("obras") \
             .document(obra_id) \
             .collection("avances") \
@@ -171,7 +180,7 @@ if guardar:
 st.divider()
 st.subheader("📂 Historial de avances")
 
-avances = (
+avances_docs = (
     db.collection("obras")
     .document(obra_id)
     .collection("avances")
@@ -180,14 +189,18 @@ avances = (
 )
 
 hay = False
-for av in avances:
+for av in avances_docs:
     hay = True
     d = av.to_dict()
     f = datetime.fromisoformat(d["fecha"])
 
     with st.expander(f"📅 {f:%d/%m/%Y %H:%M} — {d.get('responsable','N/D')}"):
         st.write(d.get("observaciones", ""))
-        st.caption(f"Material: {d.get('material')} | Cantidad: {d.get('cantidad')} | Costo: S/ {d.get('costo')}")
+        st.caption(
+            f"Material: {d.get('material')} | "
+            f"Cantidad: {d.get('cantidad')} | "
+            f"Costo: S/ {d.get('costo')}"
+        )
         st.caption(f"Registrado por: {d.get('usuario')}")
         for img in d.get("fotos", []):
             st.image(img, use_container_width=True)
