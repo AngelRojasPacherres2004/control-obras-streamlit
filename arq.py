@@ -68,27 +68,30 @@ if "auth" not in st.session_state:
 
 auth = st.session_state["auth"]
 
-# ================= SIDEBAR & CERRAR SESIÓN (SOLUCIÓN DEFINITIVA) =================
+# ================= SIDEBAR & CERRAR SESIÓN (CORREGIDO) =================
 with st.sidebar:
     st.write(f"👤 Usuario: **{auth['username']}**")
     
+    # Usamos un callback para que el borrado ocurra ANTES de que la página se redibuje
     if st.button("Cerrar sesión", type="primary", use_container_width=True):
-        # 1. Borramos las cookies con seguridad para evitar el KeyError
+        # 1. Borramos las cookies físicamente
         try:
-            cookie_manager.delete("user", key="exit_u")
-            cookie_manager.delete("role", key="exit_r")
-        except Exception:
-            # Si la cookie ya no está o da error, simplemente ignoramos y seguimos
+            cookie_manager.delete("user", key="force_logout_u")
+            cookie_manager.delete("role", key="force_logout_r")
+            cookie_manager.delete("obra", key="force_logout_o")
+        except:
             pass
         
-        # 2. Limpiamos TODO el estado de Streamlit
-        st.session_state.clear() 
+        # 2. LIMPIEZA INMEDIATA: Esto es lo que permite el cierre en 1 solo clic
+        # Eliminamos la llave 'auth' y limpiamos el estado
+        for key in list(st.session_state.keys()):
+            del st.session_state[key]
+            
+        # 3. Pequeña pausa para sincronizar con el navegador
+        st.info("Cerrando sesión...")
+        time.sleep(0.6)
         
-        # 3. Mensaje visual y pausa breve para asegurar que el navegador responda
-        st.warning("Sesión finalizada. Redirigiendo...")
-        time.sleep(0.8)
-        
-        # 4. Forzamos recarga total
+        # 4. Forzamos el reinicio total
         st.rerun()
 
 # ================= NAVEGACIÓN =================
