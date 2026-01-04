@@ -39,22 +39,35 @@ def verificar_autenticacion(db):
 
         st.markdown("""
         <style>
+        /* Overlay SOLO para el fondo */
         .stApp::after {
             content: "";
             position: fixed;
-            top: 0;
-            left: 0;
-            width: 100%;
-            height: 100%;
+            inset: 0;
             background-color: rgba(0, 0, 0, 0.6);
             z-index: 0;
             pointer-events: none;
         }
-        h1, label {
-            color: white !important;
+
+        /* Todo el contenido arriba del overlay */
+        section[data-testid="stAppViewContainer"] > .main {
+            position: relative;
+            z-index: 1;
+        }
+
+        /* INPUTS NORMALES (CLAVE) */
+        input {
+            background-color: #ffffff !important;
+            color: #000000 !important;
+        }
+
+        /* Labels visibles */
+        label {
+            color: #ffffff !important;
         }
         </style>
         """, unsafe_allow_html=True)
+
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.title("CONTROL DE OBRAS 2025")
