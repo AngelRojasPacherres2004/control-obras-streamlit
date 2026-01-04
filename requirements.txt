@@ -2,4 +2,4 @@ streamlit
 pandas
 firebase-admin
 cloudinary
-streamlit-cookies-controller
+extra-streamlit-components

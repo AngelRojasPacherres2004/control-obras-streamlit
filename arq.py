@@ -3,6 +3,7 @@ import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 from streamlit_cookies_controller import CookieController
+import time
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
@@ -24,17 +25,31 @@ cloudinary.config(
     secure=True
 )
 
-# ================= RESTAURAR SESIÓN (AL RECARGAR) =================
+# ================= RESTAURAR SESIÓN (VERSION ROBUSTA) =================
 if "auth" not in st.session_state:
-    user = controller.get("user")
-    role = controller.get("role")
+   
+    cookies = controller.getAll()
+    
+    #Si no hay nada, esperamos un segundo y volvemos a intentar
+    if not cookies:
+        with st.empty():
+            st.info("Sincronizando sesión...")
+            time.sleep(1.5) # Tiempo suficiente para que el navegador responda
+        
+        # Intentamos obtenerlas de nuevo tras la espera
+        cookies = controller.getAll()
 
-    if user and role:
-        st.session_state["auth"] = {
-            "username": user,
-            "role": role
-        }
+    # Si después del intento sigue vacío, mostramos el login
+    if cookies:
+        user = cookies.get("user")
+        role = cookies.get("role")
 
+        if user and role:
+            st.session_state["auth"] = {
+                "username": user,
+                "role": role
+            }
+            st.rerun()
 # ================= LOGIN =================
 def login():
     st.markdown("## 🏗️ Control de Obras")
@@ -49,21 +64,19 @@ def login():
 
             if not doc.exists:
                 st.error("Usuario no existe")
-                st.stop()
+                return
 
             data = doc.to_dict()
 
             if pwd != data.get("password"):
                 st.error("Contraseña incorrecta")
-                st.stop()
+                return
 
-            # Guardar sesión
             st.session_state["auth"] = {
                 "username": user,
                 "role": data.get("role")
             }
 
-            # Guardar cookies (persistente)
             controller.set("user", user)
             controller.set("role", data.get("role"))
 
@@ -81,13 +94,9 @@ with st.sidebar:
     st.write(f"👤 Usuario: **{auth['username']}**")
 
     if st.button("Cerrar sesión"):
-        # Eliminar cookies
         controller.remove("user")
         controller.remove("role")
-
-        # Eliminar solo auth
-        del st.session_state["auth"]
-
+        st.session_state.pop("auth", None)
         st.rerun()
 
 # ================= NAVEGACIÓN =================
