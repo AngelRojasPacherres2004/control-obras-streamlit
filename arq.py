@@ -24,7 +24,7 @@ cloudinary.config(
     secure=True
 )
 
-# ================= RESTAURAR SESIÓN =================
+# ================= RESTAURAR SESIÓN (AL RECARGAR) =================
 if "auth" not in st.session_state:
     user = controller.get("user")
     role = controller.get("role")
@@ -35,8 +35,9 @@ if "auth" not in st.session_state:
             "role": role
         }
 
+# ================= LOGIN =================
 def login():
-    st.markdown("## 🏗️ Control de Obras 2025")
+    st.markdown("## 🏗️ Control de Obras")
     st.caption("Ingrese sus credenciales")
 
     with st.container(border=True):
@@ -56,17 +57,17 @@ def login():
                 st.error("Contraseña incorrecta")
                 st.stop()
 
+            # Guardar sesión
             st.session_state["auth"] = {
                 "username": user,
                 "role": data.get("role")
             }
 
+            # Guardar cookies (persistente)
             controller.set("user", user)
             controller.set("role", data.get("role"))
 
             st.rerun()
-
-
 
 # ================= CONTROL DE ACCESO =================
 if "auth" not in st.session_state:
@@ -77,16 +78,17 @@ auth = st.session_state["auth"]
 
 # ================= SIDEBAR =================
 with st.sidebar:
-    st.write(f"👤 Usuario: {auth['username']}")
+    st.write(f"👤 Usuario: **{auth['username']}**")
 
     if st.button("Cerrar sesión"):
+        # Eliminar cookies
         controller.remove("user")
         controller.remove("role")
-        st.session_state.clear()
+
+        # Eliminar solo auth
+        del st.session_state["auth"]
 
         st.rerun()
-
-
 
 # ================= NAVEGACIÓN =================
 usuarios_page   = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
@@ -100,5 +102,3 @@ else:
     pg = st.navigation([avances_page])
 
 pg.run()
-
-
