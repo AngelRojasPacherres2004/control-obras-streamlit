@@ -33,9 +33,9 @@ if not obra_doc.exists:
     st.stop()
 
 obra = obra_doc.to_dict()
+fecha_inicio = obra["fecha_inicio"].date()
+fecha_fin = obra["fecha_fin_estimada"].date()
 
-fecha_inicio = date.fromisoformat(obra["fecha_inicio"])
-fecha_fin = date.fromisoformat(obra["fecha_fin_estimada"])
 
 # ================= MATERIALES ASIGNADOS (ADMIN) =================
 mats_admin = list(
