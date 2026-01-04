@@ -228,3 +228,28 @@ if st.button("Asignar presupuesto total a la obra", type="primary"):
         "presupuesto_actualizado": datetime.now()
     })
     st.success("Presupuesto total asignado")
+    # ================== SECCIÓN X ==================
+st.divider()
+st.header("📤 Exportar materiales de la obra a Excel")
+
+if mats_obra:
+    df_export = pd.DataFrame(mats_obra)
+
+    # Nos quedamos solo con las columnas que quieres
+    df_export = df_export[["nombre", "unidad", "precio_unitario"]]
+
+    # Crear el archivo Excel en memoria
+    from io import BytesIO
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Materiales")
+    buffer.seek(0)
+
+    st.download_button(
+        label="📥 Descargar Excel",
+        data=buffer,
+        file_name=f"materiales_{obra_id}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+else:
+    st.info("No hay materiales para exportar")
