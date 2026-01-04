@@ -6,6 +6,20 @@ import cloudinary.uploader
 from firebase_admin import firestore
 import calendar
 from collections import defaultdict
+MESES_ES = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre"
+}
 
 # ================= CLOUDINARY =================
 cloudinary.config(
@@ -227,8 +241,9 @@ else:
     mes_sel = col2.selectbox(
         "📅 Seleccionar mes",
         meses,
-        format_func=lambda x: calendar.month_name[x]
+        format_func=lambda x: MESES_ES[x]
     )
+
 
     # ---------- MODO VISUAL ----------
     modo = st.radio(
@@ -269,9 +284,10 @@ else:
         valores = [costos_mes.get(m, 0) for m in meses_orden]
 
         chart_df = pd.DataFrame({
-            "Mes": [calendar.month_name[m] for m in meses_orden],
+            "Mes": [MESES_ES[m] for m in meses_orden],
             "Costo": valores
         }).set_index("Mes")
+
 
         st.bar_chart(chart_df, height=300)
 
