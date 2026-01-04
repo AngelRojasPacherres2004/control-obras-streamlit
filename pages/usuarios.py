@@ -15,6 +15,16 @@ st.info("Aquí se administrarán los usuarios")
 
 db = firestore.client()
 
+
+# ================= CONEXIÓN SEGURA A FIREBASE =================
+def get_db():
+    if not firebase_admin._apps:
+        # Esto asegura que se inicialice si no existe
+        cred = credentials.Certificate(dict(st.secrets["firebase"]))
+        firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+db = get_db()
 # ================= FUNCIONES =================
 def obtener_obras():
     return {d.id: d.to_dict()["nombre"] for d in db.collection("obras").stream()}

@@ -1,7 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from firebase_admin import firestore
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+# ================= CONEXIÓN SEGURA =================
+def get_db():
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(dict(st.secrets["firebase"]))
+        firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+db = get_db()
 
 # ================= DB =================
 db = firestore.client()

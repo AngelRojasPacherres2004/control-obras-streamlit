@@ -1,11 +1,22 @@
 import streamlit as st
 from datetime import datetime
 import cloudinary.uploader
-from firebase_admin import firestore
+import firebase_admin
+from firebase_admin import credentials, firestore
+
+# ================= CONEXIÓN SEGURA =================
+def get_db():
+    if not firebase_admin._apps:
+        cred = credentials.Certificate(dict(st.secrets["firebase"]))
+        firebase_admin.initialize_app(cred)
+    return firestore.client()
+
+db = get_db()
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Parte Diario", layout="centered")
 db = firestore.client()
+
 
 # ================= SEGURIDAD =================
 if "auth" not in st.session_state:
