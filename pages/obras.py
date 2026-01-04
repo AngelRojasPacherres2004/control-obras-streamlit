@@ -84,7 +84,7 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
 
         col1, col2 = st.columns(2)
         fecha_inicio = col1.date_input("Fecha inicio")
-        fecha_fin = col2.date_input("Fecha fin estimada")
+        fecha_fin = col2.date_input("Fecha fin estimado")
 
         col1, col2 = st.columns(2)
         guardar = col1.form_submit_button("💾 Crear obra")
@@ -100,21 +100,30 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
                 "nombre": nombre,
                 "ubicacion": ubicacion,
                 "estado": estado,
-                "fecha_inicio": fecha_inicio.isoformat(),
-                "fecha_fin_estimada": fecha_fin.isoformat(),
-                "creado_en": datetime.now().isoformat()
+
+                # ✅ Guardar como TIMESTAMP (Firestore)
+                "fecha_inicio": datetime.combine(
+                    fecha_inicio, datetime.min.time()
+                ),
+                "fecha_fin_estimado": datetime.combine(
+                    fecha_fin, datetime.min.time()
+                ),
+
+                "presupuesto_total": 0,
+                "creado_en": datetime.now()
             })
 
             st.session_state["crear_obra"] = False
-            st.success("Obra creada correctamente")
+            st.success("✅ Obra creada correctamente")
             st.rerun()
 
     if cancelar:
         st.session_state["crear_obra"] = False
         st.rerun()
 
-    # ⛔ CORTA TODO LO DEMÁS
+    # ⛔ Detiene el resto de la página
     st.stop()
+
 
            
 
@@ -131,7 +140,7 @@ st.subheader(f"🏗️ {obra_doc['nombre']}")
 st.write(f"📍 **Ubicación:** {obra_doc['ubicacion']}")
 st.write(f"📌 **Estado:** {obra_doc['estado']}")
 st.write(f"📅 **Inicio:** {obra_doc['fecha_inicio']}")
-st.write(f"📅 **Fin estimado:** {obra_doc['fecha_fin_estimada']}")
+st.write(f"📅 **Fin estimado:** {obra_doc['fecha_fin_estimado']}")
 
 st.divider()
 
