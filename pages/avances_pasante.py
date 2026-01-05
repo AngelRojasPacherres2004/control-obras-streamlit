@@ -1,5 +1,5 @@
 import streamlit as st
-from datetime import datetime, date
+from datetime import datetime
 import cloudinary.uploader
 from firebase_admin import firestore
 
@@ -26,7 +26,9 @@ if not obra_id:
     st.stop()
 
 # ================= DATOS DE LA OBRA =================
-obra_doc = db.collection("obras").document(obra_id).get()
+obra_ref = db.collection("obras").document(obra_id)
+obra_doc = obra_ref.get()
+
 if not obra_doc.exists:
     st.error("La obra asignada no existe")
     st.stop()
@@ -43,10 +45,7 @@ with st.sidebar:
 
 # ================= MATERIALES ASIGNADOS =================
 materiales_docs = (
-    db.collection("obras")
-    .document(obra_id)
-    .collection("materiales")
-    .stream()
+    obra_ref.collection("materiales").stream()
 )
 
 materiales = []
@@ -62,23 +61,16 @@ if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
-# ================= GASTO ACUMULADO =================
-usados_docs = (
-    db.collection("obras")
-    .document(obra_id)
-    .collection("materiales_usados")
-    .stream()
-)
-
-gasto_actual = sum(float(u.to_dict().get("subtotal", 0)) for u in usados_docs)
+# ================= GASTO ACUMULADO (DESDE OBRA) =================
+gasto_acumulado = float(obra.get("gasto_acumulado", 0))
 
 # ================= MÉTRICAS =================
 st.subheader("📊 Estado Financiero")
 
-porcentaje_total = (gasto_actual / presupuesto_total) * 100 if presupuesto_total else 0
+porcentaje_total = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
 
 st.metric("💰 Presupuesto total", f"S/ {presupuesto_total:,.2f}")
-st.metric("🔥 Gasto acumulado", f"S/ {gasto_actual:,.2f}")
+st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
 st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
 st.progress(min(porcentaje_total / 100, 1.0))
 
@@ -149,14 +141,9 @@ if guardar:
 
             batch = db.batch()
 
-            # ---- guardar materiales usados ----
+            # ---- materiales usados ----
             for m_id, m in materiales_usados.items():
-                ref = (
-                    db.collection("obras")
-                    .document(obra_id)
-                    .collection("materiales_usados")
-                    .document()
-                )
+                ref = obra_ref.collection("materiales_usados").document()
                 batch.set(ref, {
                     "fecha": datetime.now(),
                     "material_doc_id": m_id,
@@ -169,14 +156,8 @@ if guardar:
                 if presupuesto_total else 0
             )
 
-            # ---- guardar avance (SNAPSHOT) ----
-            ref_avance = (
-                db.collection("obras")
-                .document(obra_id)
-                .collection("avances")
-                .document()
-            )
-
+            # ---- avance diario ----
+            ref_avance = obra_ref.collection("avances").document()
             batch.set(ref_avance, {
                 "fecha": datetime.now().isoformat(),
                 "timestamp": datetime.now(),
@@ -191,6 +172,18 @@ if guardar:
 
             batch.commit()
 
+            # ===== ACTUALIZAR GASTO ACUMULADO EN LA OBRA =====
+            avances_docs = obra_ref.collection("avances").stream()
+            nuevo_gasto_acumulado = sum(
+                float(a.to_dict().get("costo_total_dia", 0))
+                for a in avances_docs
+            )
+
+            obra_ref.update({
+                "gasto_acumulado": round(nuevo_gasto_acumulado, 2),
+                "ultima_actualizacion": firestore.SERVER_TIMESTAMP
+            })
+
             st.success(
                 f"Avance registrado. Impacto del día: {porcentaje_avance:.2f}%"
             )
@@ -201,9 +194,7 @@ st.divider()
 st.subheader("📂 Historial de avances")
 
 avances_docs = (
-    db.collection("obras")
-    .document(obra_id)
-    .collection("avances")
+    obra_ref.collection("avances")
     .order_by("timestamp", direction=firestore.Query.DESCENDING)
     .limit(10)
     .stream()
