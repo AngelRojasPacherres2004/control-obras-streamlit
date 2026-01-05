@@ -35,40 +35,39 @@ if not obra_doc.exists:
 
 obra = obra_doc.to_dict()
 
+fecha_inicio = obra.get("fecha_inicio")
+fecha_fin = obra.get("fecha_fin_estimado")
+presupuesto_total = float(obra.get("presupuesto_total", 0))
+gasto_acumulado = float(obra.get("gasto_acumulado", 0))
+
 # ================= SIDEBAR =================
 with st.sidebar:
     st.header("🏗️ Obra asignada")
     st.write(f"**Nombre:** {obra.get('nombre')}")
     st.write(f"**Estado:** {obra.get('estado')}")
-    st.write(f"📅 Inicio: {obra.get('fecha_inicio').date()}")
-    st.write(f"🏁 Fin estimado: {obra.get('fecha_fin_estimado').date()}")
+    st.write(f"📅 Inicio: {fecha_inicio.date()}")
+    st.write(f"🏁 Fin estimado: {fecha_fin.date()}")
 
-# ================= MATERIALES ASIGNADOS =================
+# ================= MATERIALES =================
 materiales = []
-presupuesto_total = 0.0
-
 for m in obra_ref.collection("materiales").stream():
     d = m.to_dict()
     d["doc_id"] = m.id
     materiales.append(d)
-    presupuesto_total += float(d.get("subtotal", 0))
 
 if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
-# ================= GASTO ACUMULADO (DESDE OBRA) =================
-gasto_acumulado = float(obra.get("gasto_acumulado", 0))
-
 # ================= MÉTRICAS =================
 st.subheader("📊 Estado Financiero")
 
-porcentaje_total = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
+porcentaje = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
 
 st.metric("💰 Presupuesto total", f"S/ {presupuesto_total:,.2f}")
 st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
-st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
-st.progress(min(porcentaje_total / 100, 1.0))
+st.metric("📈 % ejecutado", f"{porcentaje:.2f}%")
+st.progress(min(porcentaje / 100, 1.0))
 
 st.divider()
 
@@ -77,22 +76,22 @@ st.title("📝 Registrar avance diario")
 
 with st.form("form_avance", clear_on_submit=True):
     responsable = st.text_input("Responsable", value=username)
-    descripcion = st.text_area("Descripción del trabajo", height=100)
-
-    st.subheader("🧱 Materiales usados hoy")
+    descripcion = st.text_area("Descripción", height=100)
 
     materiales_usados = {}
     costo_total_dia = 0.0
 
-    for mat in materiales:
-        col1, col2 = st.columns([3, 1])
-        col1.write(f"**{mat['nombre']}** ({mat['unidad']})")
+    st.subheader("🧱 Materiales usados")
 
-        cantidad = col2.number_input(
+    for mat in materiales:
+        c1, c2 = st.columns([3, 1])
+        c1.write(f"**{mat['nombre']}** ({mat['unidad']})")
+
+        cantidad = c2.number_input(
             "Cant.",
             min_value=0.0,
             step=1.0,
-            key=f"mat_{mat['doc_id']}"
+            key=mat["doc_id"]
         )
 
         if cantidad > 0:
@@ -119,108 +118,75 @@ with st.form("form_avance", clear_on_submit=True):
 
 # ================= GUARDAR =================
 if guardar:
+    hoy = datetime.now()
+
+    fuera_presupuesto = (gasto_acumulado + costo_total_dia) > presupuesto_total
+    fuera_fecha = hoy < fecha_inicio or hoy > fecha_fin
+
     if not responsable.strip() or not descripcion.strip():
-        st.error("Responsable y descripción son obligatorios")
+        st.error("Campos obligatorios")
     elif not materiales_usados:
-        st.error("Debes usar al menos un material")
+        st.error("Debes usar materiales")
     elif not fotos or len(fotos) < 3:
-        st.error("Debes subir mínimo 3 fotos")
+        st.error("Mínimo 3 fotos")
     else:
-        with st.spinner("Guardando avance..."):
-            urls = []
-            for f in fotos:
-                res = cloudinary.uploader.upload(
-                    f,
-                    folder=f"obras/{obra_id}/avances"
-                )
-                urls.append(res["secure_url"])
+        urls = []
+        for f in fotos:
+            r = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
+            urls.append(r["secure_url"])
 
-            batch = db.batch()
+        batch = db.batch()
 
-            # ---- materiales usados ----
-            for m_id, m in materiales_usados.items():
-                ref = obra_ref.collection("materiales_usados").document()
-                batch.set(ref, {
-                    "fecha": datetime.now(),
-                    "material_doc_id": m_id,
-                    **m,
-                    "usuario": username
-                })
+        # ---- avance ----
+        ref_avance = obra_ref.collection("avances").document()
+        batch.set(ref_avance, {
+            "fecha": hoy.isoformat(),
+            "timestamp": hoy,
+            "responsable": responsable,
+            "usuario": username,
+            "observaciones": descripcion,
+            "costo_total_dia": round(costo_total_dia, 2),
+            "materiales_usados": list(materiales_usados.values()),
+            "fotos": urls,
+            "fuera_presupuesto": fuera_presupuesto,
+            "fuera_fecha": fuera_fecha
+        })
 
-            porcentaje_avance = (
-                (costo_total_dia / presupuesto_total) * 100
-                if presupuesto_total else 0
-            )
+        # ---- gasto acumulado ATÓMICO ----
+        batch.update(obra_ref, {
+            "gasto_acumulado": firestore.Increment(costo_total_dia),
+            "ultima_actualizacion": firestore.SERVER_TIMESTAMP
+        })
 
-            # ---- avance diario ----
-            ref_avance = obra_ref.collection("avances").document()
-            batch.set(ref_avance, {
-                "fecha": datetime.now().isoformat(),
-                "timestamp": datetime.now(),
-                "usuario": username,
-                "responsable": responsable,
-                "observaciones": descripcion,
-                "costo_total_dia": round(costo_total_dia, 2),
-                "porcentaje_avance_financiero": round(porcentaje_avance, 2),
-                "materiales_usados": list(materiales_usados.values()),
-                "fotos": urls
-            })
+        batch.commit()
 
-            batch.commit()
-
-            # ===== ACTUALIZAR GASTO ACUMULADO EN OBRA =====
-            avances_docs = obra_ref.collection("avances").stream()
-            nuevo_gasto_acumulado = sum(
-                float(a.to_dict().get("costo_total_dia", 0))
-                for a in avances_docs
-            )
-
-            obra_ref.update({
-                "gasto_acumulado": round(nuevo_gasto_acumulado, 2),
-                "ultima_actualizacion": firestore.SERVER_TIMESTAMP
-            })
-
-            st.success(
-                f"Avance registrado. Impacto del día: {porcentaje_avance:.2f}%"
-            )
-            st.rerun()
+        st.success("Avance registrado correctamente")
+        st.rerun()
 
 # ================= HISTORIAL =================
 st.divider()
 st.subheader("📂 Historial de avances")
 
-avances_docs = (
-    obra_ref.collection("avances")
-    .order_by("timestamp", direction=firestore.Query.DESCENDING)
-    .limit(10)
-    .stream()
-)
+for av in obra_ref.collection("avances")\
+        .order_by("timestamp", direction=firestore.Query.DESCENDING)\
+        .limit(10).stream():
 
-hay = False
-
-for av in avances_docs:
-    hay = True
     d = av.to_dict()
     f = datetime.fromisoformat(d["fecha"])
-    prog = d.get("porcentaje_avance_financiero", 0)
 
-    with st.expander(
-        f"📅 {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"
-    ):
+    semaforo = "🟢"
+    if d.get("fuera_presupuesto") or d.get("fuera_fecha"):
+        semaforo = "🔴"
+
+    with st.expander(f"{semaforo} {f:%d/%m/%Y %H:%M} — {d['responsable']}"):
+        st.metric("Costo del día", f"S/ {d['costo_total_dia']:,.2f}")
         st.write(d.get("observaciones"))
-        st.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
-        st.progress(min(prog / 100, 1.0))
 
-        st.markdown("### 🧱 Materiales usados")
-        for m in d.get("materiales_usados", []):
-            st.write(
-                f"- **{m['nombre']}** ({m['unidad']}): "
-                f"{m['cantidad']} × S/ {m['precio_unitario']} "
-                f"= **S/ {m['subtotal']}**"
-            )
+        if d.get("fuera_presupuesto"):
+            st.error("⚠ Excede el presupuesto")
+
+        if d.get("fuera_fecha"):
+            st.error("⚠ Fuera de la fecha de la obra")
 
         for img in d.get("fotos", []):
             st.image(img, use_container_width=True)
-
-if not hay:
-    st.info("Aún no hay avances registrados.")
