@@ -4,6 +4,22 @@ from datetime import datetime, date
 import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
+import calendar
+from collections import defaultdict
+MESES_ES = {
+    1: "Enero",
+    2: "Febrero",
+    3: "Marzo",
+    4: "Abril",
+    5: "Mayo",
+    6: "Junio",
+    7: "Julio",
+    8: "Agosto",
+    9: "Septiembre",
+    10: "Octubre",
+    11: "Noviembre",
+    12: "Diciembre"
+}
 
 # ================= CLOUDINARY =================
 cloudinary.config(
@@ -185,6 +201,113 @@ if auth["role"] == "pasante":
             st.success("Avance registrado correctamente")
             st.rerun()
 
+
+# ================= DASHBOARD DE AVANCES =================
+st.divider()
+st.subheader("📊 Avance económico de la obra")
+
+obra = db.collection("obras").document(obra_id_sel).get().to_dict()
+avances = cargar_avances(obra_id_sel)
+
+if not avances:
+    st.info("Aún no hay avances registrados")
+else:
+    # ---------- PROCESAR AVANCES ----------
+    registros = []
+    for av in avances:
+        fecha = datetime.fromisoformat(av["fecha"])
+        registros.append({
+            "fecha": fecha,
+            "semana": fecha.isocalendar()[1],
+            "mes": fecha.month,
+            "costo": av.get("costo", 0),
+            "avance": av
+        })
+
+    df = pd.DataFrame(registros)
+
+    col1, col2 = st.columns(2)
+
+    # ---------- SELECT SEMANA ----------
+    semanas = sorted(df["semana"].unique())
+    semana_sel = col1.selectbox(
+        "📆 Seleccionar semana",
+        semanas,
+        format_func=lambda x: f"Semana {x}"
+    )
+
+    # ---------- SELECT MES ----------
+    meses = sorted(df["mes"].unique())
+    mes_sel = col2.selectbox(
+        "📅 Seleccionar mes",
+        meses,
+        format_func=lambda x: MESES_ES[x]
+    )
+
+
+    # ---------- MODO VISUAL ----------
+    modo = st.radio(
+        "Vista",
+        ["Semana (L–V)", "Meses"],
+        horizontal=True
+    )
+
+    # ================== GRAFICO SEMANAL ==================
+    if modo == "Semana (L–V)":
+        dias = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
+
+        df_sem = df[df["semana"] == semana_sel]
+
+        costos_por_dia = defaultdict(float)
+        for _, r in df_sem.iterrows():
+            dia = r["fecha"].strftime("%A")
+            if dia in dias:
+                costos_por_dia[dia] += r["costo"]
+
+        valores = [costos_por_dia.get(d, 0) for d in dias]
+
+        chart_df = pd.DataFrame({
+            "Día": dias_es,
+            "Costo": valores
+        }).set_index("Día")
+
+        st.bar_chart(chart_df, height=300)
+
+    # ================== GRAFICO MENSUAL ==================
+    else:
+        costos_mes = defaultdict(float)
+        for _, r in df.iterrows():
+            costos_mes[r["mes"]] += r["costo"]
+
+        meses_orden = list(range(1, 13))
+        valores = [costos_mes.get(m, 0) for m in meses_orden]
+
+        chart_df = pd.DataFrame({
+            "Mes": [MESES_ES[m] for m in meses_orden],
+            "Costo": valores
+        }).set_index("Mes")
+
+
+        st.bar_chart(chart_df, height=300)
+
+    # ================== PROGRESO TOTAL ==================
+    st.divider()
+    st.subheader("📈 Progreso total de la obra")
+
+    presupuesto = obra.get("presupuesto_total", 0)
+    total_gastado = df["costo"].sum()
+
+    if presupuesto > 0:
+        porcentaje = min(int((total_gastado / presupuesto) * 100), 100)
+    else:
+        porcentaje = 0
+
+    st.progress(porcentaje)
+    st.caption(f"💰 Gastado: S/ {total_gastado:,.2f} / S/ {presupuesto:,.2f}")
+
+
+
 # ================= HISTORIAL DE AVANCES =================
 st.header("📚 Historial de Avances")
 
@@ -196,7 +319,12 @@ else:
     for av in avances:
         fecha = datetime.fromisoformat(av["fecha"])
         with st.expander(f"📅 {fecha:%d/%m/%Y %H:%M} — {av.get('responsable','N/D')}"):
-            st.write(av.get("descripcion", "Sin descripción"))
+            st.write(
+                    av.get("observaciones")
+                    or av.get("descripcion")
+                    or "Sin descripción"
+                )
+
 
             fotos = av.get("fotos", [])
             if fotos:

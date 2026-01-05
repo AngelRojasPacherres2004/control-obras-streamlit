@@ -8,10 +8,12 @@ db = firestore.client()
 
 # ================= SEGURIDAD =================
 if "auth" not in st.session_state:
-    st.error("Inicia sesión"); st.stop()
+    st.error("Inicia sesión")
+    st.stop()
 
 if st.session_state["auth"]["role"] != "jefe":
-    st.warning("Sin permisos"); st.stop()
+    st.warning("Sin permisos")
+    st.stop()
 
 # ================= ESTADO =================
 st.session_state.setdefault("mat_global", None)
@@ -23,7 +25,7 @@ def cargar_materiales():
             for d in db.collection("materiales").order_by("nombre").stream()]
 
 def obtener_obras():
-    return {d.id: d.to_dict()["nombre"]
+    return {d.id: d.to_dict().get("nombre", d.id)
             for d in db.collection("obras").stream()}
 
 def cargar_materiales_obra(obra_id):
@@ -40,7 +42,7 @@ def reset():
     st.rerun()
 
 # ================= UI =================
-st.title("🧱 Materiales")
+st.title("🧱 Materiales y Presupuesto")
 
 # -------- SELECCIÓN DE OBRA --------
 OBRAS = obtener_obras()
@@ -83,13 +85,19 @@ with col2:
 
     nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
     unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
-    precio = st.number_input("Precio", 0.0, step=0.01,
-                             value=float(mat["precio_unitario"]) if mat else 0.0)
+    precio = st.number_input(
+        "Precio unitario",
+        0.0,
+        step=0.01,
+        value=float(mat["precio_unitario"]) if mat else 0.0
+    )
 
     if mat:
         if st.button("Actualizar", type="primary", use_container_width=True):
             db.collection("materiales").document(mat["id"]).update({
-                "nombre": nombre, "unidad": unidad, "precio_unitario": precio
+                "nombre": nombre,
+                "unidad": unidad,
+                "precio_unitario": precio
             })
             reset()
 
@@ -158,11 +166,14 @@ else:
 mat_o = st.session_state.mat_obra
 if mat_o:
     st.subheader("✏️ Editar material en obra")
-    nueva = st.number_input("Cantidad", min_value=1.0,
-                            value=float(mat_o["cantidad"]))
+    nueva = st.number_input(
+        "Cantidad",
+        min_value=1.0,
+        value=float(mat_o["cantidad"])
+    )
 
     if st.button("Actualizar cantidad", type="primary"):
-        db.collection("obras").document(obra_id)\
+        db.collection("obras").document(obra_id) \
             .collection("materiales").document(mat_o["id"]).update({
                 "cantidad": nueva,
                 "subtotal": round(nueva * mat_o["precio_unitario"], 2),
@@ -171,6 +182,74 @@ if mat_o:
         reset()
 
     if st.button("Eliminar de la obra"):
-        db.collection("obras").document(obra_id)\
+        db.collection("obras").document(obra_id) \
             .collection("materiales").document(mat_o["id"]).delete()
         reset()
+
+# ================== SECCIÓN D ==================
+st.divider()
+st.header("📥 Importar materiales desde Excel")
+
+archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"])
+
+if archivo:
+    df_excel = pd.read_excel(archivo)
+
+    columnas = {"nombre", "unidad", "cantidad", "precio_unitario"}
+    if not columnas.issubset(df_excel.columns):
+        st.error("El Excel debe tener: nombre, unidad, cantidad, precio_unitario")
+    else:
+        df_excel["subtotal"] = df_excel["cantidad"] * df_excel["precio_unitario"]
+        st.dataframe(df_excel, use_container_width=True)
+
+        if st.button("Importar materiales a la obra", type="primary"):
+            for _, r in df_excel.iterrows():
+                db.collection("obras").document(obra_id).collection("materiales").add({
+                    "nombre": r["nombre"],
+                    "unidad": r["unidad"],
+                    "cantidad": float(r["cantidad"]),
+                    "precio_unitario": float(r["precio_unitario"]),
+                    "subtotal": round(float(r["subtotal"]), 2),
+                    "fecha": datetime.now()
+                })
+            st.success("Materiales importados correctamente")
+            st.rerun()
+
+# ================== SECCIÓN E ==================
+st.divider()
+st.header("💰 Presupuesto total de la obra")
+
+total_obra = sum(float(m.get("subtotal", 0)) for m in mats_obra)
+st.metric("Presupuesto calculado", f"S/ {total_obra:,.2f}")
+
+if st.button("Asignar presupuesto total a la obra", type="primary"):
+    db.collection("obras").document(obra_id).update({
+        "presupuesto_total": round(total_obra, 2),
+        "presupuesto_actualizado": datetime.now()
+    })
+    st.success("Presupuesto total asignado")
+    # ================== SECCIÓN X ==================
+st.divider()
+st.header("📤 Exportar materiales de la obra a Excel")
+
+if mats_obra:
+    df_export = pd.DataFrame(mats_obra)
+
+    # Nos quedamos solo con las columnas que quieres
+    df_export = df_export[["nombre", "unidad", "precio_unitario"]]
+
+    # Crear el archivo Excel en memoria
+    from io import BytesIO
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        df_export.to_excel(writer, index=False, sheet_name="Materiales")
+    buffer.seek(0)
+
+    st.download_button(
+        label="📥 Descargar Excel",
+        data=buffer,
+        file_name=f"materiales_{obra_id}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+else:
+    st.info("No hay materiales para exportar")
