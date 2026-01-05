@@ -38,13 +38,11 @@ obra = obra_doc.to_dict()
 with st.sidebar:
     st.header("🏗️ Información de la Obra")
     st.write(f"**Nombre:** {obra.get('nombre', 'Sin nombre')}")
-    st.write(f"**Ubicación:** {obra.get('ubicacion', 'Sin ubicación')}")
     st.write(f"**Estado:** {obra.get('estado', 'Pendiente')}")
     st.divider()
     
-    # Manejo de fechas para el sidebar
     f_inicio = obra.get("fecha_inicio")
-    f_fin = obra.get("fecha_fin_estimada") # Ajustado al nombre común
+    f_fin = obra.get("fecha_fin_estimada")
     
     st.write(f"📅 **Inicio:** {f_inicio.strftime('%d/%m/%Y') if hasattr(f_inicio, 'date') else f_inicio}")
     st.write(f"🏁 **Fin Estimado:** {f_fin.strftime('%d/%m/%Y') if hasattr(f_fin, 'date') else f_fin}")
@@ -69,33 +67,45 @@ if not materiales_disponibles:
 usados_docs = db.collection("obras").document(obra_id).collection("materiales_usados").stream()
 gasto_actual = sum(float(u.to_dict().get("subtotal", 0)) for u in usados_docs)
 
-# ================= MÉTRICAS =================
+# ================= MÉTRICAS Y SEMÁFORO =================
+st.subheader("📊 Estado Financiero")
+porcentaje_ejecutado = (gasto_actual / presupuesto_total) * 100 if presupuesto_total else 0
+
+# Lógica de Semáforo
+if porcentaje_ejecutado < 80:
+    color_semaforo = "green"
+    mensaje_semaforo = "🟢 Dentro del presupuesto"
+elif 80 <= porcentaje_ejecutado <= 100:
+    color_semaforo = "orange"
+    mensaje_semaforo = "🟡 Alerta: Presupuesto próximo al límite"
+else:
+    color_semaforo = "red"
+    mensaje_semaforo = "🔴 Crítico: Presupuesto excedido"
+
+st.markdown(f"### {mensaje_semaforo}")
+
 col1, col2, col3 = st.columns(3)
 col1.metric("💰 Presupuesto", f"S/ {presupuesto_total:,.0f}")
-col2.metric("🔥 Gasto", f"S/ {gasto_actual:,.0f}")
-porcentaje = round((gasto_actual / presupuesto_total) * 100, 1) if presupuesto_total else 0
-col3.metric("📊 Ejecutado", f"{porcentaje}%")
+col2.metric("🔥 Gasto Total", f"S/ {gasto_actual:,.0f}", delta=f"{porcentaje_ejecutado:.1f}%", delta_color="inverse" if porcentaje_ejecutado > 100 else "normal")
+col3.metric("📈 Saldo Disp.", f"S/ {max(0, presupuesto_total - gasto_actual):,.0f}")
+
+st.progress(min(porcentaje_ejecutado / 100, 1.0))
 
 st.divider()
 
 # ================= UI FORMULARIO =================
-st.title("📝 Parte Diario")
+st.title("📝 Nuevo Registro de Avance")
 
 with st.form("form_avance", clear_on_submit=True):
     responsable = st.text_input("Responsable", value=username)
-    descripcion = st.text_area("Descripción del avance", height=100)
+    descripcion = st.text_area("Descripción detallada del trabajo realizado", height=100)
     
-    st.subheader("🧱 Registro de Materiales Usados")
-    st.caption("Ingrese la cantidad para cada material utilizado hoy")
-    
-    # Diccionario para capturar inputs dinámicos
+    st.subheader("🧱 Materiales Utilizados Hoy")
     inputs_materiales = {}
     
-    # Crear una fila por cada material
     for mat in materiales_disponibles:
         col_m, col_c = st.columns([3, 1])
         col_m.write(f"**{mat['nombre']}** ({mat['unidad']})")
-        # Usamos una key única para cada input basada en el ID del documento
         cant = col_c.number_input("Cant.", min_value=0.0, step=0.5, key=f"input_{mat['doc_id']}")
         if cant > 0:
             inputs_materiales[mat['doc_id']] = {
@@ -106,7 +116,7 @@ with st.form("form_avance", clear_on_submit=True):
             }
 
     st.divider()
-    fotos = st.file_uploader("Subir fotos (mínimo 3)", accept_multiple_files=True, type=["jpg", "png", "jpeg"])
+    fotos = st.file_uploader("Evidencia fotográfica (mínimo 3)", accept_multiple_files=True, type=["jpg", "png", "jpeg"])
     
     guardar = st.form_submit_button("🚀 GUARDAR REPORTE DIARIO", use_container_width=True)
 
@@ -120,16 +130,14 @@ if guardar:
         st.error("Debes subir al menos 3 fotos")
     else:
         with st.spinner("Subiendo fotos y guardando registros..."):
-            # 1. Subir fotos
             urls = []
             for f in fotos:
                 res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
                 urls.append(res["secure_url"])
 
             costo_total_dia = 0
-            
-            # 2. Guardar cada material usado y calcular costo total
             batch = db.batch()
+            
             for m_id, m_data in inputs_materiales.items():
                 subtotal_m = round(m_data["cantidad"] * m_data["precio_unitario"], 2)
                 costo_total_dia += subtotal_m
@@ -146,7 +154,9 @@ if guardar:
                     "usuario": username
                 })
 
-            # 3. Guardar el avance general
+            # Cálculo de impacto en el progreso para este avance específico
+            progreso_este_avance = (costo_total_dia / presupuesto_total) * 100 if presupuesto_total else 0
+
             ref_avance = db.collection("obras").document(obra_id).collection("avances").document()
             batch.set(ref_avance, {
                 "fecha": datetime.now().isoformat(),
@@ -155,25 +165,31 @@ if guardar:
                 "responsable": responsable,
                 "observaciones": descripcion,
                 "costo_total_dia": costo_total_dia,
+                "porcentaje_avance_financiero": round(progreso_este_avance, 2),
                 "fotos": urls
             })
             
             batch.commit()
-            st.success("✅ Parte diario guardado correctamente")
+            st.success(f"✅ Reporte guardado. Este avance representa el {progreso_este_avance:.2f}% del presupuesto.")
             st.rerun()
 
-# ================= HISTORIAL =================
-st.subheader("📂 Historial Reciente")
+# ================= HISTORIAL CON PROGRESO =================
+st.subheader("📂 Historial de Avances (Últimos 10)")
 avances_docs = db.collection("obras").document(obra_id).collection("avances").order_by("timestamp", direction=firestore.Query.DESCENDING).limit(10).stream()
 
 for av in avances_docs:
     d = av.to_dict()
     f = datetime.fromisoformat(d["fecha"])
-    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} — {d.get('responsable')}"):
-        st.write(d.get("observaciones"))
-        st.info(f"💰 Costo reportado: S/ {d.get('costo_total_dia', 0):,.2f}")
+    prog_avance = d.get('porcentaje_avance_financiero', 0)
+    
+    # Encabezado del expander con porcentaje de progreso incluido
+    with st.expander(f"📅 {f:%d/%m/%Y %H:%M} | 📈 Progreso: {prog_avance}% | Responsable: {d.get('responsable')}"):
+        st.write(f"**Descripción:** {d.get('observaciones')}")
         
-        # Mostrar imágenes en columnas
+        # Indicador visual de progreso dentro del historial
+        st.write(f"**Impacto presupuestario del día:** S/ {d.get('costo_total_dia', 0):,.2f}")
+        st.progress(min(prog_avance / 100, 1.0))
+        
         if d.get("fotos"):
             cols = st.columns(3)
             for idx, img in enumerate(d["fotos"]):
