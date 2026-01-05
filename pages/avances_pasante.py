@@ -39,7 +39,7 @@ with st.sidebar:
     st.write(f"**Nombre:** {obra.get('nombre')}")
     st.write(f"**Estado:** {obra.get('estado')}")
     st.write(f"📅 Inicio: {obra.get('fecha_inicio').date()}")
-    st.write(f"🏁 Fin estimado: {obra.get('fecha_fin_estimada').date()}")
+    st.write(f"🏁 Fin estimado: {obra.get('fecha_fin_estimado').date()}")
 
 # ================= MATERIALES ASIGNADOS =================
 materiales_docs = (
