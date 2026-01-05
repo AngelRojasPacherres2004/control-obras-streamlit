@@ -2,7 +2,13 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
+from cookies_manager import cookies
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
+import json
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
 # ================= INIT =================
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
@@ -20,6 +26,21 @@ cloudinary.config(
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
+
+
+if not cookies.ready():
+    st.stop()
+
+# ================= RESTAURAR SESIÓN DESDE COOKIE =================
+if (
+    "auth" not in st.session_state
+    and cookies.get("auth")
+    and not st.session_state.get("logout", False)
+):
+    st.session_state["auth"] = json.loads(cookies.get("auth"))
+    st.session_state["show_login"] = True
+
+
 # ====== ESTADO ======
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
@@ -27,9 +48,10 @@ if "show_login" not in st.session_state:
 # ====== FLUJO VISUAL ======
 
 # 1️⃣ Pantalla inicial (solo diseño)
-if not st.session_state.show_login:
+if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
+
 
 # 2️⃣ Login (diseño + autenticación)
 if "auth" not in st.session_state:
@@ -48,5 +70,27 @@ if auth["role"] == "jefe":
     pg = st.navigation([obras_page, materiales_page, usuarios_page])
 else:
     pg = st.navigation([avances_page])
+
+# ================= CERRAR SESIÓN =================
+# ================= CERRAR SESIÓN =================
+with st.sidebar:
+    st.divider()
+    if st.button("🚪 Cerrar sesión", use_container_width=True):
+
+        #  eliminar cookie
+        if "auth" in cookies:
+            cookies["auth"] = ""
+            cookies.save()
+
+        #  limpiar sesión
+        st.session_state.clear()
+
+        # volver al login
+        st.rerun()
+
+
+
+
+
 
 pg.run()

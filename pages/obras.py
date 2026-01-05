@@ -3,9 +3,12 @@ import pandas as pd
 from datetime import datetime, date
 import cloudinary
 import cloudinary.uploader
-from firebase_admin import firestore
+from firebase_admin import  credentials,firestore
 import calendar
 from collections import defaultdict
+
+
+
 MESES_ES = {
     1: "Enero",
     2: "Febrero",
@@ -45,10 +48,11 @@ def cargar_avances(obra_id):
         db.collection("obras")
         .document(obra_id)
         .collection("avances")
-        .order_by("fecha", direction=firestore.Query.DESCENDING)
+        .order_by("timestamp", direction=firestore.Query.DESCENDING)
         .stream()
     )
     return [d.to_dict() for d in docs]
+
 
 # ================= AUTH =================
 auth = st.session_state["auth"]
@@ -220,7 +224,7 @@ else:
             "fecha": fecha,
             "semana": fecha.isocalendar()[1],
             "mes": fecha.month,
-            "costo": av.get("costo", 0),
+            "costo": av.get("costo_total_dia", 0),
             "avance": av
         })
 
@@ -324,6 +328,19 @@ else:
                     or av.get("descripcion")
                     or "Sin descripción"
                 )
+                        # ===== MATERIALES USADOS =====
+            materiales = av.get("materiales_usados", [])
+
+            if materiales:
+                st.markdown("### 🧱 Materiales usados")
+                for m in materiales:
+                    st.write(
+                        f"- **{m['nombre']}** ({m['unidad']}): "
+                        f"{m['cantidad']} × S/ {m['precio_unitario']} "
+                        f"= **S/ {m['subtotal']}**"
+                    )
+            else:
+                st.info("No se registraron materiales en este avance")
 
 
             fotos = av.get("fotos", [])

@@ -1,9 +1,10 @@
 """
 Módulo de autenticación y pantalla inicial
 """
-
+import json
 import streamlit as st
 from util import set_background
+from cookies_manager import cookies
 
 
 # ====== PANTALLA INICIAL ======
@@ -88,12 +89,22 @@ def verificar_autenticacion(db):
                 st.error("Contraseña incorrecta")
                 return False
 
-            st.session_state["auth"] = {
+            auth_data = {
                 "username": data["username"],
                 "role": data["role"],
                 "obra": data.get("obra")
             }
+
+            st.session_state["auth"] = auth_data
+            st.session_state["show_login"] = True
+
+            #  guardar cookie
+            cookies["auth"] = json.dumps(auth_data)
+            cookies.save()
+
+
             st.rerun()
+
 
         return False
 
