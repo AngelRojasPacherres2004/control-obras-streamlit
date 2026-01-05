@@ -78,12 +78,18 @@ with st.sidebar:
     if st.button("🚪 Cerrar sesión", use_container_width=True):
 
         #  eliminar cookie
-        if "auth" in cookies:
-            cookies["auth"] = ""
-            cookies.save()
+        del cookies["auth"]
+        cookies.save()
+
+
 
         #  limpiar sesión
         st.session_state.clear()
+
+        # marcar logout
+        st.session_state["logout"] = True
+        st.session_state["show_login"] = False
+
 
         # volver al login
         st.rerun()
