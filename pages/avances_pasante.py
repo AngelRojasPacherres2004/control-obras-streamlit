@@ -44,14 +44,10 @@ with st.sidebar:
     st.write(f"🏁 Fin estimado: {obra.get('fecha_fin_estimado').date()}")
 
 # ================= MATERIALES ASIGNADOS =================
-materiales_docs = (
-    obra_ref.collection("materiales").stream()
-)
-
 materiales = []
 presupuesto_total = 0.0
 
-for m in materiales_docs:
+for m in obra_ref.collection("materiales").stream():
     d = m.to_dict()
     d["doc_id"] = m.id
     materiales.append(d)
@@ -172,7 +168,7 @@ if guardar:
 
             batch.commit()
 
-            # ===== ACTUALIZAR GASTO ACUMULADO EN LA OBRA =====
+            # ===== ACTUALIZAR GASTO ACUMULADO EN OBRA =====
             avances_docs = obra_ref.collection("avances").stream()
             nuevo_gasto_acumulado = sum(
                 float(a.to_dict().get("costo_total_dia", 0))
