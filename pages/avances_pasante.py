@@ -224,9 +224,11 @@ hay = False
 for av in avances_docs:
     hay = True
     d = av.to_dict()
-    f = datetime.fromisoformat(d["fecha"])
-    prog = d.get("porcentaje_avance_financiero", 0)
 
+    # ✅ USAR TIMESTAMP DE FIREBASE
+    f = d["timestamp"].to_datetime()
+
+    prog = d.get("porcentaje_avance_financiero", 0)
     alerta = "🔴" if d.get("fuera_fecha") else "🟢"
 
     with st.expander(
