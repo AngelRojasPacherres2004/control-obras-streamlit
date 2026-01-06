@@ -47,9 +47,9 @@ if fecha_inicio and hasattr(fecha_inicio, "date"):
 if fecha_fin and hasattr(fecha_fin, "date"):
     fecha_fin = fecha_fin.date()
 
-fuera_fecha = False
+fuera_fecha_hoy = False
 if fecha_inicio and fecha_fin:
-    fuera_fecha = hoy < fecha_inicio or hoy > fecha_fin
+    fuera_fecha_hoy = hoy < fecha_inicio or hoy > fecha_fin
 
 # ================= SIDEBAR =================
 with st.sidebar:
@@ -87,14 +87,14 @@ st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
 st.progress(min(porcentaje_total / 100, 1.0))
 
 # ================= SEMÁFORO GLOBAL =================
-if excede_presupuesto and fuera_fecha:
-    st.error("🔴 Presupuesto excedido y avance fuera de fecha")
+if excede_presupuesto and fuera_fecha_hoy:
+    st.error("🔴 Presupuesto excedido y fuera de fecha")
 elif excede_presupuesto:
     st.warning("🟠 Presupuesto excedido")
-elif fuera_fecha:
-    st.warning("🟠 Avance fuera del rango de fechas")
+elif fuera_fecha_hoy:
+    st.warning("🟠 Fuera del rango de fechas")
 else:
-    st.success("🟢 Avance dentro de presupuesto y fechas")
+    st.success("🟢 Dentro de presupuesto y fechas")
 
 st.divider()
 
@@ -179,14 +179,12 @@ if guardar:
 
             ref_avance = obra_ref.collection("avances").document()
             batch.set(ref_avance, {
-                "fecha": datetime.now().isoformat(),
                 "timestamp": datetime.now(),
                 "usuario": username,
                 "responsable": responsable,
                 "observaciones": descripcion,
                 "costo_total_dia": round(costo_total_dia, 2),
                 "porcentaje_avance_financiero": round(porcentaje_avance, 2),
-                "fuera_fecha": fuera_fecha,
                 "fotos": urls
             })
 
@@ -222,11 +220,18 @@ for av in avances_docs:
     hay = True
     d = av.to_dict()
 
-    # ✅ TIMESTAMP YA ES datetime
     f = d.get("timestamp")
+    fecha_avance = f.date() if f else None
 
+    fuera_fecha_hist = False
+    if fecha_avance and fecha_inicio and fecha_fin:
+        fuera_fecha_hist = (
+            fecha_avance < fecha_inicio
+            or fecha_avance > fecha_fin
+        )
+
+    alerta = "🔴" if fuera_fecha_hist else "🟢"
     prog = d.get("porcentaje_avance_financiero", 0)
-    alerta = "🔴" if d.get("fuera_fecha") else "🟢"
 
     with st.expander(
         f"{alerta} {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"
