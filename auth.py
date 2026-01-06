@@ -11,11 +11,10 @@ from cookies_manager import cookies
 def mostrar_pantalla_inicial():
     set_background("Empresalogo.jpg")
 
-    # CSS para mover el botón con porcentaje
     st.markdown("""
     <style>
     .contenedor-boton {
-        margin-top: 45vh;   /* 🔽 AJUSTA ESTE VALOR */
+        margin-top: 45vh;
         width: 100%;
         display: flex;
         justify-content: center;
@@ -23,7 +22,6 @@ def mostrar_pantalla_inicial():
     </style>
     """, unsafe_allow_html=True)
 
-    # Contenedor del botón
     st.markdown('<div class="contenedor-boton">', unsafe_allow_html=True)
 
     if st.button("Iniciar Sesión", use_container_width=True):
@@ -38,37 +36,8 @@ def verificar_autenticacion(db):
     if "auth" not in st.session_state:
         set_background("Empresalogo.jpg")
 
-        st.markdown("""
-        <style>
-        /* Overlay SOLO para el fondo */
-        .stApp::after {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background-color: rgba(0, 0, 0, 0.6);
-            z-index: 0;
-            pointer-events: none;
-        }
-
-        /* Todo el contenido arriba del overlay */
-        section[data-testid="stAppViewContainer"] > .main {
-            position: relative;
-            z-index: 1;
-        }
-
-        /* INPUTS NORMALES (CLAVE) */
-        input {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-        }
-
-        /* Labels visibles */
-        label {
-            color: #ffffff !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
+        # 🔹 DISEÑO DEL CÓDIGO JOJO (SIN OVERLAY NI ESTILOS EXTRA)
+        st.markdown("""<style></style>""", unsafe_allow_html=True)
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.title("CONTROL DE OBRAS 2025")
@@ -98,12 +67,10 @@ def verificar_autenticacion(db):
             st.session_state["auth"] = auth_data
             st.session_state["show_login"] = True
 
-            #  guardar cookie
+            # guardar cookie
             cookies["auth"] = json.dumps(auth_data)
             cookies.save()
 
-
             st.rerun()
-
 
         return False
