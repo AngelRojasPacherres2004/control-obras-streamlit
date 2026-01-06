@@ -4,7 +4,6 @@ from datetime import datetime, date
 import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
-import calendar
 from collections import defaultdict
 
 # ================= CONFIGURACIÓN =================
@@ -21,7 +20,7 @@ cloudinary.config(
     secure=True
 )
 
-st.set_page_config(page_title="Obras", layout="wide")
+st.set_page_config(page_title="Gestión de Obras", layout="wide")
 st.title("👷 Gestión de Obras y Avances")
 
 db = firestore.client()
@@ -31,11 +30,12 @@ def obtener_obras():
     return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
+    # Cargamos en orden ASCENDENTE para poder calcular el acumulado histórico correctamente
     docs = (
         db.collection("obras")
         .document(obra_id)
         .collection("avances")
-        .order_by("timestamp", direction=firestore.Query.DESCENDING)
+        .order_by("timestamp", direction=firestore.Query.ASCENDING)
         .stream()
     )
     return [d.to_dict() for d in docs]
@@ -87,30 +87,22 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
         presupuesto_inicial = st.number_input("Presupuesto Total (S/)", min_value=0.0)
         
         col_g, col_c = st.columns(2)
-        guardar = col_g.form_submit_button("💾 Guardar Obra")
-        cancelar = col_c.form_submit_button("❌ Cancelar")
-
-    if guardar:
-        if not nombre:
-            st.error("El nombre es obligatorio")
-        else:
-            oid = nombre.lower().strip().replace(" ", "_")
-            db.collection("obras").document(oid).set({
-                "nombre": nombre,
-                "ubicacion": ubicacion,
-                "estado": estado,
-                "fecha_inicio": datetime.combine(f_inicio, datetime.min.time()),
-                "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
-                "presupuesto_total": presupuesto_inicial,
-                "gasto_acumulado": 0,
-                "creado_en": datetime.now()
-            })
+        if col_g.form_submit_button("💾 Guardar Obra"):
+            if not nombre: st.error("El nombre es obligatorio")
+            else:
+                oid = nombre.lower().strip().replace(" ", "_")
+                db.collection("obras").document(oid).set({
+                    "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
+                    "fecha_inicio": datetime.combine(f_inicio, datetime.min.time()),
+                    "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
+                    "presupuesto_total": presupuesto_inicial,
+                    "gasto_acumulado": 0, "creado_en": datetime.now()
+                })
+                st.session_state["crear_obra"] = False
+                st.rerun()
+        if col_c.form_submit_button("❌ Cancelar"):
             st.session_state["crear_obra"] = False
-            st.success("Obra creada")
             st.rerun()
-    if cancelar:
-        st.session_state["crear_obra"] = False
-        st.rerun()
     st.stop()
 
 # ================= INFORMACIÓN DE LA OBRA =================
@@ -120,6 +112,8 @@ if not doc_ref.exists:
     st.stop()
 
 obra_data = doc_ref.to_dict()
+presupuesto_obra = float(obra_data.get("presupuesto_total", 0))
+
 st.subheader(f"🏗️ {obra_data.get('nombre')}")
 st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}")
 
@@ -128,7 +122,6 @@ if auth["role"] == "pasante":
     st.divider()
     st.header("📝 Registrar Avance Diario")
     
-    # Obtener materiales para el formulario
     materiales_ref = db.collection("obras").document(obra_id_sel).collection("materiales").stream()
     lista_mats = [m.to_dict() for m in materiales_ref]
 
@@ -136,7 +129,7 @@ if auth["role"] == "pasante":
         resp = st.text_input("Responsable", value=auth.get("username", ""))
         desc = st.text_area("Descripción del trabajo")
         
-        st.write("🧱 **Materiales usados:**")
+        st.write("🧱 **Materiales usados hoy:**")
         mats_usados = []
         costo_dia = 0.0
         
@@ -168,11 +161,10 @@ if auth["role"] == "pasante":
                     "timestamp": datetime.now(),
                     "responsable": resp,
                     "descripcion": desc,
-                    "materiales_usados": mats_usados,
+                    "materiales_usados": mats_usados, # Detalle para la tabla
                     "costo_total_dia": costo_dia,
                     "fotos": urls
                 })
-                # Actualizar acumulado
                 db.collection("obras").document(obra_id_sel).update({
                     "gasto_acumulado": firestore.Increment(costo_dia)
                 })
@@ -183,15 +175,21 @@ if auth["role"] == "pasante":
 st.divider()
 st.subheader("📊 Análisis de Costos")
 
-avances_raw = cargar_avances(obra_id_sel)
+avances_lista = cargar_avances(obra_id_sel)
 
-if not avances_raw:
+if not avances_lista:
     st.info("No hay datos suficientes para mostrar gráficos.")
 else:
-    # PROCESAMIENTO SEGURO DE DATOS
     registros = []
-    for a in avances_raw:
-        # Evitar KeyError si "fecha" no existe
+    acumulado_paso_a_paso = 0.0
+    
+    for a in avances_lista:
+        costo = float(a.get("costo_total_dia", 0))
+        acumulado_paso_a_paso += costo
+        
+        # Guardamos el acumulado en el diccionario para el historial
+        a["_acumulado_momento"] = acumulado_paso_a_paso
+        
         fecha_str = a.get("fecha")
         try:
             dt = datetime.fromisoformat(fecha_str) if fecha_str else a.get("timestamp")
@@ -201,77 +199,72 @@ else:
                 "fecha": dt,
                 "semana": dt.isocalendar()[1],
                 "mes": dt.month,
-                "costo": float(a.get("costo_total_dia", 0)),
+                "costo": costo,
                 "dia_nombre": dt.strftime("%A")
             })
-        except:
-            continue
+        except: continue
 
     if registros:
         df = pd.DataFrame(registros)
-        
         c1, c2 = st.columns(2)
         sem_sel = c1.selectbox("📆 Ver Semana", sorted(df["semana"].unique(), reverse=True))
-        modo = st.radio("Filtro de Tiempo", ["Semana Completa", "Mensual"], horizontal=True)
+        modo = st.radio("Filtro", ["Semana Completa", "Mensual"], horizontal=True)
 
         if modo == "Semana Completa":
-            # Incluye de Lunes a Domingo
             dias_semana = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
             dias_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-            
             df_sem = df[df["semana"] == sem_sel]
             costos_dia = df_sem.groupby("dia_nombre")["costo"].sum().reindex(dias_semana, fill_value=0)
-            
-            chart_df = pd.DataFrame({"Día": dias_es, "Gasto (S/)": costos_dia.values}).set_index("Día")
-            st.bar_chart(chart_df)
+            st.bar_chart(pd.DataFrame({"Gasto (S/)": costos_dia.values}, index=dias_es))
         else:
             costos_mes = df.groupby("mes")["costo"].sum().reindex(range(1, 13), fill_value=0)
-            chart_mes = pd.DataFrame({
-                "Mes": [MESES_ES[m] for m in range(1, 13)],
-                "Gasto (S/)": costos_mes.values
-            }).set_index("Mes")
-            st.bar_chart(chart_mes)
+            st.bar_chart(pd.DataFrame({"Gasto (S/)": costos_mes.values}, index=[MESES_ES[m] for m in range(1,13)]))
 
-        # Progreso Económico
-        presu = float(obra_data.get("presupuesto_total", 0))
-        gastado = df["costo"].sum()
-        porcentaje = min(gastado / presu, 1.0) if presu > 0 else 0
-        
+        porcentaje = min(acumulado_paso_a_paso / presupuesto_obra, 1.0) if presupuesto_obra > 0 else 0
         st.write(f"**Progreso del Presupuesto:** {porcentaje*100:.1f}%")
         st.progress(porcentaje)
-        st.caption(f"S/ {gastado:,.2f} gastados de S/ {presu:,.2f} presupuestados")
 
 # ================= HISTORIAL DE AVANCES =================
 st.divider()
 st.header("📚 Historial de Avances")
 
-if not avances_raw:
+if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
-    for av in avances_raw:
-        # Validación de fecha para el expander
+    # Invertimos para mostrar los más recientes arriba
+    avances_mostrar = avances_lista[::-1]
+    
+    for av in avances_mostrar:
         f_raw = av.get("fecha")
         try:
             f_dt = datetime.fromisoformat(f_raw) if f_raw else av.get("timestamp")
             f_txt = f_dt.strftime("%d/%m/%Y %H:%M")
-        except:
-            f_txt = "Fecha no disponible"
+        except: f_txt = "Fecha N/D"
 
-        with st.expander(f"📅 {f_txt} — {av.get('responsable', 'Sin responsable')}"):
-            st.write(f"**Descripción:** {av.get('descripcion', av.get('observaciones', 'S/D'))}")
+        # Lógica de Semáforo
+        excede = av.get("_acumulado_momento", 0) > presupuesto_obra
+        alerta = "🔴" if excede else "🟢"
+
+        with st.expander(f"{alerta} {f_txt} — {av.get('responsable', 'N/D')}"):
+            # Compatibilidad con nombres de campos antiguos
+            desc = av.get("descripcion") or av.get("observaciones") or "Sin descripción"
+            st.write(f"**Descripción:** {desc}")
             
-            # Tabla de materiales usados
-            m_usados = av.get("materiales_usados", [])
-            if m_usados:
-                st.write("**🧱 Materiales:**")
-                df_m = pd.DataFrame(m_usados)[["nombre", "cantidad", "unidad", "subtotal"]]
+            # --- TABLA DE MATERIALES ---
+            # Busca en materiales_usados o detalle_materiales (según tu código anterior)
+            mats = av.get("materiales_usados") or av.get("detalle_materiales")
+            if mats:
+                st.write("**🧱 Materiales utilizados:**")
+                df_m = pd.DataFrame(mats)[["nombre", "cantidad", "unidad", "subtotal"]]
+                df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
                 st.table(df_m)
             
-            # Fotos
-            fotos_lista = av.get("fotos", [])
-            if fotos_lista:
+            c_col1, c_col2 = st.columns(2)
+            c_col1.metric("Costo del día", f"S/ {av.get('costo_total_dia', 0):,.2f}")
+            c_col2.metric("Acumulado Obra", f"S/ {av.get('_acumulado_momento', 0):,.2f}")
+
+            fotos = av.get("fotos", [])
+            if fotos:
                 cols = st.columns(3)
-                for i, url in enumerate(fotos_lista):
+                for i, url in enumerate(fotos):
                     cols[i % 3].image(url, use_container_width=True)
-            else:
-                st.caption("No hay fotos en este registro.")
