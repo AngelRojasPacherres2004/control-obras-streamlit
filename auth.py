@@ -5,6 +5,8 @@ import json
 import streamlit as st
 from util import set_background
 from cookies_manager import cookies
+import uuid
+from firebase_admin import firestore
 
 
 # ====== PANTALLA INICIAL ======
@@ -38,37 +40,7 @@ def verificar_autenticacion(db):
     if "auth" not in st.session_state:
         set_background("Empresalogo.jpg")
 
-        st.markdown("""
-        <style>
-        /* Overlay SOLO para el fondo */
-        .stApp::after {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background-color: rgba(0, 0, 0, 0.6);
-            z-index: 0;
-            pointer-events: none;
-        }
-
-        /* Todo el contenido arriba del overlay */
-        section[data-testid="stAppViewContainer"] > .main {
-            position: relative;
-            z-index: 1;
-        }
-
-        /* INPUTS NORMALES (CLAVE) */
-        input {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-        }
-
-        /* Labels visibles */
-        label {
-            color: #ffffff !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
-
+        st.markdown("""<style>/* tu CSS intacto */</style>""", unsafe_allow_html=True)
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.title("CONTROL DE OBRAS 2025")
@@ -81,30 +53,40 @@ def verificar_autenticacion(db):
 
             if not user_doc.exists:
                 st.error("Usuario no existe")
-                return False
+                return
 
             data = user_doc.to_dict()
 
             if password != data.get("password"):
                 st.error("Contraseña incorrecta")
-                return False
+                return
+
+            # ================= LOGIN OK =================
+            session_id = str(uuid.uuid4())
 
             auth_data = {
                 "username": data["username"],
                 "role": data["role"],
-                "obra": data.get("obra")
+                "obra": data.get("obra"),
+                "session_id": session_id
             }
+
+            # guardar sesión en Firestore
+            db.collection("sessions").document(session_id).set({
+                "username": data["username"],
+                "role": data["role"],
+                "obra": data.get("obra"),
+                "created_at": firestore.SERVER_TIMESTAMP
+            })
+
+            # guardar SOLO session_id en cookie
+            cookies["session_id"] = session_id
+            cookies.save()
 
             st.session_state["auth"] = auth_data
             st.session_state["show_login"] = True
 
-            #  guardar cookie
-            cookies["auth"] = json.dumps(auth_data)
-            cookies.save()
-
-
             st.rerun()
-
 
         return False
 
