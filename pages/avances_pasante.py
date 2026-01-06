@@ -35,7 +35,7 @@ if not obra_doc.exists:
 
 obra = obra_doc.to_dict()
 
-# ================= FECHAS NORMALIZADAS =================
+# ================= FECHAS DE LA OBRA =================
 hoy = date.today()
 
 fecha_inicio = obra.get("fecha_inicio")
@@ -59,7 +59,7 @@ with st.sidebar:
     st.write(f"📅 Inicio: {fecha_inicio}")
     st.write(f"🏁 Fin estimado: {fecha_fin}")
 
-# ================= MATERIALES ASIGNADOS =================
+# ================= MATERIALES =================
 materiales = []
 presupuesto_total = 0.0
 
@@ -73,10 +73,23 @@ if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
-# ================= GASTO ACUMULADO =================
+# ================= GASTO =================
 gasto_acumulado = float(obra.get("gasto_acumulado", 0))
 porcentaje_total = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
 excede_presupuesto = gasto_acumulado > presupuesto_total if presupuesto_total else False
+
+# ================= AVANCES HISTÓRICOS (CLAVE) =================
+hay_avance_fuera_fecha = False
+
+for av in obra_ref.collection("avances").stream():
+    d = av.to_dict()
+    ts = d.get("timestamp")
+
+    if ts and fecha_inicio and fecha_fin:
+        f_av = ts.date()
+        if f_av < fecha_inicio or f_av > fecha_fin:
+            hay_avance_fuera_fecha = True
+            break
 
 # ================= MÉTRICAS =================
 st.subheader("📊 Estado Financiero")
@@ -86,13 +99,14 @@ st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
 st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
 st.progress(min(porcentaje_total / 100, 1.0))
 
-# ================= SEMÁFORO GLOBAL =================
-if excede_presupuesto and fuera_fecha_hoy:
-    st.error("🔴 Presupuesto excedido y fuera de fecha")
-elif excede_presupuesto:
-    st.warning("🟠 Presupuesto excedido")
-elif fuera_fecha_hoy:
-    st.warning("🟠 Fuera del rango de fechas")
+# ================= SEMÁFORO GLOBAL (CORRECTO) =================
+if excede_presupuesto or fuera_fecha_hoy or hay_avance_fuera_fecha:
+    if excede_presupuesto and (fuera_fecha_hoy or hay_avance_fuera_fecha):
+        st.error("🔴 Presupuesto excedido y avances fuera de fecha")
+    elif excede_presupuesto:
+        st.warning("🟠 Presupuesto excedido")
+    else:
+        st.warning("🟠 Existen avances fuera del rango de fechas")
 else:
     st.success("🟢 Dentro de presupuesto y fechas")
 
@@ -152,56 +166,36 @@ if guardar:
     elif not fotos or len(fotos) < 3:
         st.error("Debes subir mínimo 3 fotos")
     else:
-        with st.spinner("Guardando avance..."):
-            urls = []
-            for f in fotos:
-                res = cloudinary.uploader.upload(
-                    f,
-                    folder=f"obras/{obra_id}/avances"
-                )
-                urls.append(res["secure_url"])
+        urls = []
+        for f in fotos:
+            res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
+            urls.append(res["secure_url"])
 
-            batch = db.batch()
+        ref_avance = obra_ref.collection("avances").document()
+        ref_avance.set({
+            "timestamp": datetime.now(),
+            "usuario": username,
+            "responsable": responsable,
+            "observaciones": descripcion,
+            "costo_total_dia": round(costo_total_dia, 2),
+            "porcentaje_avance_financiero": round(
+                (costo_total_dia / presupuesto_total) * 100 if presupuesto_total else 0, 2
+            ),
+            "fotos": urls
+        })
 
-            for m_id, m in materiales_usados.items():
-                ref = obra_ref.collection("materiales_usados").document()
-                batch.set(ref, {
-                    "fecha": datetime.now(),
-                    "material_doc_id": m_id,
-                    **m,
-                    "usuario": username
-                })
+        total = sum(
+            float(a.to_dict().get("costo_total_dia", 0))
+            for a in obra_ref.collection("avances").stream()
+        )
 
-            porcentaje_avance = (
-                (costo_total_dia / presupuesto_total) * 100
-                if presupuesto_total else 0
-            )
+        obra_ref.update({
+            "gasto_acumulado": round(total, 2),
+            "ultima_actualizacion": firestore.SERVER_TIMESTAMP
+        })
 
-            ref_avance = obra_ref.collection("avances").document()
-            batch.set(ref_avance, {
-                "timestamp": datetime.now(),
-                "usuario": username,
-                "responsable": responsable,
-                "observaciones": descripcion,
-                "costo_total_dia": round(costo_total_dia, 2),
-                "porcentaje_avance_financiero": round(porcentaje_avance, 2),
-                "fotos": urls
-            })
-
-            batch.commit()
-
-            total = sum(
-                float(a.to_dict().get("costo_total_dia", 0))
-                for a in obra_ref.collection("avances").stream()
-            )
-
-            obra_ref.update({
-                "gasto_acumulado": round(total, 2),
-                "ultima_actualizacion": firestore.SERVER_TIMESTAMP
-            })
-
-            st.success("✅ Avance registrado correctamente")
-            st.rerun()
+        st.success("✅ Avance registrado correctamente")
+        st.rerun()
 
 # ================= HISTORIAL =================
 st.divider()
@@ -219,23 +213,18 @@ hay = False
 for av in avances_docs:
     hay = True
     d = av.to_dict()
-
     f = d.get("timestamp")
-    fecha_avance = f.date() if f else None
 
-    fuera_fecha_hist = False
-    if fecha_avance and fecha_inicio and fecha_fin:
-        fuera_fecha_hist = (
-            fecha_avance < fecha_inicio
-            or fecha_avance > fecha_fin
-        )
+    fecha_av = f.date() if f else None
+    fuera_fecha = False
 
-    alerta = "🔴" if fuera_fecha_hist else "🟢"
+    if fecha_av and fecha_inicio and fecha_fin:
+        fuera_fecha = fecha_av < fecha_inicio or fecha_av > fecha_fin
+
+    alerta = "🔴" if fuera_fecha else "🟢"
     prog = d.get("porcentaje_avance_financiero", 0)
 
-    with st.expander(
-        f"{alerta} {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"
-    ):
+    with st.expander(f"{alerta} {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"):
         st.write(d.get("observaciones"))
         st.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
         st.progress(min(prog / 100, 1.0))
