@@ -32,13 +32,15 @@ if not cookies.ready():
     st.stop()
 
 # ================= RESTAURAR SESIÓN DESDE COOKIE =================
-if (
-    "auth" not in st.session_state
-    and cookies.get("auth")
-    and not st.session_state.get("logout", False)
-):
-    st.session_state["auth"] = json.loads(cookies.get("auth"))
-    st.session_state["show_login"] = True
+# ================= RESTAURAR SESIÓN DESDE COOKIE =================
+if "auth" not in st.session_state and cookies.get("session_id"):
+    session_id = cookies.get("session_id")
+    session_doc = db.collection("sessions").document(session_id).get()
+
+    if session_doc.exists:
+        st.session_state["auth"] = session_doc.to_dict()
+        st.session_state["show_login"] = True
+
 
 
 # ====== ESTADO ======
@@ -78,8 +80,11 @@ with st.sidebar:
     if st.button("🚪 Cerrar sesión", use_container_width=True):
 
         #  eliminar cookie
-        del cookies["auth"]
-        cookies.save()
+        if "session_id" in cookies:
+            db.collection("sessions").document(cookies["session_id"]).delete()
+            del cookies["session_id"]
+            cookies.save()
+
 
 
 
@@ -87,8 +92,8 @@ with st.sidebar:
         st.session_state.clear()
 
         # marcar logout
-        st.session_state["logout"] = True
-        st.session_state["show_login"] = False
+       # st.session_state["logout"] = True
+       # st.session_state["show_login"] = False
 
 
         # volver al login
