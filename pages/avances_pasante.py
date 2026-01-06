@@ -25,7 +25,7 @@ if not obra_id:
     st.error("No tienes una obra asignada")
     st.stop()
 
-# ================= DATOS DE LA OBRA =================
+# ================= DATOS OBRA =================
 obra_ref = db.collection("obras").document(obra_id)
 obra_doc = obra_ref.get()
 
@@ -35,7 +35,7 @@ if not obra_doc.exists:
 
 obra = obra_doc.to_dict()
 
-# ================= FECHAS DE LA OBRA =================
+# ================= FECHAS =================
 hoy = date.today()
 
 fecha_inicio = obra.get("fecha_inicio")
@@ -75,16 +75,15 @@ if not materiales:
 
 # ================= GASTO =================
 gasto_acumulado = float(obra.get("gasto_acumulado", 0))
-porcentaje_total = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
 excede_presupuesto = gasto_acumulado > presupuesto_total if presupuesto_total else False
+porcentaje_total = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
 
-# ================= AVANCES HISTÓRICOS (CLAVE) =================
+# ================= AVANCES FUERA DE FECHA =================
 hay_avance_fuera_fecha = False
 
 for av in obra_ref.collection("avances").stream():
     d = av.to_dict()
     ts = d.get("timestamp")
-
     if ts and fecha_inicio and fecha_fin:
         f_av = ts.date()
         if f_av < fecha_inicio or f_av > fecha_fin:
@@ -99,12 +98,12 @@ st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
 st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
 st.progress(min(porcentaje_total / 100, 1.0))
 
-# ================= SEMÁFORO GLOBAL (CORRECTO) =================
+# ================= SEMÁFORO GLOBAL =================
 if excede_presupuesto or fuera_fecha_hoy or hay_avance_fuera_fecha:
     if excede_presupuesto and (fuera_fecha_hoy or hay_avance_fuera_fecha):
         st.error("🔴 Presupuesto excedido y avances fuera de fecha")
     elif excede_presupuesto:
-        st.warning("🟠 Presupuesto excedido")
+        st.error("🔴 Presupuesto excedido")
     else:
         st.warning("🟠 Existen avances fuera del rango de fechas")
 else:
@@ -138,7 +137,6 @@ with st.form("form_avance", clear_on_submit=True):
         if cantidad > 0:
             subtotal = cantidad * mat["precio_unitario"]
             costo_total_dia += subtotal
-
             materiales_usados[mat["doc_id"]] = {
                 "nombre": mat["nombre"],
                 "unidad": mat["unidad"],
@@ -171,8 +169,7 @@ if guardar:
             res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
             urls.append(res["secure_url"])
 
-        ref_avance = obra_ref.collection("avances").document()
-        ref_avance.set({
+        obra_ref.collection("avances").add({
             "timestamp": datetime.now(),
             "usuario": username,
             "responsable": responsable,
@@ -216,12 +213,13 @@ for av in avances_docs:
     f = d.get("timestamp")
 
     fecha_av = f.date() if f else None
-    fuera_fecha = False
 
+    fuera_fecha = False
     if fecha_av and fecha_inicio and fecha_fin:
         fuera_fecha = fecha_av < fecha_inicio or fecha_av > fecha_fin
 
-    alerta = "🔴" if fuera_fecha else "🟢"
+    # 🔴 CRITERIO FINAL DEL HISTORIAL
+    alerta = "🔴" if (fuera_fecha or excede_presupuesto) else "🟢"
     prog = d.get("porcentaje_avance_financiero", 0)
 
     with st.expander(f"{alerta} {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"):
