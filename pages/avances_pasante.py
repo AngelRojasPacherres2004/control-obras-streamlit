@@ -1,8 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+import pytz  # <--- SE AGREGA ESTA LIBRERÍA (Instalar con: pip install pytz)
 import cloudinary.uploader
 from firebase_admin import firestore
+
+# 1. CONFIGURAR TU ZONA HORARIA (Cambia 'America/Lima' por tu ciudad si es necesario)
+# Ejemplos: 'America/Lima', 'America/Bogota', 'America/Mexico_City'
+pais_tz = pytz.timezone('America/Lima')
 
 # ================= CONFIG =================
 st.set_page_config(page_title="Parte Diario", layout="centered")
@@ -36,8 +41,9 @@ if not obra_doc.exists:
 
 obra = obra_doc.to_dict()
 
-# ================= FECHAS =================
-hoy = date.today()
+# ================= FECHAS (Para validación de estado) =================
+# 2. USAR LA FECHA DE TU PAÍS AQUÍ TAMBIÉN
+hoy = datetime.now(pais_tz).date() 
 fecha_inicio = obra.get("fecha_inicio")
 fecha_fin = obra.get("fecha_fin_estimado")
 
@@ -101,8 +107,7 @@ with st.form("form_avance", clear_on_submit=True):
     descripcion = st.text_area("Descripción del trabajo", height=100)
 
     st.subheader("🧱 Materiales usados hoy")
-    materiales_usados_dict = {}
-    materiales_para_historial = [] # Lista detallada para guardar en el avance
+    materiales_para_historial = [] 
     costo_total_dia = 0.0
 
     for mat in materiales:
@@ -122,7 +127,6 @@ with st.form("form_avance", clear_on_submit=True):
                 "subtotal": round(subtotal, 2)
             }
             materiales_para_historial.append(item)
-            materiales_usados_dict[mat["doc_id"]] = item
 
     st.info(f"💰 Costo del día: S/ {costo_total_dia:.2f}")
     fotos = st.file_uploader("Fotos (mínimo 3)", accept_multiple_files=True, type=["jpg", "png", "jpeg"])
@@ -142,19 +146,21 @@ if guardar:
             res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
             urls.append(res["secure_url"])
 
-        # Guardar Avance con el detalle de materiales incluido
+        # 3. GUARDAR CON LA HORA EXACTA DE TU PAÍS
+        ahora_mi_pais = datetime.now(pais_tz)
+
         obra_ref.collection("avances").add({
-            "timestamp": datetime.now(),
+            "timestamp": ahora_mi_pais, # <--- HORA DE TU PAÍS
             "usuario": username,
             "responsable": responsable,
             "observaciones": descripcion,
             "costo_total_dia": round(costo_total_dia, 2),
-            "detalle_materiales": materiales_para_historial, # 👈 AQUÍ SE GUARDA EL DETALLE
+            "detalle_materiales": materiales_para_historial,
             "porcentaje_avance_financiero": round((costo_total_dia / presupuesto_total) * 100 if presupuesto_total else 0, 2),
             "fotos": urls
         })
 
-        # Recalcular Gasto Total sumando todos los documentos (o usando Increment)
+        # Actualizar total
         total_docs = obra_ref.collection("avances").stream()
         nuevo_total = sum(float(a.to_dict().get("costo_total_dia", 0)) for a in total_docs)
 
@@ -177,35 +183,40 @@ acumulado_paso_a_paso = 0.0
 
 for av in avances_todos:
     d = av.to_dict()
+    
+    # --- AJUSTE DE HORA AL LEER ---
+    ts = d.get("timestamp")
+    # Si la fecha viene de Firebase, la convertimos a la zona horaria de tu país para mostrarla bien
+    if ts and hasattr(ts, "astimezone"):
+        ts = ts.astimezone(pais_tz)
+        d["timestamp"] = ts # Actualizamos el diccionario con la hora corregida
+
     costo_dia = float(d.get("costo_total_dia", 0))
     acumulado_paso_a_paso += costo_dia
-    
-    # Lógica de semáforo histórico: ¿Se pasó el presupuesto en ese momento?
     d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_total
     d["acumulado_al_momento"] = acumulado_paso_a_paso
     lista_avances.append(d)
 
-lista_avances.reverse() # Más recientes primero
+lista_avances.reverse()
 
 if not lista_avances:
     st.info("Aún no hay avances registrados.")
 else:
     for d in lista_avances:
         ts = d.get("timestamp")
+        # Ya no usamos .date() solo, mantenemos el objeto ts que ya está en tu zona horaria
         fecha_av = ts.date() if ts else None
         
         fuera_fecha = False
         if fecha_av and fecha_inicio and fecha_fin:
             fuera_fecha = fecha_av < fecha_inicio or fecha_av > fecha_fin
 
-        # Definición de Alerta (Rojo si excedió en su momento o fuera de fecha)
         alerta = "🔴" if (fuera_fecha or d["excede_en_su_momento"]) else "🟢"
         prog = d.get("porcentaje_avance_financiero", 0)
 
         with st.expander(f"{alerta} {ts:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"):
             st.write(f"**Descripción:** {d.get('observaciones')}")
             
-            # --- TABLA DETALLADA DE MATERIALES ---
             st.write("**🧱 Materiales utilizados en este reporte:**")
             detalles = d.get("detalle_materiales", [])
             if detalles:

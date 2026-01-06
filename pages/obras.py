@@ -1,10 +1,15 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
+import pytz  # Librería para manejo de zonas horarias
 import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
 from collections import defaultdict
+
+# ================= CONFIGURACIÓN DE ZONA HORARIA =================
+# Cambia 'America/Lima' por tu ciudad si es necesario
+local_tz = pytz.timezone('America/Lima')
 
 # ================= CONFIGURACIÓN =================
 MESES_ES = {
@@ -30,7 +35,6 @@ def obtener_obras():
     return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    # Cargamos en orden ASCENDENTE para poder calcular el acumulado histórico correctamente
     docs = (
         db.collection("obras")
         .document(obra_id)
@@ -91,12 +95,14 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
             if not nombre: st.error("El nombre es obligatorio")
             else:
                 oid = nombre.lower().strip().replace(" ", "_")
+                # Guardamos las fechas de creación con zona horaria
+                ahora_obra = datetime.now(local_tz)
                 db.collection("obras").document(oid).set({
                     "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
                     "fecha_inicio": datetime.combine(f_inicio, datetime.min.time()),
                     "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
                     "presupuesto_total": presupuesto_inicial,
-                    "gasto_acumulado": 0, "creado_en": datetime.now()
+                    "gasto_acumulado": 0, "creado_en": ahora_obra
                 })
                 st.session_state["crear_obra"] = False
                 st.rerun()
@@ -156,12 +162,15 @@ if auth["role"] == "pasante":
             with st.spinner("Subiendo fotos..."):
                 urls = [cloudinary.uploader.upload(f, folder=f"obras/{obra_id_sel}")["secure_url"] for f in fotos]
                 
+                # --- AQUÍ LA CORRECCIÓN DE FECHA AL GUARDAR ---
+                ahora_local = datetime.now(local_tz)
+                
                 db.collection("obras").document(obra_id_sel).collection("avances").add({
-                    "fecha": datetime.now().isoformat(),
-                    "timestamp": datetime.now(),
+                    "fecha": ahora_local.isoformat(),
+                    "timestamp": ahora_local, # Guardamos el objeto datetime con zona horaria
                     "responsable": resp,
                     "descripcion": desc,
-                    "materiales_usados": mats_usados, # Detalle para la tabla
+                    "materiales_usados": mats_usados,
                     "costo_total_dia": costo_dia,
                     "fotos": urls
                 })
@@ -186,14 +195,23 @@ else:
     for a in avances_lista:
         costo = float(a.get("costo_total_dia", 0))
         acumulado_paso_a_paso += costo
-        
-        # Guardamos el acumulado en el diccionario para el historial
         a["_acumulado_momento"] = acumulado_paso_a_paso
         
-        fecha_str = a.get("fecha")
+        # --- CORRECCIÓN DE FECHA AL LEER PARA GRÁFICOS ---
         try:
-            dt = datetime.fromisoformat(fecha_str) if fecha_str else a.get("timestamp")
-            if not dt: continue
+            # Priorizamos el timestamp de Firebase
+            dt = a.get("timestamp")
+            if dt:
+                # Si el objeto viene sin zona horaria (naive), lo localizamos en UTC y pasamos a local
+                if dt.tzinfo is None:
+                    dt = pytz.utc.localize(dt).astimezone(local_tz)
+                else:
+                    dt = dt.astimezone(local_tz)
+            else:
+                # Si no hay timestamp, usamos el string ISO
+                dt = datetime.fromisoformat(a.get("fecha")).astimezone(local_tz)
+            
+            a["_dt_local"] = dt # Guardamos para el historial
             
             registros.append({
                 "fecha": dt,
@@ -231,27 +249,20 @@ st.header("📚 Historial de Avances")
 if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
-    # Invertimos para mostrar los más recientes arriba
     avances_mostrar = avances_lista[::-1]
     
     for av in avances_mostrar:
-        f_raw = av.get("fecha")
-        try:
-            f_dt = datetime.fromisoformat(f_raw) if f_raw else av.get("timestamp")
-            f_txt = f_dt.strftime("%d/%m/%Y %H:%M")
-        except: f_txt = "Fecha N/D"
+        # Usamos la fecha corregida que procesamos en el bloque anterior
+        f_dt = av.get("_dt_local")
+        f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
 
-        # Lógica de Semáforo
         excede = av.get("_acumulado_momento", 0) > presupuesto_obra
         alerta = "🔴" if excede else "🟢"
 
         with st.expander(f"{alerta} {f_txt} — {av.get('responsable', 'N/D')}"):
-            # Compatibilidad con nombres de campos antiguos
             desc = av.get("descripcion") or av.get("observaciones") or "Sin descripción"
             st.write(f"**Descripción:** {desc}")
             
-            # --- TABLA DE MATERIALES ---
-            # Busca en materiales_usados o detalle_materiales (según tu código anterior)
             mats = av.get("materiales_usados") or av.get("detalle_materiales")
             if mats:
                 st.write("**🧱 Materiales utilizados:**")
