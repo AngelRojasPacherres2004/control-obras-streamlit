@@ -163,7 +163,6 @@ if guardar:
 
             batch = db.batch()
 
-            # ---- materiales usados ----
             for m_id, m in materiales_usados.items():
                 ref = obra_ref.collection("materiales_usados").document()
                 batch.set(ref, {
@@ -178,7 +177,6 @@ if guardar:
                 if presupuesto_total else 0
             )
 
-            # ---- avance diario ----
             ref_avance = obra_ref.collection("avances").document()
             batch.set(ref_avance, {
                 "fecha": datetime.now().isoformat(),
@@ -194,7 +192,6 @@ if guardar:
 
             batch.commit()
 
-            # ===== ACTUALIZAR GASTO ACUMULADO =====
             total = sum(
                 float(a.to_dict().get("costo_total_dia", 0))
                 for a in obra_ref.collection("avances").stream()
@@ -225,8 +222,8 @@ for av in avances_docs:
     hay = True
     d = av.to_dict()
 
-    # ✅ USAR TIMESTAMP DE FIREBASE
-    f = d["timestamp"].to_datetime()
+    # ✅ TIMESTAMP YA ES datetime
+    f = d.get("timestamp")
 
     prog = d.get("porcentaje_avance_financiero", 0)
     alerta = "🔴" if d.get("fuera_fecha") else "🟢"
