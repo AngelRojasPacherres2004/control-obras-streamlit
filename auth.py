@@ -60,6 +60,13 @@ def verificar_autenticacion(db):
             if password != data.get("password"):
                 st.error("Contraseña incorrecta")
                 return
+            
+            # asegurar browser_id
+            if "browser_id" not in cookies:
+                cookies["browser_id"] = str(uuid.uuid4())
+                cookies.save()
+
+            browser_id = cookies["browser_id"]
 
             # ================= LOGIN OK =================
             session_id = str(uuid.uuid4())
@@ -76,8 +83,10 @@ def verificar_autenticacion(db):
                 "username": data["username"],
                 "role": data["role"],
                 "obra": data.get("obra"),
+                "browser_id": browser_id,   # 🔐 CLAVE
                 "created_at": firestore.SERVER_TIMESTAMP
             })
+
 
             # guardar SOLO session_id en cookie
             cookies["session_id"] = session_id
