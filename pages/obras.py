@@ -1,3 +1,4 @@
+"""obras.py"""
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -218,8 +219,18 @@ if not avances:
 else:
     # ---------- PROCESAR AVANCES ----------
     registros = []
+        
     for av in avances:
-        fecha = datetime.fromisoformat(av["fecha"])
+        fecha_str = av.get("fecha")
+
+        if not fecha_str:
+            continue  # ⛔ ignora avances inválidos
+
+        try:
+            fecha = datetime.fromisoformat(fecha_str)
+        except Exception:
+            continue
+
         registros.append({
             "fecha": fecha,
             "semana": fecha.isocalendar()[1],
@@ -228,7 +239,11 @@ else:
             "avance": av
         })
 
+
     df = pd.DataFrame(registros)
+    if df.empty:
+        st.info("No hay avances váalidos para mostrar")
+        st.stop()
 
     col1, col2 = st.columns(2)
 
@@ -321,8 +336,19 @@ if not avances:
     st.info("Esta obra aún no tiene avances registrados")
 else:
     for av in avances:
-        fecha = datetime.fromisoformat(av["fecha"])
-        with st.expander(f"📅 {fecha:%d/%m/%Y %H:%M} — {av.get('responsable','N/D')}"):
+        fecha_str = av.get("fecha")
+
+    if fecha_str:
+        try:
+            fecha = datetime.fromisoformat(fecha_str)
+            titulo_fecha = f"{fecha:%d/%m/%Y %H:%M}"
+        except Exception:
+            titulo_fecha = "Fecha inválida"
+    else:
+        titulo_fecha = "Sin fecha"
+
+    with st.expander(f"📅 {titulo_fecha} — {av.get('responsable','N/D')}"):
+
             st.write(
                     av.get("observaciones")
                     or av.get("descripcion")
