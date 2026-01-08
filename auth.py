@@ -1,21 +1,21 @@
 """
 Módulo de autenticación y pantalla inicial
 """
-import json
 import streamlit as st
 from util import set_background
 from cookies_manager import cookies
+import uuid
+from firebase_admin import firestore
 
 
 # ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
     set_background("Empresalogo.jpg")
 
-    # CSS para mover el botón con porcentaje
     st.markdown("""
     <style>
     .contenedor-boton {
-        margin-top: 45vh;   /* 🔽 AJUSTA ESTE VALOR */
+        margin-top: 45vh;
         width: 100%;
         display: flex;
         justify-content: center;
@@ -23,7 +23,6 @@ def mostrar_pantalla_inicial():
     </style>
     """, unsafe_allow_html=True)
 
-    # Contenedor del botón
     st.markdown('<div class="contenedor-boton">', unsafe_allow_html=True)
 
     if st.button("Iniciar Sesión", use_container_width=True):
@@ -33,79 +32,76 @@ def mostrar_pantalla_inicial():
     st.markdown('</div>', unsafe_allow_html=True)
 
 
-# ====== LOGIN CON FIREBASE ======
+# ====== LOGIN ======
 def verificar_autenticacion(db):
-    if "auth" not in st.session_state:
-        set_background("Empresalogo.jpg")
 
-        st.markdown("""
-        <style>
-        /* Overlay SOLO para el fondo */
-        .stApp::after {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background-color: rgba(0, 0, 0, 0.6);
-            z-index: 0;
-            pointer-events: none;
-        }
+    # ya autenticado → no mostrar login
+    if "auth" in st.session_state:
+        return
 
-        /* Todo el contenido arriba del overlay */
-        section[data-testid="stAppViewContainer"] > .main {
-            position: relative;
-            z-index: 1;
-        }
+    set_background("Empresalogo.jpg")
 
-        /* INPUTS NORMALES (CLAVE) */
-        input {
-            background-color: #ffffff !important;
-            color: #000000 !important;
-        }
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.title("CONTROL DE OBRAS 2025")
 
-        /* Labels visibles */
-        label {
-            color: #ffffff !important;
-        }
-        </style>
-        """, unsafe_allow_html=True)
+    username = st.text_input("Usuario")
+    password = st.text_input("Contraseña", type="password")
 
+    if not st.button("INGRESAR"):
+        return
 
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.title("CONTROL DE OBRAS 2025")
+    # ===== VALIDAR USUARIO =====
+    user_doc = db.collection("users").document(username).get()
+    if not user_doc.exists:
+        st.error("Usuario no existe")
+        return
 
-        username = st.text_input("Usuario")
-        password = st.text_input("Contraseña", type="password")
+    data = user_doc.to_dict()
 
-        if st.button("INGRESAR"):
-            user_doc = db.collection("users").document(username).get()
+    if password != data.get("password"):
+        st.error("Contraseña incorrecta")
+        return
 
-            if not user_doc.exists:
-                st.error("Usuario no existe")
-                return False
+    # ===== IDENTIDAD DEL NAVEGADOR =====
+    if "browser_id" not in cookies:
+        cookies["browser_id"] = str(uuid.uuid4())
+        cookies.save()
 
-            data = user_doc.to_dict()
+    browser_id = cookies["browser_id"]
 
-            if password != data.get("password"):
-                st.error("Contraseña incorrecta")
-                return False
+    # 🔥 cerrar sesiones previas de este navegador
+    old_sessions = (
+        db.collection("sessions")
+        .where("browser_id", "==", browser_id)
+        .stream()
+    )
 
-            auth_data = {
-                "username": data["username"],
-                "role": data["role"],
-                "obra": data.get("obra")
-            }
+    for s in old_sessions:
+        s.reference.delete()
 
-            st.session_state["auth"] = auth_data
-            st.session_state["show_login"] = True
+    # ===== CREAR SESIÓN NUEVA =====
+    session_id = str(uuid.uuid4())
 
-            #  guardar cookie
-            cookies["auth"] = json.dumps(auth_data)
-            cookies.save()
+    db.collection("sessions").document(session_id).set({
+        "username": data["username"],
+        "role": data["role"],
+        "obra": data.get("obra"),
+        "browser_id": browser_id,
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
 
+    # ===== GUARDAR COOKIE =====
+    cookies["session_id"] = session_id
+    cookies.save()
 
-            st.rerun()
+    # ===== ESTADO LOCAL =====
+    st.session_state.clear()
+    st.session_state["auth"] = {
+        "username": data["username"],
+        "role": data["role"],
+        "obra": data.get("obra"),
+        "session_id": session_id
+    }
+    st.session_state["show_login"] = True
 
-
-        return False
-
- 
+    st.rerun()
