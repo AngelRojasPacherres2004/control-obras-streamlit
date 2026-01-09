@@ -1,4 +1,3 @@
-"""auth.py"""
 """
 Módulo de autenticación y pantalla inicial
 """
@@ -9,7 +8,9 @@ import uuid
 from firebase_admin import firestore
 
 
-# ====== PANTALLA INICIAL ======
+# ======================================================
+# PANTALLA INICIAL
+# ======================================================
 def mostrar_pantalla_inicial():
     set_background("Empresalogo.jpg")
 
@@ -60,9 +61,12 @@ def mostrar_pantalla_inicial():
         st.rerun()
 
 
-# ====== LOGIN ======
+# ======================================================
+# LOGIN + AUTENTICACIÓN SEGURA
+# ======================================================
 def verificar_autenticacion(db):
 
+    # Evitar doble render
     if "auth" in st.session_state:
         return
 
@@ -104,8 +108,11 @@ def verificar_autenticacion(db):
     if not st.button("INGRESAR"):
         return
 
-    # ===== VALIDAR USUARIO =====
+    # ==================================================
+    # VALIDAR USUARIO
+    # ==================================================
     user_doc = db.collection("users").document(username).get()
+
     if not user_doc.exists:
         st.error("Usuario no existe")
         return
@@ -116,20 +123,26 @@ def verificar_autenticacion(db):
         st.error("Contraseña incorrecta")
         return
 
-    # ===== IDENTIDAD DEL NAVEGADOR =====
-    if "browser_id" not in cookies:
+    # ==================================================
+    # IDENTIDAD DEL NAVEGADOR
+    # ==================================================
+    if not cookies.get("browser_id"):
         cookies["browser_id"] = str(uuid.uuid4())
         cookies.save()
 
     browser_id = cookies["browser_id"]
 
-    # ===== LIMPIAR SESIÓN ANTERIOR =====
-if cookies.get("session_id"):
-    db.collection("sessions").document(cookies["session_id"]).delete()
-    del cookies["session_id"]
-    cookies.save()
+    # ==================================================
+    # ELIMINAR SESIÓN ANTERIOR (MISMO NAVEGADOR)
+    # ==================================================
+    if cookies.get("session_id"):
+        db.collection("sessions").document(cookies["session_id"]).delete()
+        del cookies["session_id"]
+        cookies.save()
 
-
+    # ==================================================
+    # CREAR NUEVA SESIÓN
+    # ==================================================
     session_id = str(uuid.uuid4())
 
     db.collection("sessions").document(session_id).set({
@@ -143,13 +156,16 @@ if cookies.get("session_id"):
     cookies["session_id"] = session_id
     cookies.save()
 
-   
+    # ==================================================
+    # GUARDAR SESIÓN EN STREAMLIT
+    # ==================================================
     st.session_state["auth"] = {
         "username": data["username"],
         "role": data["role"],
         "obra": data.get("obra"),
         "session_id": session_id
     }
-    st.session_state["show_login"] = True
+
+    st.session_state.show_login = True
 
     st.rerun()
