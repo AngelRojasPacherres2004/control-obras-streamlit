@@ -1,3 +1,4 @@
+"""auth.py"""
 """
 Módulo de autenticación y pantalla inicial
 """
@@ -122,14 +123,12 @@ def verificar_autenticacion(db):
 
     browser_id = cookies["browser_id"]
 
-    old_sessions = (
-        db.collection("sessions")
-        .where("browser_id", "==", browser_id)
-        .stream()
-    )
+    # ===== LIMPIAR SESIÓN ANTERIOR =====
+if cookies.get("session_id"):
+    db.collection("sessions").document(cookies["session_id"]).delete()
+    del cookies["session_id"]
+    cookies.save()
 
-    for s in old_sessions:
-        s.reference.delete()
 
     session_id = str(uuid.uuid4())
 
@@ -144,7 +143,7 @@ def verificar_autenticacion(db):
     cookies["session_id"] = session_id
     cookies.save()
 
-    st.session_state.clear()
+   
     st.session_state["auth"] = {
         "username": data["username"],
         "role": data["role"],
