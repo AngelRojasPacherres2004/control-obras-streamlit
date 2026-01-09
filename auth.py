@@ -12,12 +12,7 @@ from util import set_background
 
 # ================= LOGIN SCREEN =================
 def login_screen(db: firestore.Client):
-    """
-    Pantalla de login segura
-    Cada navegador maneja su propia sesión
-    """
 
-    # Si ya está autenticado, no volver a mostrar login
     if "auth" in st.session_state:
         return None
 
@@ -48,7 +43,11 @@ def login_screen(db: firestore.Client):
         cookie_expiry_days=7
     )
 
-    name, auth_status, username = authenticator.login("Iniciar sesión", "main")
+    # 🔴 FIX CRÍTICO AQUÍ
+    name, auth_status, username = authenticator.login(
+        "Iniciar sesión",
+        location="main"
+    )
 
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
