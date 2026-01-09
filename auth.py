@@ -1,18 +1,17 @@
 """
 auth.py
-Autenticación segura y aislada por navegador
-Compatible con tu versión de streamlit-authenticator
+Autenticación segura por navegador (SIN cookies manuales)
+Compatible con versiones antiguas de streamlit-authenticator
 """
 
 import streamlit as st
 import streamlit_authenticator as stauth
-from firebase_admin import firestore
 from util import set_background
+from firebase_admin import firestore
 
 
 def login_screen(db: firestore.Client):
 
-    # Si ya hay sesión activa, no mostrar login
     if "auth" in st.session_state:
         return None
 
@@ -21,7 +20,7 @@ def login_screen(db: firestore.Client):
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("CONTROL DE OBRAS 2025")
 
-    # ===== CARGAR USUARIOS DESDE FIREBASE =====
+    # ===== CARGAR USUARIOS =====
     users = db.collection("users").stream()
 
     credentials = {"usernames": {}}
@@ -30,7 +29,7 @@ def login_screen(db: firestore.Client):
         d = u.to_dict()
         credentials["usernames"][d["username"]] = {
             "name": d["username"],
-            "password": d["password"],  # luego se puede hashear
+            "password": d["password"],  # texto plano (luego se hashea)
             "role": d.get("role"),
             "obra": d.get("obra")
         }
@@ -42,8 +41,11 @@ def login_screen(db: firestore.Client):
         cookie_expiry_days=7
     )
 
-    # ✅ FORMA CORRECTA PARA TU VERSIÓN
-    name, auth_status, username = authenticator.login("Iniciar sesión", "main")
+    # 🔥 ÚNICA FORMA COMPATIBLE CON TU VERSIÓN
+    name, auth_status, username = authenticator.login(
+        "Iniciar sesión",
+        "unrendered"
+    )
 
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
