@@ -1,6 +1,6 @@
 """
 auth.py
-Autenticación segura por navegador
+Autenticación segura y aislada por navegador
 Compatible con tu versión de streamlit-authenticator
 """
 
@@ -12,7 +12,7 @@ from util import set_background
 
 def login_screen(db: firestore.Client):
 
-    # Si ya hay sesión, no mostrar login
+    # Si ya hay sesión activa, no mostrar login
     if "auth" in st.session_state:
         return None
 
@@ -30,7 +30,7 @@ def login_screen(db: firestore.Client):
         d = u.to_dict()
         credentials["usernames"][d["username"]] = {
             "name": d["username"],
-            "password": d["password"],  # (luego lo hasheamos)
+            "password": d["password"],  # luego se puede hashear
             "role": d.get("role"),
             "obra": d.get("obra")
         }
@@ -42,8 +42,8 @@ def login_screen(db: firestore.Client):
         cookie_expiry_days=7
     )
 
-    # 🔥 FORMA COMPATIBLE CON TU VERSIÓN
-    name, auth_status, username = authenticator.login("Iniciar sesión")
+    # ✅ FORMA CORRECTA PARA TU VERSIÓN
+    name, auth_status, username = authenticator.login("Iniciar sesión", "main")
 
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
@@ -67,6 +67,6 @@ def login_screen(db: firestore.Client):
     return authenticator
 
 
-def logout_screen(authenticator):
+def logout_button(authenticator):
     if authenticator:
-        authenticator.logout("🚪 Cerrar sesión")
+        authenticator.logout("🚪 Cerrar sesión", "sidebar")
