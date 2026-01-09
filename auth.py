@@ -1,53 +1,32 @@
 """
 auth.py
-Autenticación segura con streamlit-authenticator
-Cada navegador / incógnito maneja su propia sesión
+Autenticación correcta por navegador
+NO comparte sesión entre usuarios
 """
 
 import streamlit as st
 import streamlit_authenticator as stauth
 from firebase_admin import firestore
 from util import set_background
-import yaml
 
 
-# ================= PANTALLA INICIAL =================
-def mostrar_pantalla_inicial():
-    set_background("Empresalogo.jpg")
-
-    st.markdown("""
-    <style>
-    #MainMenu, footer, header {visibility: hidden;}
-    .main { padding: 0 !important; }
-    .block-container {
-        padding-top: 45vh !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-    }
-    </style>
-    """, unsafe_allow_html=True)
-
-    if st.button("Iniciar Sesión", use_container_width=True):
-        st.session_state.show_login = True
-        st.rerun()
-
-
-# ================= LOGIN =================
-def verificar_autenticacion(db: firestore.Client):
+# ================= LOGIN SCREEN =================
+def login_screen(db: firestore.Client):
     """
-    Login seguro por navegador usando cookies propias de streamlit-authenticator
+    Pantalla de login segura
+    Cada navegador maneja su propia sesión
     """
 
+    # Si ya está autenticado, no volver a mostrar login
     if "auth" in st.session_state:
-        return
+        return None
 
     set_background("Empresalogo.jpg")
 
     st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("CONTROL DE OBRAS 2025")
 
-    # ================= OBTENER USUARIOS DE FIRESTORE =================
+    # ===== CARGAR USUARIOS DESDE FIREBASE =====
     users_ref = db.collection("users").stream()
 
     credentials = {"usernames": {}}
@@ -56,12 +35,12 @@ def verificar_autenticacion(db: firestore.Client):
         d = u.to_dict()
         credentials["usernames"][d["username"]] = {
             "name": d["username"],
-            "password": d["password"],  # ⚠️ idealmente hash
+            "password": d["password"],  # idealmente hash
             "role": d.get("role"),
             "obra": d.get("obra")
         }
 
-    # ================= AUTHENTICATOR =================
+    # ===== AUTHENTICATOR =====
     authenticator = stauth.Authenticate(
         credentials=credentials,
         cookie_name="control_obras_auth",
@@ -69,28 +48,31 @@ def verificar_autenticacion(db: firestore.Client):
         cookie_expiry_days=7
     )
 
-    name, auth_status, username = authenticator.login(location="main")
+    name, auth_status, username = authenticator.login("Iniciar sesión", "main")
 
-    # ================= RESULTADOS =================
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
+        return None
 
-    elif auth_status is None:
+    if auth_status is None:
         st.info("Ingrese sus credenciales")
+        return None
 
-    elif auth_status:
-        user_data = credentials["usernames"][username]
+    if auth_status:
+        user = credentials["usernames"][username]
 
         st.session_state["auth"] = {
             "username": username,
-            "role": user_data.get("role"),
-            "obra": user_data.get("obra")
+            "role": user.get("role"),
+            "obra": user.get("obra")
         }
 
-        st.session_state.show_login = True
         st.rerun()
+
+    return authenticator
 
 
 # ================= LOGOUT =================
-def cerrar_sesion(authenticator):
-    authenticator.logout("🚪 Cerrar sesión", location="sidebar")
+def logout_screen(authenticator):
+    if authenticator:
+        authenticator.logout("🚪 Cerrar sesión", location="sidebar")
