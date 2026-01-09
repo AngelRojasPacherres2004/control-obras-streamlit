@@ -2,7 +2,12 @@ import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
-from auth import mostrar_pantalla_inicial, verificar_autenticacion
+# ====== IMPORTAR MÓDULOS ======
+from auth import (
+    mostrar_pantalla_inicial,
+    verificar_autenticacion
+)
+from styles import aplicar_estilos_responsive  # ← AGREGAR ESTA LÍNEA
 # ================= INIT =================
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
@@ -19,7 +24,8 @@ cloudinary.config(
 )
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
-
+# ====== APLICAR ESTILOS RESPONSIVE ======
+aplicar_estilos_responsive() 
 # ====== ESTADO ======
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
