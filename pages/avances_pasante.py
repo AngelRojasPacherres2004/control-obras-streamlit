@@ -1,3 +1,4 @@
+"""avances_pasante.py"""
 import streamlit as st
 from datetime import datetime
 import cloudinary.uploader
@@ -198,10 +199,24 @@ avances_docs = (
 
 hay = False
 
+
 for av in avances_docs:
     hay = True
     d = av.to_dict()
-    f = datetime.fromisoformat(d["fecha"])
+
+    fecha_raw = d.get("fecha")
+
+    if isinstance(fecha_raw, str):
+        f = datetime.fromisoformat(fecha_raw)
+
+    elif hasattr(fecha_raw, "to_datetime"):
+        # Firestore Timestamp
+        f = fecha_raw.to_datetime()
+
+    else:
+        # 🔁 MISMO COMPORTAMIENTO DE ANTES
+        f = datetime.now()
+
     prog = d.get("porcentaje_avance_financiero", 0)
 
     with st.expander(
@@ -221,6 +236,6 @@ for av in avances_docs:
 
         for img in d.get("fotos", []):
             st.image(img, use_container_width=True)
-
+            
 if not hay:
     st.info("Aún no hay avances registrados.")
