@@ -1,15 +1,10 @@
-"""arq.py"""
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 from cookies_manager import cookies
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
-import json
 import uuid
-
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
 
 # ================= INIT =================
 if not firebase_admin._apps:
@@ -28,12 +23,17 @@ cloudinary.config(
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
-
-
 if not cookies.ready():
     st.stop()
 
-# ================= RESTAURAR SESIÓN DESDE COOKIE =================
+# ================= IDENTIDAD DEL NAVEGADOR =================
+if "browser_id" not in cookies:
+    cookies["browser_id"] = str(uuid.uuid4())
+    cookies.save()
+
+browser_id = cookies["browser_id"]
+
+# ================= RESTAURAR SESIÓN =================
 if "auth" not in st.session_state and cookies.get("session_id"):
 
     session_id = cookies["session_id"]
@@ -42,7 +42,6 @@ if "auth" not in st.session_state and cookies.get("session_id"):
     if session_doc.exists:
         data = session_doc.to_dict()
 
-        # validar navegador
         if data.get("browser_id") == browser_id:
             st.session_state["auth"] = {
                 "username": data["username"],
@@ -51,30 +50,25 @@ if "auth" not in st.session_state and cookies.get("session_id"):
                 "session_id": session_id
             }
         else:
-            # cookie no válida para este navegador
             del cookies["session_id"]
             cookies.save()
 
     else:
-        # sesión no existe → eliminar cookie
         del cookies["session_id"]
         cookies.save()
 
-
-
-# ====== ESTADO ======
+# ================= ESTADO UI =================
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
-# ====== FLUJO VISUAL ======
+# ================= FLUJO VISUAL =================
 
-# 1️⃣ Pantalla inicial (solo diseño)
-if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
+# 1️⃣ Pantalla inicial
+if "auth" not in st.session_state and not st.session_state.show_login:
     mostrar_pantalla_inicial()
     st.stop()
 
-
-# 2️⃣ Login (diseño + autenticación)
+# 2️⃣ Login
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
@@ -93,35 +87,16 @@ else:
     pg = st.navigation([avances_page])
 
 # ================= CERRAR SESIÓN =================
-# ================= CERRAR SESIÓN =================
 with st.sidebar:
     st.divider()
     if st.button("🚪 Cerrar sesión", use_container_width=True):
 
-        #  eliminar cookie
         if cookies.get("session_id"):
             db.collection("sessions").document(cookies["session_id"]).delete()
             del cookies["session_id"]
+            cookies.save()
 
-        cookies.save()
-
-
-
-
-        #  limpiar sesión
         st.session_state.clear()
-
-        # marcar logout
-        st.session_state["logout"] = True
-        st.session_state["show_login"] = False
-
-
-        # volver al login
         st.rerun()
-
-
-
-
-
 
 pg.run()
