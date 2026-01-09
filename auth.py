@@ -1,56 +1,96 @@
+"""
+auth.py
+Autenticación segura con streamlit-authenticator
+Cada navegador / incógnito maneja su propia sesión
+"""
+
 import streamlit as st
 import streamlit_authenticator as stauth
 from firebase_admin import firestore
+from util import set_background
+import yaml
 
-def login_screen(db):
 
+# ================= PANTALLA INICIAL =================
+def mostrar_pantalla_inicial():
+    set_background("Empresalogo.jpg")
+
+    st.markdown("""
+    <style>
+    #MainMenu, footer, header {visibility: hidden;}
+    .main { padding: 0 !important; }
+    .block-container {
+        padding-top: 45vh !important;
+        display: flex !important;
+        justify-content: center !important;
+        align-items: center !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if st.button("Iniciar Sesión", use_container_width=True):
+        st.session_state.show_login = True
+        st.rerun()
+
+
+# ================= LOGIN =================
+def verificar_autenticacion(db: firestore.Client):
+    """
+    Login seguro por navegador usando cookies propias de streamlit-authenticator
+    """
+
+    if "auth" in st.session_state:
+        return
+
+    set_background("Empresalogo.jpg")
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
+    st.title("CONTROL DE OBRAS 2025")
+
+    # ================= OBTENER USUARIOS DE FIRESTORE =================
     users_ref = db.collection("users").stream()
 
-    usernames = []
-    names = []
-    passwords = []
-    roles = {}
-    obras = {}
+    credentials = {"usernames": {}}
 
-    for doc in users_ref:
-        u = doc.to_dict()
-        usernames.append(u["username"])
-        names.append(u.get("name", u["username"]))
-        passwords.append(u["password"])
-        roles[u["username"]] = u["role"]
-        obras[u["username"]] = u.get("obra")
+    for u in users_ref:
+        d = u.to_dict()
+        credentials["usernames"][d["username"]] = {
+            "name": d["username"],
+            "password": d["password"],  # ⚠️ idealmente hash
+            "role": d.get("role"),
+            "obra": d.get("obra")
+        }
 
+    # ================= AUTHENTICATOR =================
     authenticator = stauth.Authenticate(
-        credentials={
-            "usernames": {
-                usernames[i]: {
-                    "name": names[i],
-                    "password": passwords[i]
-                }
-                for i in range(len(usernames))
-            }
-        },
+        credentials=credentials,
         cookie_name="control_obras_auth",
-        key="secure_auth",
+        key="control_obras_key",
         cookie_expiry_days=7
     )
 
-    name, auth_status, username = authenticator.login("Iniciar sesión", "main")
+    name, auth_status, username = authenticator.login(location="main")
 
+    # ================= RESULTADOS =================
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
 
-    if auth_status is None:
-        st.warning("Ingrese sus credenciales")
+    elif auth_status is None:
+        st.info("Ingrese sus credenciales")
 
-    if auth_status:
+    elif auth_status:
+        user_data = credentials["usernames"][username]
+
         st.session_state["auth"] = {
             "username": username,
-            "name": name,
-            "role": roles[username],
-            "obra": obras[username]
+            "role": user_data.get("role"),
+            "obra": user_data.get("obra")
         }
 
-        return authenticator
+        st.session_state.show_login = True
+        st.rerun()
 
-    return None
+
+# ================= LOGOUT =================
+def cerrar_sesion(authenticator):
+    authenticator.logout("🚪 Cerrar sesión", location="sidebar")
