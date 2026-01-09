@@ -1,7 +1,7 @@
 """
 auth.py
-Autenticación correcta por navegador
-NO comparte sesión entre usuarios
+Autenticación segura por navegador
+Compatible con tu versión de streamlit-authenticator
 """
 
 import streamlit as st
@@ -10,9 +10,9 @@ from firebase_admin import firestore
 from util import set_background
 
 
-# ================= LOGIN SCREEN =================
 def login_screen(db: firestore.Client):
 
+    # Si ya hay sesión, no mostrar login
     if "auth" in st.session_state:
         return None
 
@@ -22,32 +22,28 @@ def login_screen(db: firestore.Client):
     st.title("CONTROL DE OBRAS 2025")
 
     # ===== CARGAR USUARIOS DESDE FIREBASE =====
-    users_ref = db.collection("users").stream()
+    users = db.collection("users").stream()
 
     credentials = {"usernames": {}}
 
-    for u in users_ref:
+    for u in users:
         d = u.to_dict()
         credentials["usernames"][d["username"]] = {
             "name": d["username"],
-            "password": d["password"],  # idealmente hash
+            "password": d["password"],  # (luego lo hasheamos)
             "role": d.get("role"),
             "obra": d.get("obra")
         }
 
-    # ===== AUTHENTICATOR =====
     authenticator = stauth.Authenticate(
-        credentials=credentials,
+        credentials,
         cookie_name="control_obras_auth",
         key="control_obras_key",
         cookie_expiry_days=7
     )
 
-    # 🔴 FIX CRÍTICO AQUÍ
-    name, auth_status, username = authenticator.login(
-        "Iniciar sesión",
-        location="main"
-    )
+    # 🔥 FORMA COMPATIBLE CON TU VERSIÓN
+    name, auth_status, username = authenticator.login("Iniciar sesión")
 
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
@@ -71,7 +67,6 @@ def login_screen(db: firestore.Client):
     return authenticator
 
 
-# ================= LOGOUT =================
 def logout_screen(authenticator):
     if authenticator:
-        authenticator.logout("🚪 Cerrar sesión", location="sidebar")
+        authenticator.logout("🚪 Cerrar sesión")
