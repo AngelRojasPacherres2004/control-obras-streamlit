@@ -42,31 +42,7 @@ if "browser_id" not in cookies:
 browser_id = cookies["browser_id"]
 
 # ================= RESTAURAR SESIÓN SEGURA =================
-# ================= RESTAURAR SESIÓN SEGURA =================
-if "auth" not in st.session_state and cookies.get("session_id"):
 
-    session_id = cookies.get("session_id")
-    session_doc = db.collection("sessions").document(session_id).get()
-
-    if session_doc.exists:
-        session = session_doc.to_dict()
-
-        # 🔐 validar que la sesión pertenece a ESTE navegador
-        if session.get("browser_id") == browser_id:
-
-            st.session_state["auth"] = {
-                "username": session["username"],
-                "role": session["role"],
-                "obra": session.get("obra"),
-                "session_id": session_id
-            }
-
-            st.session_state["show_login"] = True
-
-        else:
-            # cookie inválida para este navegador
-            del cookies["session_id"]
-            cookies.save()
 
 # ====== ESTADO ======
 if "show_login" not in st.session_state:
