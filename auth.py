@@ -1,70 +1,112 @@
 """
 auth.py
-Autenticación correcta y aislada por navegador
-Compatible con versiones antiguas de streamlit-authenticator
+Login manual seguro por navegador (NO comparte sesión)
 """
 
 import streamlit as st
-import streamlit_authenticator as stauth
 from util import set_background
+from cookies_manager import cookies
+import uuid
 from firebase_admin import firestore
 
 
-def login_screen(db: firestore.Client):
+# ================= PANTALLA INICIAL =================
+def mostrar_pantalla_inicial():
+    set_background("Empresalogo.jpg")
 
-    if "auth" in st.session_state:
-        return None
+    st.markdown("""
+    <style>
+    #MainMenu, footer, header {visibility: hidden;}
+    .block-container {
+        padding-top: 45vh !important;
+        display: flex;
+        justify-content: center;
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
+    if st.button("Iniciar Sesión", use_container_width=True):
+        st.session_state.show_login = True
+        st.rerun()
+
+
+# ================= LOGIN =================
+def verificar_autenticacion(db):
+
+    # ===== IDENTIDAD DEL NAVEGADOR =====
+    if "browser_id" not in cookies:
+        cookies["browser_id"] = str(uuid.uuid4())
+        cookies.save()
+
+    browser_id = cookies["browser_id"]
+
+    # ===== RESTAURAR SESIÓN SOLO SI COINCIDE EL NAVEGADOR =====
+    if cookies.get("session_id") and "auth" not in st.session_state:
+        session_doc = db.collection("sessions").document(
+            cookies["session_id"]
+        ).get()
+
+        if session_doc.exists:
+            session = session_doc.to_dict()
+
+            # 🔥 VALIDACIÓN CLAVE
+            if session.get("browser_id") == browser_id:
+                st.session_state["auth"] = {
+                    "username": session["username"],
+                    "role": session["role"],
+                    "obra": session.get("obra"),
+                    "session_id": cookies["session_id"]
+                }
+                return
+            else:
+                # sesión NO pertenece a este navegador
+                db.collection("sessions").document(
+                    cookies["session_id"]
+                ).delete()
+                del cookies["session_id"]
+                cookies.save()
+
+    # ===== FORMULARIO LOGIN =====
     set_background("Empresalogo.jpg")
 
     st.title("CONTROL DE OBRAS 2025")
 
-    # ===== CARGAR USUARIOS =====
-    users = db.collection("users").stream()
+    username = st.text_input("Usuario")
+    password = st.text_input("Contraseña", type="password")
 
-    credentials = {"usernames": {}}
+    if not st.button("INGRESAR"):
+        return
 
-    for u in users:
-        d = u.to_dict()
-        credentials["usernames"][d["username"]] = {
-            "name": d["username"],
-            "password": d["password"],
-            "role": d.get("role"),
-            "obra": d.get("obra")
-        }
+    user_doc = db.collection("users").document(username).get()
+    if not user_doc.exists:
+        st.error("Usuario no existe")
+        return
 
-    authenticator = stauth.Authenticate(
-        credentials,
-        cookie_name="control_obras_auth",
-        key="control_obras_key",
-        cookie_expiry_days=7
-    )
+    data = user_doc.to_dict()
 
-    # 🔥 ÚNICA FORMA QUE FUNCIONA EN TU VERSIÓN
-    name, auth_status, username = authenticator.login(location="unrendered")
+    if password != data.get("password"):
+        st.error("Contraseña incorrecta")
+        return
 
-    if auth_status is False:
-        st.error("Usuario o contraseña incorrectos")
-        return None
+    # ===== CREAR SESIÓN SEGURA =====
+    session_id = str(uuid.uuid4())
 
-    if auth_status is None:
-        st.info("Ingrese sus credenciales")
-        return None
+    db.collection("sessions").document(session_id).set({
+        "username": data["username"],
+        "role": data["role"],
+        "obra": data.get("obra"),
+        "browser_id": browser_id,
+        "created_at": firestore.SERVER_TIMESTAMP
+    })
 
-    if auth_status:
-        user = credentials["usernames"][username]
+    cookies["session_id"] = session_id
+    cookies.save()
 
-        st.session_state["auth"] = {
-            "username": username,
-            "role": user.get("role"),
-            "obra": user.get("obra")
-        }
+    st.session_state["auth"] = {
+        "username": data["username"],
+        "role": data["role"],
+        "obra": data.get("obra"),
+        "session_id": session_id
+    }
 
-        st.rerun()
-
-    return authenticator
-
-
-def logout_button(authenticator):
-    if authenticator:
-        authenticator.logout("🚪 Cerrar sesión", "sidebar")
+    st.rerun()
