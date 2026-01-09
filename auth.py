@@ -1,51 +1,81 @@
 import streamlit as st
-from util import set_background
 from cookies_manager import cookies
-import uuid
 from firebase_admin import firestore
+import uuid
+from util import set_background
 
+# ================= PANTALLA INICIAL =================
 def mostrar_pantalla_inicial():
     set_background("Empresalogo.jpg")
 
-    if st.button("Iniciar Sesión", use_container_width=True):
+    st.markdown("""
+    <style>
+    #MainMenu, footer, header {visibility: hidden;}
+
+    .block-container {
+        padding-top: 45vh !important;
+        display: flex;
+        justify-content: center;
+    }
+
+    .stButton button {
+        background-color: rgba(0,0,0,0.8);
+        color: white;
+        font-size: 18px;
+        padding: 12px;
+        width: 300px;
+        border-radius: 8px;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    if st.button("Iniciar Sesión"):
         st.session_state.show_login = True
         st.rerun()
 
 
+# ================= LOGIN =================
 def verificar_autenticacion(db):
 
     if "auth" in st.session_state:
         return
 
     set_background("Empresalogo.jpg")
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("CONTROL DE OBRAS 2025")
 
-    username = st.text_input("Usuario", key="login_user")
-    password = st.text_input("Contraseña", type="password", key="login_pass")
+    username = st.text_input("Usuario")
+    password = st.text_input("Contraseña", type="password")
 
     if not st.button("INGRESAR"):
         return
 
     # ===== VALIDAR USUARIO =====
     user_doc = db.collection("users").document(username).get()
+
     if not user_doc.exists:
         st.error("Usuario no existe")
         return
 
     data = user_doc.to_dict()
+
     if password != data.get("password"):
         st.error("Contraseña incorrecta")
         return
 
-    # ===== BROWSER ID =====
+    # ===== IDENTIFICAR NAVEGADOR =====
     if "browser_id" not in cookies:
         cookies["browser_id"] = str(uuid.uuid4())
+        cookies.save()
 
     browser_id = cookies["browser_id"]
 
-    # ===== ELIMINAR SESIÓN ANTERIOR =====
+    # ===== ELIMINAR SESIÓN PREVIA DE ESTE NAVEGADOR =====
     if cookies.get("session_id"):
         db.collection("sessions").document(cookies["session_id"]).delete()
+        del cookies["session_id"]
+        cookies.save()
 
     # ===== CREAR NUEVA SESIÓN =====
     session_id = str(uuid.uuid4())
@@ -58,18 +88,16 @@ def verificar_autenticacion(db):
         "created_at": firestore.SERVER_TIMESTAMP
     })
 
-    # 🔴 GUARDAR COOKIE SOLO UNA VEZ
     cookies["session_id"] = session_id
     cookies.save()
 
-    # ===== SESIÓN STREAMLIT =====
-    st.session_state.clear()
+    # ===== SESSION STATE =====
     st.session_state["auth"] = {
         "username": data["username"],
         "role": data["role"],
         "obra": data.get("obra"),
         "session_id": session_id
     }
-    st.session_state["show_login"] = True
 
+    st.session_state.show_login = True
     st.rerun()
