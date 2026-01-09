@@ -1,6 +1,6 @@
 """
 auth.py
-Autenticación segura por navegador (SIN cookies manuales)
+Autenticación correcta y aislada por navegador
 Compatible con versiones antiguas de streamlit-authenticator
 """
 
@@ -17,7 +17,6 @@ def login_screen(db: firestore.Client):
 
     set_background("Empresalogo.jpg")
 
-    st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("CONTROL DE OBRAS 2025")
 
     # ===== CARGAR USUARIOS =====
@@ -29,7 +28,7 @@ def login_screen(db: firestore.Client):
         d = u.to_dict()
         credentials["usernames"][d["username"]] = {
             "name": d["username"],
-            "password": d["password"],  # texto plano (luego se hashea)
+            "password": d["password"],
             "role": d.get("role"),
             "obra": d.get("obra")
         }
@@ -41,11 +40,8 @@ def login_screen(db: firestore.Client):
         cookie_expiry_days=7
     )
 
-    # 🔥 ÚNICA FORMA COMPATIBLE CON TU VERSIÓN
-    name, auth_status, username = authenticator.login(
-        "Iniciar sesión",
-        "unrendered"
-    )
+    # 🔥 ÚNICA FORMA QUE FUNCIONA EN TU VERSIÓN
+    name, auth_status, username = authenticator.login(location="unrendered")
 
     if auth_status is False:
         st.error("Usuario o contraseña incorrectos")
