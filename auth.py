@@ -1,3 +1,4 @@
+"""auth.py"""
 """
 Módulo de autenticación y pantalla inicial
 """
@@ -41,6 +42,16 @@ def mostrar_pantalla_inicial():
         border-radius: 8px !important;
         width: 100% !important;
     }
+
+    @media (max-width: 768px) {
+        .block-container {
+            padding-top: 32vh !important;
+        }
+
+        div[data-testid="stButton"] {
+            max-width: 85% !important;
+        }
+    }
     </style>
     """, unsafe_allow_html=True)
 
@@ -57,6 +68,34 @@ def verificar_autenticacion(db):
 
     set_background("Empresalogo.jpg")
 
+    st.markdown("""
+    <style>
+    .stApp::after {
+        content: "";
+        position: fixed;
+        inset: 0;
+        background-color: rgba(0, 0, 0, 0.6);
+        z-index: 0;
+        pointer-events: none;
+    }
+
+    section[data-testid="stAppViewContainer"] > .main {
+        position: relative;
+        z-index: 1;
+    }
+
+    input {
+        background-color: #ffffff !important;
+        color: #000000 !important;
+    }
+
+    label {
+        color: #ffffff !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+
+    st.markdown("<br><br>", unsafe_allow_html=True)
     st.title("CONTROL DE OBRAS 2025")
 
     username = st.text_input("Usuario")
@@ -84,13 +123,13 @@ def verificar_autenticacion(db):
 
     browser_id = cookies["browser_id"]
 
-    # ===== LIMPIAR SESIÓN ANTERIOR (MISMO NAVEGADOR) =====
-    if cookies.get("session_id"):
-        db.collection("sessions").document(cookies["session_id"]).delete()
-        del cookies["session_id"]
-        cookies.save()
+    # ===== LIMPIAR SESIÓN ANTERIOR =====
+if cookies.get("session_id"):
+    db.collection("sessions").document(cookies["session_id"]).delete()
+    del cookies["session_id"]
+    cookies.save()
 
-    # ===== CREAR NUEVA SESIÓN =====
+
     session_id = str(uuid.uuid4())
 
     db.collection("sessions").document(session_id).set({
@@ -104,13 +143,13 @@ def verificar_autenticacion(db):
     cookies["session_id"] = session_id
     cookies.save()
 
-    # ===== SESIÓN EN MEMORIA =====
+   
     st.session_state["auth"] = {
         "username": data["username"],
         "role": data["role"],
         "obra": data.get("obra"),
         "session_id": session_id
     }
+    st.session_state["show_login"] = True
 
-    st.session_state.show_login = True
     st.rerun()
