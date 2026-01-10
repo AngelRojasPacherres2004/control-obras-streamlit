@@ -379,6 +379,25 @@ else:
                     f"🟡 Gasto adicional: S/ {d['gasto_adicional']:,.2f}"
                 )
 
+            # ================= PROBLEMÁTICA / SOLUCIÓN =================
+            problematica = d.get("problematica", "").strip()
+            solucion = d.get("solucion", "").strip()
+            
+            if problematica or solucion:
+                with st.expander("🛑 Ver problemática y solución"):
+                    if problematica:
+                        st.markdown("### 🛑 Problemática")
+                        st.write(problematica)
+                    else:
+                        st.caption("Sin problemática registrada.")
+            
+                    if solucion:
+                        st.markdown("### ✅ Solución")
+                        st.write(solucion)
+                    else:
+                        st.caption("Sin solución registrada.")
+
+
             fotos_list = d.get("fotos", [])
             if fotos_list:
                 st.write("**🖼️ Evidencia fotográfica:**")
