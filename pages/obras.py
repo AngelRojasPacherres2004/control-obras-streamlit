@@ -1,14 +1,13 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
-import pytz  # Librería para manejo de zonas horarias
+import pytz
 import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
 from collections import defaultdict
 
 # ================= CONFIGURACIÓN DE ZONA HORARIA =================
-# Cambia 'America/Lima' por tu ciudad si es necesario
 local_tz = pytz.timezone('America/Lima')
 
 # ================= CONFIGURACIÓN =================
@@ -57,10 +56,6 @@ if "crear_obra" not in st.session_state:
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
 
-if not OBRAS and auth["role"] != "jefe":
-    st.warning("No hay obras creadas.")
-    st.stop()
-
 if auth["role"] == "jefe":
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
@@ -78,33 +73,52 @@ else:
         st.stop()
     st.sidebar.success(f"Obra asignada: {OBRAS.get(obra_id_sel, 'Desconocida')}")
 
-# ================= FORMULARIO CREAR OBRA =================
+# ================= FORMULARIO CREAR OBRA (ACTUALIZADO) =================
 if auth["role"] == "jefe" and st.session_state["crear_obra"]:
     st.title("➕ Crear nueva obra")
     with st.form("form_crear_obra"):
         nombre = st.text_input("Nombre de la obra")
         ubicacion = st.text_input("Ubicación")
         estado = st.selectbox("Estado", ["en espera", "en progreso", "pausado", "finalizado"])
+        
         c1, c2 = st.columns(2)
         f_inicio = c1.date_input("Fecha inicio")
         f_fin = c2.date_input("Fecha fin estimado")
-        presupuesto_inicial = st.number_input("Presupuesto Total (S/)", min_value=0.0)
+        
+        st.subheader("💰 Presupuestos Iniciales")
+        col_p1, col_p2 = st.columns(2)
+        p_caja_chica = col_p1.number_input("Presupuesto Caja Chica (S/)", min_value=0.0, step=100.0)
+        p_mano_obra = col_p2.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0, step=100.0)
+        
+        # El presupuesto de materiales inicia en 0 según tu solicitud
+        p_materiales = 0.0
+        p_total = p_caja_chica + p_mano_obra + p_materiales
+        
+        st.info(f"**Presupuesto Total Calculado:** S/ {p_total:,.2f}")
         
         col_g, col_c = st.columns(2)
         if col_g.form_submit_button("💾 Guardar Obra"):
-            if not nombre: st.error("El nombre es obligatorio")
+            if not nombre: 
+                st.error("El nombre es obligatorio")
             else:
                 oid = nombre.lower().strip().replace(" ", "_")
-                # Guardamos las fechas de creación con zona horaria
                 ahora_obra = datetime.now(local_tz)
+                
                 db.collection("obras").document(oid).set({
-                    "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
+                    "nombre": nombre,
+                    "ubicacion": ubicacion,
+                    "estado": estado,
                     "fecha_inicio": datetime.combine(f_inicio, datetime.min.time()),
                     "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
-                    "presupuesto_total": presupuesto_inicial,
-                    "gasto_acumulado": 0, "creado_en": ahora_obra
+                    "presupuesto_caja_chica": p_caja_chica,
+                    "presupuesto_mano_obra": p_mano_obra,
+                    "presupuesto_materiales": p_materiales, # Inicia en 0
+                    "presupuesto_total": p_total,           # Suma de los 3
+                    "gasto_acumulado": 0,
+                    "creado_en": ahora_obra
                 })
                 st.session_state["crear_obra"] = False
+                st.success("Obra creada exitosamente")
                 st.rerun()
         if col_c.form_submit_button("❌ Cancelar"):
             st.session_state["crear_obra"] = False
@@ -112,16 +126,28 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
     st.stop()
 
 # ================= INFORMACIÓN DE LA OBRA =================
+if not obra_id_sel:
+    st.info("Selecciona o crea una obra para comenzar.")
+    st.stop()
+
 doc_ref = db.collection("obras").document(obra_id_sel).get()
 if not doc_ref.exists:
     st.error("La obra seleccionada no existe.")
     st.stop()
 
 obra_data = doc_ref.to_dict()
-presupuesto_obra = float(obra_data.get("presupuesto_total", 0))
+# El presupuesto base para alertas será el total (Caja + Mano de Obra + Materiales)
+presupuesto_referencia = float(obra_data.get("presupuesto_total", 0))
 
 st.subheader(f"🏗️ {obra_data.get('nombre')}")
 st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}")
+
+# Métricas de Presupuesto
+m1, m2, m3, m4 = st.columns(4)
+m1.metric("📦 Caja Chica", f"S/ {obra_data.get('presupuesto_caja_chica', 0):,.2f}")
+m2.metric("👷 Mano Obra", f"S/ {obra_data.get('presupuesto_mano_obra', 0):,.2f}")
+m3.metric("🧱 Materiales", f"S/ {obra_data.get('presupuesto_materiales', 0):,.2f}")
+m4.metric("💰 Presupuesto Total", f"S/ {presupuesto_referencia:,.2f}")
 
 # ================= REGISTRAR AVANCE (PASANTE) =================
 if auth["role"] == "pasante":
@@ -161,13 +187,11 @@ if auth["role"] == "pasante":
         else:
             with st.spinner("Subiendo fotos..."):
                 urls = [cloudinary.uploader.upload(f, folder=f"obras/{obra_id_sel}")["secure_url"] for f in fotos]
-                
-                # --- AQUÍ LA CORRECCIÓN DE FECHA AL GUARDAR ---
                 ahora_local = datetime.now(local_tz)
                 
                 db.collection("obras").document(obra_id_sel).collection("avances").add({
                     "fecha": ahora_local.isoformat(),
-                    "timestamp": ahora_local, # Guardamos el objeto datetime con zona horaria
+                    "timestamp": ahora_local,
                     "responsable": resp,
                     "descripcion": desc,
                     "materiales_usados": mats_usados,
@@ -180,67 +204,36 @@ if auth["role"] == "pasante":
                 st.success("✅ Avance guardado correctamente")
                 st.rerun()
 
-# ================= DASHBOARD ECONÓMICO =================
+# ================= ANÁLISIS ECONÓMICO =================
 st.divider()
-st.subheader("📊 Análisis de Costos")
+st.subheader("📊 Resumen de Gastos")
 
 avances_lista = cargar_avances(obra_id_sel)
 
 if not avances_lista:
-    st.info("No hay datos suficientes para mostrar gráficos.")
+    st.info("No hay datos registrados aún.")
 else:
+    acumulado = 0.0
     registros = []
-    acumulado_paso_a_paso = 0.0
     
     for a in avances_lista:
         costo = float(a.get("costo_total_dia", 0))
-        acumulado_paso_a_paso += costo
-        a["_acumulado_momento"] = acumulado_paso_a_paso
+        acumulado += costo
+        a["_acumulado_momento"] = acumulado
         
-        # --- CORRECCIÓN DE FECHA AL LEER PARA GRÁFICOS ---
         try:
-            # Priorizamos el timestamp de Firebase
             dt = a.get("timestamp")
             if dt:
-                # Si el objeto viene sin zona horaria (naive), lo localizamos en UTC y pasamos a local
-                if dt.tzinfo is None:
-                    dt = pytz.utc.localize(dt).astimezone(local_tz)
-                else:
-                    dt = dt.astimezone(local_tz)
+                dt = dt.astimezone(local_tz) if dt.tzinfo else pytz.utc.localize(dt).astimezone(local_tz)
             else:
-                # Si no hay timestamp, usamos el string ISO
                 dt = datetime.fromisoformat(a.get("fecha")).astimezone(local_tz)
             
-            a["_dt_local"] = dt # Guardamos para el historial
-            
-            registros.append({
-                "fecha": dt,
-                "semana": dt.isocalendar()[1],
-                "mes": dt.month,
-                "costo": costo,
-                "dia_nombre": dt.strftime("%A")
-            })
+            a["_dt_local"] = dt
         except: continue
 
-    if registros:
-        df = pd.DataFrame(registros)
-        c1, c2 = st.columns(2)
-        sem_sel = c1.selectbox("📆 Ver Semana", sorted(df["semana"].unique(), reverse=True))
-        modo = st.radio("Filtro", ["Semana Completa", "Mensual"], horizontal=True)
-
-        if modo == "Semana Completa":
-            dias_semana = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            dias_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-            df_sem = df[df["semana"] == sem_sel]
-            costos_dia = df_sem.groupby("dia_nombre")["costo"].sum().reindex(dias_semana, fill_value=0)
-            st.bar_chart(pd.DataFrame({"Gasto (S/)": costos_dia.values}, index=dias_es))
-        else:
-            costos_mes = df.groupby("mes")["costo"].sum().reindex(range(1, 13), fill_value=0)
-            st.bar_chart(pd.DataFrame({"Gasto (S/)": costos_mes.values}, index=[MESES_ES[m] for m in range(1,13)]))
-
-        porcentaje = min(acumulado_paso_a_paso / presupuesto_obra, 1.0) if presupuesto_obra > 0 else 0
-        st.write(f"**Progreso del Presupuesto:** {porcentaje*100:.1f}%")
-        st.progress(porcentaje)
+    porcentaje = min(acumulado / presupuesto_referencia, 1.0) if presupuesto_referencia > 0 else 0
+    st.write(f"**Gasto Acumulado:** S/ {acumulado:,.2f} de S/ {presupuesto_referencia:,.2f} ({porcentaje*100:.1f}%)")
+    st.progress(porcentaje)
 
 # ================= HISTORIAL DE AVANCES =================
 st.divider()
@@ -250,20 +243,15 @@ if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
     avances_mostrar = avances_lista[::-1]
-    
     for av in avances_mostrar:
-        # Usamos la fecha corregida que procesamos en el bloque anterior
         f_dt = av.get("_dt_local")
         f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
-
-        excede = av.get("_acumulado_momento", 0) > presupuesto_obra
+        excede = av.get("_acumulado_momento", 0) > presupuesto_referencia
         alerta = "🔴" if excede else "🟢"
 
         with st.expander(f"{alerta} {f_txt} — {av.get('responsable', 'N/D')}"):
-            desc = av.get("descripcion") or av.get("observaciones") or "Sin descripción"
-            st.write(f"**Descripción:** {desc}")
-            
-            mats = av.get("materiales_usados") or av.get("detalle_materiales")
+            st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
+            mats = av.get("materiales_usados")
             if mats:
                 st.write("**🧱 Materiales utilizados:**")
                 df_m = pd.DataFrame(mats)[["nombre", "cantidad", "unidad", "subtotal"]]
