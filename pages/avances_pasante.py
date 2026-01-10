@@ -18,7 +18,7 @@ if "auth" not in st.session_state:
     st.stop()
 
 auth = st.session_state["auth"]
-
+# ================= USUARIO Y OBRA =================
 if auth.get("role") != "pasante":
     st.warning("Acceso solo para pasantes")
     st.stop()
@@ -30,6 +30,21 @@ if not obra_id:
     st.error("No tienes una obra asignada")
     st.stop()
 
+
+# ================= SESSION STATE (INICIALIZACIÓN) =================
+if "gasto_extra_monto" not in st.session_state:
+    st.session_state.gasto_extra_monto = 0.0
+
+if "gasto_extra_problematica" not in st.session_state:
+    st.session_state.gasto_extra_problematica = ""
+
+if "gasto_extra_solucion" not in st.session_state:
+    st.session_state.gasto_extra_solucion = ""
+
+if "mostrar_gasto_extra" not in st.session_state:
+    st.session_state.mostrar_gasto_extra = False
+
+
 # ================= DATOS DE LA OBRA =================
 obra_ref = db.collection("obras").document(obra_id)
 obra_doc = obra_ref.get()
@@ -39,6 +54,9 @@ if not obra_doc.exists:
     st.stop()
 
 obra = obra_doc.to_dict()
+st.sidebar.subheader("🛠 DEBUG OBRA")
+st.sidebar.write(obra)
+
 # ================= FECHAS DE LA OBRA =================
 fecha_inicio = obra.get("fecha_inicio")
 fecha_fin = obra.get("fecha_fin_estimado")
@@ -71,26 +89,66 @@ if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
+    # ================= PRESUPUESTO REAL (OBRA) =================
+presupuesto_obra = float(obra.get("presupuesto_total", 0))
+
+gastos_adicionales = float(obra.get("gastos_adicionales", 0))
+
+
 # ================= GASTO ACUMULADO (DESDE OBRA) =================
 gasto_acumulado = float(obra.get("gasto_acumulado", 0))
 
 # ================= MÉTRICAS =================
 st.subheader("📊 Estado Financiero")
 
-porcentaje_total = (gasto_acumulado / presupuesto_total) * 100 if presupuesto_total else 0
+presupuesto_real = presupuesto_obra - gasto_acumulado - gastos_adicionales
+porcentaje_total = (gasto_acumulado / presupuesto_obra) * 100 if presupuesto_obra else 0
 
-st.metric("💰 Presupuesto total", f"S/ {presupuesto_total:,.2f}")
+st.metric("💰 Presupuesto total obra", f"S/ {presupuesto_obra:,.2f}")
 st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
+st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
+st.metric("✅ Presupuesto disponible real", f"S/ {presupuesto_real:,.2f}")
 st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
-# ===== SEMÁFORO DE PRESUPUESTO =====
-if porcentaje_total > 100:
-    st.markdown("🔴 **Estado Actual:** Presupuesto excedido")
-else:
-    st.markdown("🟢 **Estado Actual:** Dentro del presupuesto")
 
 st.progress(min(porcentaje_total / 100, 1.0))
-
 st.divider()
+
+# ================= GASTOS ADICIONALES =================
+st.markdown("---")
+st.subheader("➕ Gastos adicionales (Caja chica)")
+
+if "mostrar_gasto_extra" not in st.session_state:
+    st.session_state.mostrar_gasto_extra = False
+
+if st.button("➕ Registrar gasto adicional"):
+    st.session_state.mostrar_gasto_extra = not st.session_state.mostrar_gasto_extra
+
+if st.session_state.mostrar_gasto_extra:
+    st.session_state.gasto_extra_problematica = st.text_area(
+        "🛑 Problemática",
+        value=st.session_state.gasto_extra_problematica
+    )
+
+    st.session_state.gasto_extra_solucion = st.text_area(
+        "✅ Solución",
+        value=st.session_state.gasto_extra_solucion
+    )
+
+    st.session_state.gasto_extra_monto = st.number_input(
+        "💸 Gasto a descontar de caja chica (S/)",
+        min_value=0.0,
+        step=1.0,
+        value=st.session_state.gasto_extra_monto
+    )
+
+    st.info("ℹ️ Este gasto se guardará **junto con el avance diario**")
+
+if st.session_state.gasto_extra_monto > 0:
+    st.warning(
+        f"🟡 Gastos adicionales pendientes: "
+        f"S/ {st.session_state.gasto_extra_monto:,.2f}"
+    )
+
 
 # ================= FORMULARIO =================
 st.title("📝 Registrar avance diario")
@@ -138,15 +196,20 @@ with st.form("form_avance", clear_on_submit=True):
     guardar = st.form_submit_button("Guardar avance")
 
 # ================= GUARDAR =================
+# ================= GUARDAR =================
 if guardar:
     if not responsable.strip() or not descripcion.strip():
         st.error("Responsable y descripción son obligatorios")
+
     elif not materiales_usados:
         st.error("Debes usar al menos un material")
+
     elif not fotos or len(fotos) < 3:
         st.error("Debes subir mínimo 3 fotos")
+
     else:
         with st.spinner("Guardando avance..."):
+            # ---------- SUBIR FOTOS ----------
             urls = []
             for f in fotos:
                 res = cloudinary.uploader.upload(
@@ -157,7 +220,7 @@ if guardar:
 
             batch = db.batch()
 
-            # ---- materiales usados ----
+            # ---------- MATERIALES USADOS ----------
             for m_id, m in materiales_usados.items():
                 ref = obra_ref.collection("materiales_usados").document()
                 batch.set(ref, {
@@ -167,13 +230,20 @@ if guardar:
                     "usuario": username
                 })
 
+            # ---------- PORCENTAJE DE AVANCE ----------
             porcentaje_avance = (
                 (costo_total_dia / presupuesto_total) * 100
                 if presupuesto_total else 0
             )
 
-            # ---- avance diario ----
+            # ---------- AVANCE DIARIO ----------
             ref_avance = obra_ref.collection("avances").document()
+            gasto_extra_aplicado = (
+                st.session_state.gasto_extra_monto
+                if st.session_state.gasto_extra_monto > 0
+                else 0.0
+              )
+
             batch.set(ref_avance, {
                 "fecha": datetime.now().isoformat(),
                 "timestamp": datetime.now(),
@@ -181,32 +251,68 @@ if guardar:
                 "responsable": responsable,
                 "observaciones": descripcion,
                 "costo_total_dia": round(costo_total_dia, 2),
+                "gasto_adicional": round(gasto_extra_aplicado, 2),   # 👈 NUEVO
+                "problematica": st.session_state.gasto_extra_problematica if gasto_extra_aplicado else "",
+                "solucion": st.session_state.gasto_extra_solucion if gasto_extra_aplicado else "",
                 "porcentaje_avance_financiero": round(porcentaje_avance, 2),
                 "materiales_usados": list(materiales_usados.values()),
                 "fotos": urls
             })
 
+
+            # ---------- COMMIT BATCH ----------
             batch.commit()
 
-            # ===== ACTUALIZAR GASTO ACUMULADO EN OBRA =====
+            # ---------- RECALCULAR GASTO ACUMULADO ----------
             avances_docs = obra_ref.collection("avances").stream()
             nuevo_gasto_acumulado = sum(
                 float(a.to_dict().get("costo_total_dia", 0))
                 for a in avances_docs
             )
 
-            obra_ref.update({
+            # ---------- ACTUALIZAR OBRA ----------
+            update_data = {
                 "gasto_acumulado": round(nuevo_gasto_acumulado, 2),
                 "ultima_actualizacion": firestore.SERVER_TIMESTAMP
-            })
+            }
 
-            st.success(
-                f"Avance registrado. Impacto del día: {porcentaje_avance:.2f}%"
-            )
+            # 🔴 GASTO ADICIONAL SOLO AQUÍ
+            if st.session_state.gasto_extra_monto > 0:
+                update_data["gastos_adicionales"] = (
+                    gastos_adicionales + st.session_state.gasto_extra_monto
+                )
+                update_data["ultima_problematica"] = st.session_state.gasto_extra_problematica
+                update_data["ultima_solucion"] = st.session_state.gasto_extra_solucion
+
+            obra_ref.update(update_data)
+
+            # ---------- LIMPIAR SESSION STATE (SOLO DESPUÉS DE GUARDAR) ----------
+            st.session_state.gasto_extra_monto = 0.0
+            st.session_state.gasto_extra_problematica = ""
+            st.session_state.gasto_extra_solucion = ""
+            st.session_state.mostrar_gasto_extra = False
+
+            st.success("✅ Avance guardado correctamente")
             st.rerun()
+
+
+            # ---- aplicar gasto adicional SOLO AQUÍ ----
+            if st.session_state.gasto_extra_monto > 0:
+                update_data["gastos_adicionales"] = (
+                    gastos_adicionales + st.session_state.gasto_extra_monto
+                )
+                update_data["ultima_problematica"] = st.session_state.gasto_extra_problematica
+                update_data["ultima_solucion"] = st.session_state.gasto_extra_solucion
+
+            obra_ref.update(update_data)
+
+
+
 
 # ================= HISTORIAL =================
 # ================= HISTORIAL DETALLADO =================
+# ================= HISTORIAL =================
+# ================= HISTORIAL =================
 st.divider()
 st.subheader("📂 Historial de avances")
 
@@ -222,33 +328,28 @@ acumulado_paso_a_paso = 0.0
 for av in avances_todos:
     d = av.to_dict()
 
-    # ---- FECHA (MISMO CRITERIO QUE OBRAS.PY) ----
     ts = d.get("timestamp")
     if ts and hasattr(ts, "astimezone"):
         ts = ts.astimezone(pais_tz)
         d["timestamp"] = ts
 
     costo_dia = float(d.get("costo_total_dia", 0))
-    acumulado_paso_a_paso += costo_dia
+    gasto_extra = float(d.get("gasto_adicional", 0))
 
-    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_total
-    d["acumulado_al_momento"] = acumulado_paso_a_paso
+    acumulado_paso_a_paso += costo_dia + gasto_extra
+
+    d["acumulado_al_momento"] = round(acumulado_paso_a_paso, 2)
+    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_obra
+
     lista_avances.append(d)
-
-lista_avances.reverse()
 
 if not lista_avances:
     st.info("Aún no hay avances registrados.")
 else:
     for d in lista_avances:
         ts = d.get("timestamp")
-        fecha_av = ts.date() if ts else None
 
-        fuera_fecha = False
-        if fecha_av and fecha_inicio and fecha_fin:
-            fuera_fecha = fecha_av < fecha_inicio or fecha_av > fecha_fin
-
-        alerta = "🔴" if (fuera_fecha or d["excede_en_su_momento"]) else "🟢"
+        alerta = "🔴" if d["excede_en_su_momento"] else "🟢"
         prog = d.get("porcentaje_avance_financiero", 0)
 
         with st.expander(
@@ -256,30 +357,32 @@ else:
         ):
             st.write(f"**Descripción:** {d.get('observaciones')}")
 
-            st.write("**🧱 Materiales utilizados en este reporte:**")
-            detalles = d.get("detalle_materiales", [])
-            if detalles:
-                df_mats = pd.DataFrame(detalles)[
+            st.write("**🧱 Materiales usados:**")
+            mats = d.get("materiales_usados", [])
+            if mats:
+                df_m = pd.DataFrame(mats)[
                     ["nombre", "cantidad", "unidad", "subtotal"]
                 ]
-                df_mats.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
-                st.table(df_mats)
+                df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
+                st.table(df_m)
             else:
-                st.caption("No se encontró detalle de materiales.")
+                st.caption("Sin materiales.")
 
             c1, c2 = st.columns(2)
-            c1.metric(
-                "Costo del día",
-                f"S/ {d.get('costo_total_dia', 0):,.2f}"
-            )
+            c1.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
             c2.metric(
                 "Acumulado obra",
                 f"S/ {d['acumulado_al_momento']:,.2f}"
             )
 
-            st.write("**🖼️ Evidencia fotográfica:**")
+            if d.get("gasto_adicional", 0) > 0:
+                st.warning(
+                    f"🟡 Gasto adicional: S/ {d['gasto_adicional']:,.2f}"
+                )
+
             fotos_list = d.get("fotos", [])
             if fotos_list:
+                st.write("**🖼️ Evidencia fotográfica:**")
                 cols = st.columns(3)
                 for i, url in enumerate(fotos_list):
                     cols[i % 3].image(url, use_container_width=True)
