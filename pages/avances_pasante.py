@@ -54,8 +54,7 @@ if not obra_doc.exists:
     st.stop()
 
 obra = obra_doc.to_dict()
-st.sidebar.subheader("🛠 DEBUG OBRA")
-st.sidebar.write(obra)
+
 
 # ================= FECHAS DE LA OBRA =================
 fecha_inicio = obra.get("fecha_inicio")
