@@ -4,3 +4,4 @@ firebase-admin
 cloudinary
 xlsxwriter
 streamlit-cookies-manager
+openpyxl

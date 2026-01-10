@@ -61,17 +61,22 @@ if "auth" not in st.session_state:
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
 
-usuarios_page   = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
-materiales_page = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
-obras_page      = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
-avances_page    = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+usuarios_page     = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
+materiales_page   = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
+obras_page        = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
+avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 
 if auth["role"] == "jefe":
-    pg = st.navigation([obras_page, materiales_page, usuarios_page])
+    # Fíjate aquí: agregamos 'trabajadores_page' a la lista
+    pg = st.navigation([
+        obras_page, 
+        materiales_page, 
+        trabajadores_page,  # <--- ESTA ES LA LÍNEA QUE FALTABA
+        usuarios_page
+    ])
 else:
     pg = st.navigation([avances_page])
-
-# ================= CERRAR SESIÓN =================
 # ================= CERRAR SESIÓN =================
 with st.sidebar:
     st.divider()
