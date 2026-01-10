@@ -1,71 +1,76 @@
+"""
+Módulo de autenticación y pantalla inicial
+"""
+import json
 import streamlit as st
 from util import set_background
 from cookies_manager import cookies
-import uuid
-from firebase_admin import firestore
 
+
+# ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
     set_background("Empresalogo.jpg")
+
     st.markdown("""
     <style>
-    #MainMenu, footer, header {visibility: hidden;}
-    .block-container {padding-top: 45vh !important; display: flex; justify-content: center;}
-    .stButton button {background-color: rgba(0,0,0,0.8); color: white; font-size: 18px; padding: 12px; width: 300px; border-radius: 8px;}
+    .contenedor-boton {
+        margin-top: 45vh;
+        width: 100%;
+        display: flex;
+        justify-content: center;
+    }
     </style>
     """, unsafe_allow_html=True)
-    if st.button("Iniciar Sesión"):
+
+    st.markdown('<div class="contenedor-boton">', unsafe_allow_html=True)
+
+    if st.button("Iniciar Sesión", use_container_width=True):
         st.session_state.show_login = True
         st.rerun()
 
+    st.markdown('</div>', unsafe_allow_html=True)
 
+
+# ====== LOGIN CON FIREBASE ======
 def verificar_autenticacion(db):
-    if "auth" in st.session_state:
-        return
+    if "auth" not in st.session_state:
+        set_background("Empresalogo.jpg")
 
-    set_background("Empresalogo.jpg")
-    st.markdown("<br><br>", unsafe_allow_html=True)
-    st.title("CONTROL DE OBRAS 2025")
+        # 🔹 DISEÑO DEL CÓDIGO JOJO (SIN OVERLAY NI ESTILOS EXTRA)
+        st.markdown("""<style></style>""", unsafe_allow_html=True)
 
-    username = st.text_input("Usuario", key="login_username")
-    password = st.text_input("Contraseña", type="password", key="login_password")
+        st.markdown("<br><br>", unsafe_allow_html=True)
+        st.title("CONTROL DE OBRAS 2025")
 
-    if not st.button("INGRESAR", key="login_button"):
-        return
+        username = st.text_input("Usuario")
+        password = st.text_input("Contraseña", type="password")
 
-    user_doc = db.collection("users").document(username).get()
-    if not user_doc.exists:
-        st.error("Usuario no existe")
-        return
+        if st.button("INGRESAR"):
+            user_doc = db.collection("users").document(username).get()
 
-    data = user_doc.to_dict()
-    if password != data.get("password"):
-        st.error("Contraseña incorrecta")
-        return
+            if not user_doc.exists:
+                st.error("Usuario no existe")
+                return False
 
-    # Identificar navegador
-    if "browser_id" not in cookies:
-        cookies["browser_id"] = str(uuid.uuid4())
-    browser_id = cookies["browser_id"]
+            data = user_doc.to_dict()
 
-    # Crear nueva sesión
-    session_id = str(uuid.uuid4())
-    db.collection("sessions").document(session_id).set({
-        "username": data["username"],
-        "role": data["role"],
-        "obra": data.get("obra"),
-        "browser_id": browser_id,
-        "created_at": firestore.SERVER_TIMESTAMP
-    })
+            if password != data.get("password"):
+                st.error("Contraseña incorrecta")
+                return False
 
-    cookies["session_id"] = session_id
-    cookies.save()
+            auth_data = {
+                "username": data["username"],
+                "role": data["role"],
+                "obra": data.get("obra")
+            }
 
-    # Guardar en session_state
-    st.session_state["auth"] = {
-        "username": data["username"],
-        "role": data["role"],
-        "obra": data.get("obra"),
-        "session_id": session_id
-    }
-    st.session_state.show_login = True
-    st.rerun()
+            st.session_state["auth"] = auth_data
+            st.session_state["show_login"] = True
+
+            # guardar cookie
+            cookies["auth"] = json.dumps(auth_data)
+            cookies.save()
+
+            st.rerun()
+
+        return False
