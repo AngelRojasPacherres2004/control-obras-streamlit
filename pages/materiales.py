@@ -1,8 +1,8 @@
-"""materiales.py"""
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from firebase_admin import firestore
+from io import BytesIO
 
 # ================= DB =================
 db = firestore.client()
@@ -20,7 +20,31 @@ if st.session_state["auth"]["role"] != "jefe":
 st.session_state.setdefault("mat_global", None)
 st.session_state.setdefault("mat_obra", None)
 
-# ================= FUNCIONES =================
+# ================= FUNCIONES DE ACTUALIZACIÓN =================
+def recalcular_presupuesto_obra(obra_id):
+    """Calcula materiales y actualiza el total en Firebase sin borrar caja chica/mano de obra."""
+    # 1. Sumar subtotal de la subcolección materiales
+    mats_docs = db.collection("obras").document(obra_id).collection("materiales").stream()
+    total_materiales = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
+    
+    # 2. Obtener valores actuales de la obra
+    obra_ref = db.collection("obras").document(obra_id)
+    obra_data = obra_ref.get().to_dict()
+    
+    p_caja = float(obra_data.get("presupuesto_caja_chica", 0))
+    p_mano = float(obra_data.get("presupuesto_mano_obra", 0))
+    
+    # 3. Nuevo Total
+    nuevo_total = p_caja + p_mano + total_materiales
+    
+    # 4. Guardar en Firebase
+    obra_ref.update({
+        "presupuesto_materiales": round(total_materiales, 2),
+        "presupuesto_total": round(nuevo_total, 2),
+        "presupuesto_actualizado": datetime.now()
+    })
+    return total_materiales
+
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -140,7 +164,9 @@ if materiales:
             "subtotal": round(cantidad * mat_sel["precio_unitario"], 2),
             "fecha": datetime.now()
         })
-        st.success("Material asignado")
+        # Actualización automática en Firebase
+        recalcular_presupuesto_obra(obra_id)
+        st.success("Material asignado y presupuesto actualizado")
         st.rerun()
 
 # ================== SECCIÓN C ==================
@@ -180,11 +206,15 @@ if mat_o:
                 "subtotal": round(nueva * mat_o["precio_unitario"], 2),
                 "fecha": datetime.now()
             })
+        # Actualización automática en Firebase
+        recalcular_presupuesto_obra(obra_id)
         reset()
 
     if st.button("Eliminar de la obra"):
         db.collection("obras").document(obra_id) \
             .collection("materiales").document(mat_o["id"]).delete()
+        # Actualización automática en Firebase
+        recalcular_presupuesto_obra(obra_id)
         reset()
 
 # ================== SECCIÓN D ==================
@@ -195,7 +225,6 @@ archivo = st.file_uploader("Subir Excel", type=["xlsx", "xls"])
 
 if archivo:
     df_excel = pd.read_excel(archivo)
-
     columnas = {"nombre", "unidad", "cantidad", "precio_unitario"}
     if not columnas.issubset(df_excel.columns):
         st.error("El Excel debe tener: nombre, unidad, cantidad, precio_unitario")
@@ -210,37 +239,35 @@ if archivo:
                     "unidad": r["unidad"],
                     "cantidad": float(r["cantidad"]),
                     "precio_unitario": float(r["precio_unitario"]),
-                    "subtotal": round(float(r["subtotal"]), 2),
+                    "subtotal": round(float(r["cantidad"] * r["precio_unitario"]), 2),
                     "fecha": datetime.now()
                 })
-            st.success("Materiales importados correctamente")
+            # Actualización automática masiva en Firebase
+            recalcular_presupuesto_obra(obra_id)
+            st.success("Materiales importados y presupuesto actualizado")
             st.rerun()
 
 # ================== SECCIÓN E ==================
 st.divider()
 st.header("💰 Presupuesto total de la obra")
 
-total_obra = sum(float(m.get("subtotal", 0)) for m in mats_obra)
-st.metric("Presupuesto calculado", f"S/ {total_obra:,.2f}")
+total_actual_mats = sum(float(m.get("subtotal", 0)) for m in mats_obra)
+st.metric("Total Materiales", f"S/ {total_actual_mats:,.2f}")
 
-if st.button("Asignar presupuesto total a la obra", type="primary"):
-    db.collection("obras").document(obra_id).update({
-        "presupuesto_total": round(total_obra, 2),
-        "presupuesto_actualizado": datetime.now()
-    })
-    st.success("Presupuesto total asignado")
-    # ================== SECCIÓN X ==================
+# El presupuesto ya se actualiza solo, pero mantengo el botón por si quieres forzar sincronización
+if st.button("Sincronizar Presupuesto Total ahora", type="secondary"):
+    total = recalcular_presupuesto_obra(obra_id)
+    st.success(f"Presupuesto de materiales (S/ {total:,.2f}) sincronizado con el total de la obra.")
+    st.rerun()
+
+# ================== SECCIÓN X ==================
 st.divider()
 st.header("📤 Exportar materiales de la obra a Excel")
 
 if mats_obra:
     df_export = pd.DataFrame(mats_obra)
+    df_export = df_export[["nombre", "unidad", "precio_unitario", "cantidad", "subtotal"]]
 
-    # Nos quedamos solo con las columnas que quieres
-    df_export = df_export[["nombre", "unidad", "precio_unitario"]]
-
-    # Crear el archivo Excel en memoria
-    from io import BytesIO
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
         df_export.to_excel(writer, index=False, sheet_name="Materiales")
