@@ -31,14 +31,6 @@ st.set_page_config(page_title="Control de Obras", layout="centered")
 if not cookies.ready():
     st.stop()
 
-# ================= RESTAURAR SESIÓN DESDE COOKIE =================
-if (
-    "auth" not in st.session_state
-    and cookies.get("auth")
-    and not st.session_state.get("logout", False)
-):
-    st.session_state["auth"] = json.loads(cookies.get("auth"))
-    st.session_state["show_login"] = True
 
 
 # ====== ESTADO ======
