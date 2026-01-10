@@ -1,6 +1,7 @@
 """
 Módulo de autenticación y pantalla inicial
 """
+
 import json
 import streamlit as st
 from util import set_background
@@ -9,17 +10,21 @@ from cookies_manager import cookies
 
 # ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
-    # Mismo fondo que código A
-    set_background("Empresalogo.jpg", "Empresalogo_mobile.jpg")
+    # Fondo
+    set_background("Empresalogo.jpg")
 
+    # Estilos (diseño del código A)
     st.markdown("""
     <style>
+    /* Ocultar elementos de Streamlit */
     #MainMenu, footer, header {visibility: hidden;}
 
+    /* Resetear padding */
     .main {
         padding: 0 !important;
     }
 
+    /* Centrado vertical */
     .block-container {
         padding-top: 47vh !important;
         display: flex !important;
@@ -27,6 +32,7 @@ def mostrar_pantalla_inicial():
         align-items: center !important;
     }
 
+    /* Botón */
     div[data-testid="stButton"] {
         width: 350px !important;
         max-width: 70% !important;
@@ -42,6 +48,7 @@ def mostrar_pantalla_inicial():
         width: 100% !important;
     }
 
+    /* Responsive */
     @media (max-width: 768px) {
         .block-container {
             padding-top: 32vh !important;
@@ -62,8 +69,9 @@ def mostrar_pantalla_inicial():
 # ====== LOGIN ======
 def verificar_autenticacion(db):
     if "auth" not in st.session_state:
-        set_background("Empresalogo.jpg", "Empresalogo_mobile.jpg")
+        set_background("Empresalogo.jpg")
 
+        # Overlay oscuro + estilos del código A
         st.markdown("""
         <style>
         .stApp::after {
@@ -116,10 +124,11 @@ def verificar_autenticacion(db):
                 "obra": data.get("obra")
             }
 
+            # Guardar sesión
             st.session_state["auth"] = auth_data
             st.session_state["show_login"] = True
 
-            # Guardar cookie (lógica B intacta)
+            # Guardar cookie
             cookies["auth"] = json.dumps(auth_data)
             cookies.save()
 
