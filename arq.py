@@ -32,20 +32,38 @@ if not cookies.ready():
 if "browser_id" not in cookies:
     cookies["browser_id"] = str(uuid.uuid4())
     cookies.save()
+
 browser_id = cookies["browser_id"]
+
+# ================= RESTAURAR SESIÓN =================
+# Solo restauramos si el usuario ya inició sesión
+if "auth" not in st.session_state and cookies.get("session_id"):
+    session_id = cookies["session_id"]
+    session_doc = db.collection("sessions").document(session_id).get()
+    if session_doc.exists:
+        data = session_doc.to_dict()
+        # Verificar que la sesión pertenece al navegador correcto
+        if data.get("browser_id") == browser_id:
+            st.session_state["auth"] = {
+                "username": data["username"],
+                "role": data["role"],
+                "obra": data.get("obra"),
+                "session_id": session_id
+            }
+        else:
+            # Si no corresponde, eliminar cookie
+            del cookies["session_id"]
+            cookies.save()
 
 # ================= ESTADO =================
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
 # ================= FLUJO VISUAL =================
-
-# 1️⃣ Pantalla inicial
 if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
 
-# 2️⃣ Login
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
@@ -67,20 +85,16 @@ else:
 with st.sidebar:
     st.divider()
     if st.button("🚪 Cerrar sesión", use_container_width=True):
-        # eliminar sesión de Firestore si existe
-        if "auth" in st.session_state and "session_id" in st.session_state["auth"]:
+        # eliminar sesión de Firestore
+        if "session_id" in st.session_state["auth"]:
             db.collection("sessions").document(st.session_state["auth"]["session_id"]).delete()
-
-        # eliminar cookie del navegador
-        if cookies.get("browser_id"):
-            del cookies["browser_id"]
+        # eliminar cookie
+        if cookies.get("session_id"):
+            del cookies["session_id"]
             cookies.save()
-
         # limpiar session_state
         st.session_state.clear()
         st.session_state["show_login"] = False
-
-        # volver al login
         st.rerun()
 
 # ================= EJECUTAR PÁGINA =================
