@@ -1,11 +1,13 @@
-# arq.py
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
 import cloudinary
 from cookies_manager import cookies
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
-import uuid
+import json
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
 # ================= INIT =================
 if not firebase_admin._apps:
@@ -24,46 +26,34 @@ cloudinary.config(
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
-# ================= COOKIES =================
+
+
 if not cookies.ready():
     st.stop()
 
-# cada navegador tiene su propio browser_id
-if "browser_id" not in cookies:
-    cookies["browser_id"] = str(uuid.uuid4())
-    cookies.save()
+# ================= RESTAURAR SESIÓN DESDE COOKIE =================
+if (
+    "auth" not in st.session_state
+    and cookies.get("auth")
+    and not st.session_state.get("logout", False)
+):
+    st.session_state["auth"] = json.loads(cookies.get("auth"))
+    st.session_state["show_login"] = True
 
-browser_id = cookies["browser_id"]
 
-# ================= RESTAURAR SESIÓN =================
-# Solo restauramos si el usuario ya inició sesión
-if "auth" not in st.session_state and cookies.get("session_id"):
-    session_id = cookies["session_id"]
-    session_doc = db.collection("sessions").document(session_id).get()
-    if session_doc.exists:
-        data = session_doc.to_dict()
-        # Verificar que la sesión pertenece al navegador correcto
-        if data.get("browser_id") == browser_id:
-            st.session_state["auth"] = {
-                "username": data["username"],
-                "role": data["role"],
-                "obra": data.get("obra"),
-                "session_id": session_id
-            }
-        else:
-            # Si no corresponde, eliminar cookie
-            del cookies["session_id"]
-            cookies.save()
-
-# ================= ESTADO =================
+# ====== ESTADO ======
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
-# ================= FLUJO VISUAL =================
+# ====== FLUJO VISUAL ======
+
+# 1️⃣ Pantalla inicial (solo diseño)
 if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
 
+
+# 2️⃣ Login (diseño + autenticación)
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
@@ -71,31 +61,47 @@ if "auth" not in st.session_state:
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
 
-usuarios_page   = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
-materiales_page = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
-obras_page      = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
-avances_page    = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+usuarios_page     = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
+materiales_page   = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
+obras_page        = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
+avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 
 if auth["role"] == "jefe":
-    pg = st.navigation([obras_page, materiales_page, usuarios_page])
+    # Fíjate aquí: agregamos 'trabajadores_page' a la lista
+    pg = st.navigation([
+        obras_page, 
+        materiales_page, 
+        trabajadores_page,  # <--- ESTA ES LA LÍNEA QUE FALTABA
+        usuarios_page
+    ])
 else:
     pg = st.navigation([avances_page])
-
 # ================= CERRAR SESIÓN =================
 with st.sidebar:
     st.divider()
     if st.button("🚪 Cerrar sesión", use_container_width=True):
-        # eliminar sesión de Firestore
-        if "session_id" in st.session_state["auth"]:
-            db.collection("sessions").document(st.session_state["auth"]["session_id"]).delete()
-        # eliminar cookie
-        if cookies.get("session_id"):
-            del cookies["session_id"]
-            cookies.save()
-        # limpiar session_state
+
+        #  eliminar cookie
+        del cookies["auth"]
+        cookies.save()
+
+
+
+        #  limpiar sesión
         st.session_state.clear()
+
+        # marcar logout
+        st.session_state["logout"] = True
         st.session_state["show_login"] = False
+
+
+        # volver al login
         st.rerun()
 
-# ================= EJECUTAR PÁGINA =================
+
+
+
+
+
 pg.run()
