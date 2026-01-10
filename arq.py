@@ -1,3 +1,4 @@
+# arq.py
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -23,55 +24,40 @@ cloudinary.config(
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
+# ================= COOKIES =================
 if not cookies.ready():
     st.stop()
 
-# ================= IDENTIDAD DEL NAVEGADOR =================
+# cada navegador tiene su propio browser_id
 if "browser_id" not in cookies:
     cookies["browser_id"] = str(uuid.uuid4())
     cookies.save()
 
 browser_id = cookies["browser_id"]
 
-# ================= RESTAURAR SESIÓN (ESTRICTO) =================
-if "auth" not in st.session_state and cookies.get("session_id"):
-
-    session_id = cookies["session_id"]
-    session_doc = db.collection("sessions").document(session_id).get()
-
-    if session_doc.exists:
-        data = session_doc.to_dict()
-
-        # 🔐 VALIDACIÓN CRÍTICA
-        if data.get("browser_id") == browser_id:
-            st.session_state["auth"] = {
-                "username": data["username"],
-                "role": data["role"],
-                "obra": data.get("obra"),
-                "session_id": session_id
-            }
-        else:
-            # ❌ sesión pertenece a OTRO navegador
-            del cookies["session_id"]
-            cookies.save()
-
-    else:
-        # ❌ sesión ya no existe
-        del cookies["session_id"]
-        cookies.save()
+# ================= RESTAURAR SESIÓN =================
+if "auth" not in st.session_state and browser_id:
+    # Buscar sesión de este navegador
+    query = db.collection("sessions").where("browser_id", "==", browser_id).limit(1).stream()
+    for session in query:
+        data = session.to_dict()
+        st.session_state["auth"] = {
+            "username": data["username"],
+            "role": data["role"],
+            "obra": data.get("obra"),
+            "session_id": session.id
+        }
+        break  # restauramos solo la primera sesión encontrada
 
 # ================= ESTADO =================
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
 # ================= FLUJO VISUAL =================
-
-# 1️⃣ Pantalla inicial
-if "auth" not in st.session_state and not st.session_state.show_login:
+if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
 
-# 2️⃣ Login
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
@@ -93,13 +79,21 @@ else:
 with st.sidebar:
     st.divider()
     if st.button("🚪 Cerrar sesión", use_container_width=True):
+        # eliminar sesión de Firestore
+        if "session_id" in st.session_state["auth"]:
+            db.collection("sessions").document(st.session_state["auth"]["session_id"]).delete()
 
-        if cookies.get("session_id"):
-            db.collection("sessions").document(cookies["session_id"]).delete()
-            del cookies["session_id"]
+        # eliminar cookie
+        if cookies.get("browser_id"):
+            del cookies["browser_id"]
             cookies.save()
 
+        # limpiar session_state
         st.session_state.clear()
+        st.session_state["show_login"] = False
+
+        # volver al login
         st.rerun()
 
+# ================= EJECUTAR PÁGINA =================
 pg.run()
