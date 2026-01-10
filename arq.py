@@ -32,32 +32,20 @@ if not cookies.ready():
 if "browser_id" not in cookies:
     cookies["browser_id"] = str(uuid.uuid4())
     cookies.save()
-
 browser_id = cookies["browser_id"]
-
-# ================= RESTAURAR SESIÓN =================
-if "auth" not in st.session_state and browser_id:
-    # Buscar sesión de este navegador
-    query = db.collection("sessions").where("browser_id", "==", browser_id).limit(1).stream()
-    for session in query:
-        data = session.to_dict()
-        st.session_state["auth"] = {
-            "username": data["username"],
-            "role": data["role"],
-            "obra": data.get("obra"),
-            "session_id": session.id
-        }
-        break  # restauramos solo la primera sesión encontrada
 
 # ================= ESTADO =================
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
 # ================= FLUJO VISUAL =================
+
+# 1️⃣ Pantalla inicial
 if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
 
+# 2️⃣ Login
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
@@ -79,11 +67,11 @@ else:
 with st.sidebar:
     st.divider()
     if st.button("🚪 Cerrar sesión", use_container_width=True):
-        # eliminar sesión de Firestore
-        if "session_id" in st.session_state["auth"]:
+        # eliminar sesión de Firestore si existe
+        if "auth" in st.session_state and "session_id" in st.session_state["auth"]:
             db.collection("sessions").document(st.session_state["auth"]["session_id"]).delete()
 
-        # eliminar cookie
+        # eliminar cookie del navegador
         if cookies.get("browser_id"):
             del cookies["browser_id"]
             cookies.save()
