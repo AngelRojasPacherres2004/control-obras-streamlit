@@ -142,14 +142,14 @@ g_caja_uso = float(obra_data.get("gastos_adicionales", 0))
 p_caja_act = p_caja_ini - g_caja_uso
 
 p_mats_ini = float(obra_data.get("presupuesto_materiales", 0))
-g_acumulado = float(obra_data.get("gasto_acumulado", 0)) # Gasto de materiales por avances
+g_acumulado = float(obra_data.get("gasto_acumulado", 0)) 
 p_mats_act = p_mats_ini - g_acumulado
 
 p_mano_ini = float(obra_data.get("presupuesto_mano_obra", 0))
 p_total_ini = float(obra_data.get("presupuesto_total", 0))
 p_total_act = p_total_ini - g_caja_uso - g_acumulado
 
-# --- DISEÑO DE MÉTRICAS (ARRIBA INICIAL / ABAJO ACTUAL) ---
+# --- DISEÑO DE MÉTRICAS (SOLICITADO: INICIAL ARRIBA / ACTUAL ABAJO) ---
 m1, m2, m3, m4 = st.columns(4)
 
 with m1:
@@ -183,23 +183,29 @@ if auth["role"] == "pasante":
         resp = st.text_input("Responsable", value=auth.get("username", ""))
         desc = st.text_area("Descripción del trabajo")
         
+        col_av1, col_av2 = st.columns(2)
+        prob_input = col_av1.text_area("⚠️ Problemática (Opcional)")
+        sol_input = col_av2.text_area("✅ Solución (Opcional)")
+        
+        gasto_caja_input = st.number_input("💰 Gasto Extra (Caja Chica S/)", min_value=0.0, step=10.0)
+        
         st.write("🧱 **Materiales usados hoy:**")
         mats_usados = []
-        costo_dia = 0.0
+        costo_dia_mats = 0.0
         
         for m in lista_mats:
             c1, c2 = st.columns([3, 1])
             cant = c2.number_input(f"{m['nombre']} ({m['unidad']})", min_value=0.0, key=f"form_{m['nombre']}")
             if cant > 0:
                 subt = round(cant * m.get("precio_unitario", 0), 2)
-                costo_dia += subt
+                costo_dia_mats += subt
                 mats_usados.append({
                     "nombre": m['nombre'], "unidad": m['unidad'],
                     "cantidad": cant, "precio_unitario": m.get("precio_unitario", 0),
                     "subtotal": subt
                 })
         
-        st.info(f"Costo calculado del día: S/ {costo_dia:.2f}")
+        st.info(f"Costo Materiales: S/ {costo_dia_mats:.2f} | Gasto Caja: S/ {gasto_caja_input:.2f}")
         fotos = st.file_uploader("Subir fotos (mínimo 3)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
         enviar = st.form_submit_button("GUARDAR AVANCE")
 
@@ -216,12 +222,18 @@ if auth["role"] == "pasante":
                     "timestamp": ahora_local,
                     "responsable": resp,
                     "descripcion": desc,
+                    "problematica": prob_input,
+                    "solucion": sol_input,
+                    "gasto_adicional": gasto_caja_input,
                     "materiales_usados": mats_usados,
-                    "costo_total_dia": costo_dia,
+                    "costo_total_dia": costo_dia_mats,
                     "fotos": urls
                 })
+                
+                # Actualizar acumulados de la obra
                 db.collection("obras").document(obra_id_sel).update({
-                    "gasto_acumulado": firestore.Increment(costo_dia)
+                    "gasto_acumulado": firestore.Increment(costo_dia_mats),
+                    "gastos_adicionales": firestore.Increment(gasto_caja_input)
                 })
                 st.success("✅ Avance guardado correctamente")
                 st.rerun()
@@ -233,12 +245,12 @@ st.subheader("📊 Resumen de Gastos")
 avances_lista = cargar_avances(obra_id_sel)
 
 if avances_lista:
-    acumulado = float(obra_data.get("gasto_acumulado", 0)) + float(obra_data.get("gastos_adicionales", 0))
-    porcentaje = min(acumulado / p_total_ini, 1.0) if p_total_ini > 0 else 0
-    st.write(f"**Gasto Real Total:** S/ {acumulado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
+    total_gastado = float(obra_data.get("gasto_acumulado", 0)) + float(obra_data.get("gastos_adicionales", 0))
+    porcentaje = min(total_gastado / p_total_ini, 1.0) if p_total_ini > 0 else 0
+    st.write(f"**Gasto Real Total (Materiales + Caja):** S/ {total_gastado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
     st.progress(porcentaje)
 
-# ================= HISTORIAL DE AVANCES =================
+# ================= HISTORIAL DE AVANCES (CON PROBLEMÁTICA Y CAJA) =================
 st.divider()
 st.header("📚 Historial de Avances")
 
@@ -254,6 +266,18 @@ else:
 
         with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')}"):
             st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
+            
+            # --- SECCIÓN DE PROBLEMÁTICA Y SOLUCIÓN ---
+            col_h1, col_h2 = st.columns(2)
+            prob = av.get("problematica")
+            sol = av.get("solucion")
+            
+            if prob:
+                col_h1.warning(f"**⚠️ Problemática:**\n\n{prob}")
+            if sol:
+                col_h2.success(f"**✅ Solución:**\n\n{sol}")
+                
+            # --- SECCIÓN DE MATERIALES ---
             mats = av.get("materiales_usados")
             if mats:
                 st.write("**🧱 Materiales utilizados:**")
@@ -261,9 +285,12 @@ else:
                 df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
                 st.table(df_m)
             
+            # --- MÉTRICAS DEL DÍA ---
             c_col1, c_col2 = st.columns(2)
-            c_col1.metric("Costo del día", f"S/ {av.get('costo_total_dia', 0):,.2f}")
+            c_col1.metric("Costo Materiales", f"S/ {av.get('costo_total_dia', 0):,.2f}")
+            c_col2.metric("Gasto Caja Chica", f"S/ {av.get('gasto_adicional', 0):,.2f}")
             
+            # --- FOTOS ---
             fotos = av.get("fotos", [])
             if fotos:
                 cols = st.columns(3)
