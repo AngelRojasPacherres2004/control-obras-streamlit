@@ -97,21 +97,42 @@ gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 # ================= GASTO ACUMULADO (DESDE OBRA) =================
 gasto_acumulado = float(obra.get("gasto_acumulado", 0))
 
-# ================= MÉTRICAS =================
+# ================= MÉTRICAS ACTUALIZADAS =================
 st.subheader("📊 Estado Financiero")
 
-presupuesto_real = presupuesto_obra - gasto_acumulado - gastos_adicionales
+# Cálculos previos
+presupuesto_obra = float(obra.get("presupuesto_total", 0))
+presupuesto_caja_chica = float(obra.get("presupuesto_caja_chica", 0)) # Asegúrate que este campo exista
+gasto_acumulado = float(obra.get("gasto_acumulado", 0))
+gastos_adicionales = float(obra.get("gastos_adicionales", 0))
+
+presupuesto_real_disponible = presupuesto_obra - gasto_acumulado
+disponible_caja_chica = presupuesto_caja_chica - gastos_adicionales
+
+# --- FILA 1: PRESUPUESTO TOTAL OBRA ---
+col1, col2 = st.columns([2, 1])
+with col1:
+    st.metric("💰 Presupuesto Total Obra", f"S/ {presupuesto_obra:,.2f}")
+with col2:
+    # Mostramos el disponible en menor tamaño usando markdown y delta de metric
+    st.metric("Disponible", f"S/ {presupuesto_real_disponible:,.2f}", 
+              delta=f"{((presupuesto_real_disponible/presupuesto_obra)*100):.1f}%", 
+              delta_color="normal")
+
+# --- FILA 2: CAJA CHICA ---
+c1, c2 = st.columns([2, 1])
+with c1:
+    st.metric("📦 Presupuesto Caja Chica", f"S/ {presupuesto_caja_chica:,.2f}")
+with c2:
+    st.metric("Gasto Adicional (Disponible)", f"S/ {disponible_caja_chica:,.2f}",
+              delta=f"- S/ {gastos_adicionales:,.2f} usados", 
+              delta_color="inverse")
+
+# --- FILA 3: PROGRESO ---
 porcentaje_total = (gasto_acumulado / presupuesto_obra) * 100 if presupuesto_obra else 0
-
-st.metric("💰 Presupuesto total obra", f"S/ {presupuesto_obra:,.2f}")
-st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
-st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
-st.metric("✅ Presupuesto disponible real", f"S/ {presupuesto_real:,.2f}")
-st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
-
+st.write(f"**Progreso de Ejecución Financiera: {porcentaje_total:.2f}%**")
 st.progress(min(porcentaje_total / 100, 1.0))
 st.divider()
-
 # ================= GASTOS ADICIONALES =================
 st.markdown("---")
 st.subheader("➕ Gastos adicionales (Caja chica)")
