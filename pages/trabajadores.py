@@ -77,6 +77,9 @@ with tab1:
         nombre_t = col1.text_input("Nombre Completo")
         dni_t = col2.text_input("DNI / ID")
         
+        email_t = col1.text_input("Correo Electrónico")
+        telefono_t = col2.text_input("Teléfono / WhatsApp")
+        
         rol_t = col1.selectbox("Rol / Especialidad", ROLES_CONSTRUCCION)
         grupo_t = col2.text_input("Grupo / Cuadrilla", placeholder="Ej: Cuadrilla A")
         
@@ -88,16 +91,16 @@ with tab1:
             if not nombre_t or not dni_t:
                 st.error("Nombre y DNI son obligatorios")
             else:
-                # Guardar en subcolección de la obra
                 db.collection("obras").document(obra_id_sel).collection("trabajadores").add({
                     "nombre": nombre_t,
                     "dni": dni_t,
+                    "email": email_t,
+                    "telefono": telefono_t,
                     "rol": rol_t,
                     "grupo": grupo_t,
                     "presupuesto": presupuesto_t,
                     "fecha_registro": datetime.now()
                 })
-                # Recalcular presupuesto de la obra
                 recalcular_mano_obra(obra_id_sel)
                 st.success(f"✅ {nombre_t} registrado correctamente.")
                 st.rerun()
@@ -110,9 +113,9 @@ with tab2:
         st.info("No hay trabajadores registrados en esta obra.")
     else:
         df_t = pd.DataFrame(trabajadores)
-        # Mostrar tabla resumida
+        # Mostrar tabla con nuevos datos
         st.dataframe(
-            df_t[["nombre", "rol", "grupo", "presupuesto"]],
+            df_t[["nombre", "rol", "telefono", "email", "grupo", "presupuesto"]],
             use_container_width=True,
             hide_index=True
         )
@@ -127,10 +130,16 @@ with tab2:
         
         with st.form("editar_trabajador"):
             c1, c2 = st.columns(2)
-            nuevo_nombre = c1.text_input("Nombre", value=trabajador_sel["nombre"])
-            nuevo_rol = c2.selectbox("Rol", ROLES_CONSTRUCCION, index=ROLES_CONSTRUCCION.index(trabajador_sel["rol"]))
-            nuevo_grupo = c1.text_input("Grupo", value=trabajador_sel["grupo"])
-            nuevo_presupuesto = c2.number_input("Presupuesto (S/)", value=float(trabajador_sel["presupuesto"]))
+            nuevo_nombre = c1.text_input("Nombre", value=trabajador_sel.get("nombre", ""))
+            nuevo_dni = c2.text_input("DNI", value=trabajador_sel.get("dni", ""))
+            
+            nuevo_email = c1.text_input("Correo", value=trabajador_sel.get("email", ""))
+            nuevo_telefono = c2.text_input("Teléfono", value=trabajador_sel.get("telefono", ""))
+            
+            nuevo_rol = c1.selectbox("Rol", ROLES_CONSTRUCCION, index=ROLES_CONSTRUCCION.index(trabajador_sel["rol"]))
+            nuevo_grupo = c2.text_input("Grupo", value=trabajador_sel.get("grupo", ""))
+            
+            nuevo_presupuesto = st.number_input("Presupuesto (S/)", value=float(trabajador_sel.get("presupuesto", 0)))
             
             col_b1, col_b2 = st.columns(2)
             btn_update = col_b1.form_submit_button("💾 Actualizar Datos")
@@ -139,12 +148,15 @@ with tab2:
             if btn_update:
                 db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).update({
                     "nombre": nuevo_nombre,
+                    "dni": nuevo_dni,
+                    "email": nuevo_email,
+                    "telefono": nuevo_telefono,
                     "rol": nuevo_rol,
                     "grupo": nuevo_grupo,
                     "presupuesto": nuevo_presupuesto
                 })
                 recalcular_mano_obra(obra_id_sel)
-                st.success("Datos actualizados")
+                st.success("Datos actualizados correctamente")
                 st.rerun()
                 
             if btn_delete:
@@ -156,7 +168,8 @@ with tab2:
 # ================= EXPORTAR =================
 if trabajadores:
     st.divider()
-    buffer = pd.DataFrame(trabajadores)[["nombre", "dni", "rol", "grupo", "presupuesto"]]
+    # Exportar incluyendo los nuevos campos
+    buffer = pd.DataFrame(trabajadores)[["nombre", "dni", "email", "telefono", "rol", "grupo", "presupuesto"]]
     st.download_button(
         label="📥 Descargar Planilla de Trabajadores",
         data=buffer.to_csv(index=False).encode('utf-8'),
