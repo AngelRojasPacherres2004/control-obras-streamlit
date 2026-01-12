@@ -1,3 +1,4 @@
+"""obras.py"""
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -243,6 +244,7 @@ if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
     avances_mostrar = avances_lista[::-1]
+
     for av in avances_mostrar:
         f_dt = av.get("_dt_local")
         f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
@@ -250,20 +252,60 @@ else:
         alerta = "🔴" if excede else "🟢"
 
         with st.expander(f"{alerta} {f_txt} — {av.get('responsable', 'N/D')}"):
-            st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
-            mats = av.get("materiales_usados")
+
+            # ===== DESCRIPCIÓN (CAMPO REAL) =====
+            st.markdown("**📝 Descripción del avance:**")
+            st.write(av.get("observaciones", "Sin descripción registrada"))
+
+            # ===== MATERIALES =====
+            mats = av.get("materiales_usados", [])
             if mats:
                 st.write("**🧱 Materiales utilizados:**")
                 df_m = pd.DataFrame(mats)[["nombre", "cantidad", "unidad", "subtotal"]]
                 df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
                 st.table(df_m)
-            
-            c_col1, c_col2 = st.columns(2)
-            c_col1.metric("Costo del día", f"S/ {av.get('costo_total_dia', 0):,.2f}")
-            c_col2.metric("Acumulado Obra", f"S/ {av.get('_acumulado_momento', 0):,.2f}")
 
+            # ===== MÉTRICAS =====
+            c1, c2 = st.columns(2)
+            c1.metric(
+                "Costo del día",
+                f"S/ {av.get('costo_total_dia', 0):,.2f}"
+            )
+            c2.metric(
+                "Acumulado obra",
+                f"S/ {av.get('_acumulado_momento', 0):,.2f}"
+            )
+
+            # ================= CAJA CHICA =================
+            gasto_extra = float(av.get("gasto_adicional", 0))
+            problematica = av.get("problematica", "")
+            solucion = av.get("solucion", "")
+            foto_gasto = av.get("foto_gasto_adicional", "")
+
+            if gasto_extra > 0:
+                st.warning(
+                    f"🟡 Gasto adicional (Caja chica): "
+                    f"S/ {gasto_extra:,.2f}"
+                )
+
+            if gasto_extra > 0 or problematica or solucion or foto_gasto:
+                with st.expander("🛑 Detalle de Caja Chica"):
+
+                    # ORDEN CORRECTO
+                    st.markdown("### 🛑 Problemática")
+                    st.write(problematica if problematica else "Sin problemática registrada.")
+
+                    st.markdown("### ✅ Solución")
+                    st.write(solucion if solucion else "Sin solución registrada.")
+
+                    if foto_gasto:
+                        st.markdown("### 📸 Evidencia de caja chica")
+                        st.image(foto_gasto, use_container_width=True)
+
+            # ===== FOTOS DEL AVANCE =====
             fotos = av.get("fotos", [])
             if fotos:
+                st.markdown("### 📷 Evidencias del avance")
                 cols = st.columns(3)
                 for i, url in enumerate(fotos):
                     cols[i % 3].image(url, use_container_width=True)
