@@ -44,6 +44,9 @@ if "gasto_extra_solucion" not in st.session_state:
 if "mostrar_gasto_extra" not in st.session_state:
     st.session_state.mostrar_gasto_extra = False
 
+if "gasto_extra_foto" not in st.session_state:
+    st.session_state.gasto_extra_foto = None
+
 
 # ================= DATOS DE LA OBRA =================
 obra_ref = db.collection("obras").document(obra_id)
@@ -140,6 +143,15 @@ if st.session_state.mostrar_gasto_extra:
         value=st.session_state.gasto_extra_monto
     )
 
+    foto_gasto = st.file_uploader(
+    "📸 Foto del gasto (boleta / evidencia)",
+    type=["jpg", "png", "jpeg"],
+    accept_multiple_files=False
+    )
+
+    st.session_state.gasto_extra_foto = foto_gasto
+
+
     st.info("ℹ️ Este gasto se guardará **junto con el avance diario**")
 
 if st.session_state.gasto_extra_monto > 0:
@@ -218,6 +230,18 @@ if guardar:
                 urls.append(res["secure_url"])
 
             batch = db.batch()
+            
+            # ---------- SUBIR FOTO CAJA CHICA ----------
+            url_foto_gasto = ""
+
+            if st.session_state.gasto_extra_foto:
+                res = cloudinary.uploader.upload(
+                    st.session_state.gasto_extra_foto,
+                    folder=f"obras/{obra_id}/caja_chica"
+                )
+                url_foto_gasto = res["secure_url"]
+
+
 
             # ---------- MATERIALES USADOS ----------
             for m_id, m in materiales_usados.items():
@@ -253,6 +277,7 @@ if guardar:
                 "gasto_adicional": round(gasto_extra_aplicado, 2),   # 👈 NUEVO
                 "problematica": st.session_state.gasto_extra_problematica if gasto_extra_aplicado else "",
                 "solucion": st.session_state.gasto_extra_solucion if gasto_extra_aplicado else "",
+                "foto_gasto_adicional": url_foto_gasto,
                 "porcentaje_avance_financiero": round(porcentaje_avance, 2),
                 "materiales_usados": list(materiales_usados.values()),
                 "fotos": urls
@@ -290,7 +315,7 @@ if guardar:
             st.session_state.gasto_extra_problematica = ""
             st.session_state.gasto_extra_solucion = ""
             st.session_state.mostrar_gasto_extra = False
-
+            st.session_state.gasto_extra_foto = None
             st.success("✅ Avance guardado correctamente")
             st.rerun()
 
@@ -308,9 +333,7 @@ if guardar:
 
 
 
-# ================= HISTORIAL =================
-# ================= HISTORIAL DETALLADO =================
-# ================= HISTORIAL =================
+
 # ================= HISTORIAL =================
 st.divider()
 st.subheader("📂 Historial de avances")
@@ -385,6 +408,12 @@ else:
             
             if problematica or solucion:
                 with st.expander("🛑 Ver problemática y solución"):
+                    foto_gasto = d.get("foto_gasto_adicional", "")
+
+                    if foto_gasto:
+                        st.markdown("### 📸 Evidencia de caja chica")
+                        st.image(foto_gasto, use_container_width=True)
+
                     if problematica:
                         st.markdown("### 🛑 Problemática")
                         st.write(problematica)
