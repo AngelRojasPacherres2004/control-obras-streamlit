@@ -73,7 +73,7 @@ else:
         st.stop()
     st.sidebar.success(f"Obra asignada: {OBRAS.get(obra_id_sel, 'Desconocida')}")
 
-# ================= FORMULARIO CREAR OBRA (ACTUALIZADO) =================
+# ================= FORMULARIO CREAR OBRA =================
 if auth["role"] == "jefe" and st.session_state["crear_obra"]:
     st.title("➕ Crear nueva obra")
     with st.form("form_crear_obra"):
@@ -90,7 +90,6 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
         p_caja_chica = col_p1.number_input("Presupuesto Caja Chica (S/)", min_value=0.0, step=100.0)
         p_mano_obra = col_p2.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0, step=100.0)
         
-        # El presupuesto de materiales inicia en 0 según tu solicitud
         p_materiales = 0.0
         p_total = p_caja_chica + p_mano_obra + p_materiales
         
@@ -112,9 +111,10 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
                     "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
                     "presupuesto_caja_chica": p_caja_chica,
                     "presupuesto_mano_obra": p_mano_obra,
-                    "presupuesto_materiales": p_materiales, # Inicia en 0
-                    "presupuesto_total": p_total,           # Suma de los 3
+                    "presupuesto_materiales": p_materiales,
+                    "presupuesto_total": p_total,
                     "gasto_acumulado": 0,
+                    "gastos_adicionales": 0,
                     "creado_en": ahora_obra
                 })
                 st.session_state["crear_obra"] = False
@@ -125,29 +125,51 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
             st.rerun()
     st.stop()
 
-# ================= INFORMACIÓN DE LA OBRA =================
+# ================= INFORMACIÓN DE LA OBRA (MÉTRICAS DOBLES) =================
 if not obra_id_sel:
     st.info("Selecciona o crea una obra para comenzar.")
     st.stop()
 
 doc_ref = db.collection("obras").document(obra_id_sel).get()
-if not doc_ref.exists:
-    st.error("La obra seleccionada no existe.")
-    st.stop()
-
 obra_data = doc_ref.to_dict()
-# El presupuesto base para alertas será el total (Caja + Mano de Obra + Materiales)
-presupuesto_referencia = float(obra_data.get("presupuesto_total", 0))
 
 st.subheader(f"🏗️ {obra_data.get('nombre')}")
 st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}")
 
-# Métricas de Presupuesto
+# --- LÓGICA DE CÁLCULOS ---
+p_caja_ini = float(obra_data.get("presupuesto_caja_chica", 0))
+g_caja_uso = float(obra_data.get("gastos_adicionales", 0))
+p_caja_act = p_caja_ini - g_caja_uso
+
+p_mats_ini = float(obra_data.get("presupuesto_materiales", 0))
+g_acumulado = float(obra_data.get("gasto_acumulado", 0)) # Gasto de materiales por avances
+p_mats_act = p_mats_ini - g_acumulado
+
+p_mano_ini = float(obra_data.get("presupuesto_mano_obra", 0))
+p_total_ini = float(obra_data.get("presupuesto_total", 0))
+p_total_act = p_total_ini - g_caja_uso - g_acumulado
+
+# --- DISEÑO DE MÉTRICAS (ARRIBA INICIAL / ABAJO ACTUAL) ---
 m1, m2, m3, m4 = st.columns(4)
-m1.metric("📦 Caja Chica", f"S/ {obra_data.get('presupuesto_caja_chica', 0):,.2f}")
-m2.metric("👷 Mano Obra", f"S/ {obra_data.get('presupuesto_mano_obra', 0):,.2f}")
-m3.metric("🧱 Materiales", f"S/ {obra_data.get('presupuesto_materiales', 0):,.2f}")
-m4.metric("💰 Presupuesto Total", f"S/ {presupuesto_referencia:,.2f}")
+
+with m1:
+    st.metric("📦 Caja Chica (Inicial)", f"S/ {p_caja_ini:,.2f}")
+    st.metric("Caja Chica (Actual)", f"S/ {p_caja_act:,.2f}", 
+              delta=f"- S/ {g_caja_uso:,.2f}", delta_color="inverse")
+
+with m2:
+    st.metric("👷 Mano Obra (Asignado)", f"S/ {p_mano_ini:,.2f}")
+    st.caption("Presupuesto para personal")
+
+with m3:
+    st.metric("🧱 Materiales (Inicial)", f"S/ {p_mats_ini:,.2f}")
+    st.metric("Materiales (Actual)", f"S/ {p_mats_act:,.2f}", 
+              delta=f"- S/ {g_acumulado:,.2f}", delta_color="inverse")
+
+with m4:
+    st.metric("💰 Total Obra (Inicial)", f"S/ {p_total_ini:,.2f}")
+    st.metric("Total Disponible", f"S/ {p_total_act:,.2f}", 
+              delta=f"{(p_total_act/p_total_ini*100) if p_total_ini > 0 else 0:.1f}%")
 
 # ================= REGISTRAR AVANCE (PASANTE) =================
 if auth["role"] == "pasante":
@@ -210,29 +232,10 @@ st.subheader("📊 Resumen de Gastos")
 
 avances_lista = cargar_avances(obra_id_sel)
 
-if not avances_lista:
-    st.info("No hay datos registrados aún.")
-else:
-    acumulado = 0.0
-    registros = []
-    
-    for a in avances_lista:
-        costo = float(a.get("costo_total_dia", 0))
-        acumulado += costo
-        a["_acumulado_momento"] = acumulado
-        
-        try:
-            dt = a.get("timestamp")
-            if dt:
-                dt = dt.astimezone(local_tz) if dt.tzinfo else pytz.utc.localize(dt).astimezone(local_tz)
-            else:
-                dt = datetime.fromisoformat(a.get("fecha")).astimezone(local_tz)
-            
-            a["_dt_local"] = dt
-        except: continue
-
-    porcentaje = min(acumulado / presupuesto_referencia, 1.0) if presupuesto_referencia > 0 else 0
-    st.write(f"**Gasto Acumulado:** S/ {acumulado:,.2f} de S/ {presupuesto_referencia:,.2f} ({porcentaje*100:.1f}%)")
+if avances_lista:
+    acumulado = float(obra_data.get("gasto_acumulado", 0)) + float(obra_data.get("gastos_adicionales", 0))
+    porcentaje = min(acumulado / p_total_ini, 1.0) if p_total_ini > 0 else 0
+    st.write(f"**Gasto Real Total:** S/ {acumulado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
     st.progress(porcentaje)
 
 # ================= HISTORIAL DE AVANCES =================
@@ -244,12 +247,12 @@ if not avances_lista:
 else:
     avances_mostrar = avances_lista[::-1]
     for av in avances_mostrar:
-        f_dt = av.get("_dt_local")
-        f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
-        excede = av.get("_acumulado_momento", 0) > presupuesto_referencia
-        alerta = "🔴" if excede else "🟢"
+        try:
+            dt = av.get("timestamp")
+            f_txt = dt.astimezone(local_tz).strftime("%d/%m/%Y %H:%M") if dt else "Fecha N/D"
+        except: f_txt = "Fecha N/D"
 
-        with st.expander(f"{alerta} {f_txt} — {av.get('responsable', 'N/D')}"):
+        with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')}"):
             st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
             mats = av.get("materiales_usados")
             if mats:
@@ -260,8 +263,7 @@ else:
             
             c_col1, c_col2 = st.columns(2)
             c_col1.metric("Costo del día", f"S/ {av.get('costo_total_dia', 0):,.2f}")
-            c_col2.metric("Acumulado Obra", f"S/ {av.get('_acumulado_momento', 0):,.2f}")
-
+            
             fotos = av.get("fotos", [])
             if fotos:
                 cols = st.columns(3)

@@ -391,7 +391,7 @@ else:
             c1, c2 = st.columns(2)
             c1.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
             c2.metric(
-                "Acumulado obra",
+                "Gasto acumulado de la obra",
                 f"S/ {d['acumulado_al_momento']:,.2f}"
             )
 
