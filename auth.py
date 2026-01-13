@@ -16,52 +16,64 @@ def mostrar_pantalla_inicial():
 
     # Estilos (diseño del código A)
     st.markdown("""
-    <style>
-    /* Ocultar elementos de Streamlit */
-    #MainMenu, footer, header {visibility: hidden;}
+        <style>
+        /* Ocultar elementos Streamlit */
+        #MainMenu, footer, header {visibility: hidden;}
 
-    /* Resetear padding */
-    .main {
-        padding: 0 !important;
-    }
+        /* Reset */
+        .main {
+            padding: 0 !important;
+        }
 
-    /* Centrado vertical */
-    .block-container {
-        padding-top: 47vh !important;
-        display: flex !important;
-        justify-content: center !important;
-        align-items: center !important;
-    }
-
-    /* Botón */
-    div[data-testid="stButton"] {
-        width: 350px !important;
-        max-width: 70% !important;
-    }
-
-    .stButton button {
-        background-color: rgba(0, 0, 0, 0.8) !important;
-        color: white !important;
-        border: 2px solid white !important;
-        font-size: 18px !important;
-        padding: 12px 24px !important;
-        border-radius: 8px !important;
-        margin-left: 50% !important;  /* 👉 mueve a la derecha */
-        width: 100% !important;
-    }
-
-    /* Responsive */
-    @media (max-width: 768px) {
+        /* CONTENEDOR GENERAL */
         .block-container {
-            padding-top: 32vh !important;
+            padding-top: 47vh !important;
+            display: flex !important;
+            justify-content: center !important;
+            align-items: center !important;
         }
 
+        /* CONTENEDOR DEL BOTÓN */
         div[data-testid="stButton"] {
-            max-width: 85% !important;
+            width: 350px !important;
+            max-width: 70% !important;
         }
-    }
-    </style>
-    """, unsafe_allow_html=True)
+
+        /* BOTÓN */
+        .stButton {
+            display: flex !important;
+            justify-content: flex-start !important; /* desktop */
+        }
+
+        .stButton button {
+            background-color: rgba(0, 0, 0, 0.8) !important;
+            color: white !important;
+            border: 2px solid white !important;
+            font-size: 18px !important;
+            padding: 12px 24px !important;
+            border-radius: 8px !important;
+            width: 100% !important;
+        }
+
+        /* ====== CELULAR ====== */
+        @media (max-width: 768px) {
+
+            .block-container {
+                padding-top: 32vh !important;
+            }
+
+            div[data-testid="stButton"] {
+                max-width: 90% !important;
+            }
+
+            /* 🔥 AQUÍ SE CENTRA TODO EN CELULAR */
+            .stButton {
+                justify-content: center !important;
+            }
+        }
+        </style>
+        """, unsafe_allow_html=True)
+
 
     if st.button("Iniciar Sesión", use_container_width=True, key="btn_pantalla_inicial"):
         st.session_state.show_login = True
