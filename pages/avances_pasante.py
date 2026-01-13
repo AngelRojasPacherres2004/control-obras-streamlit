@@ -107,7 +107,7 @@ gasto_mo_acum = float(obra.get("gasto_mano_obra", 0))
 # 2. Cálculos de Disponibles (Lo que queda)
 disponible_mats = pres_mats_inicial - gasto_mats_acum
 disponible_caja = pres_caja_inicial - gasto_caja_acum
-disponible_total = pres_total_obra - (gasto_mats_acum + gasto_caja_acum + gasto_mo_acum)
+disponible_total = pres_total_obra - (gasto_mats_acum + gasto_caja_acum )
 
 # 3. Porcentaje de ejecución total
 porcentaje_ejecutado = ((pres_total_obra - disponible_total) / pres_total_obra * 100) if pres_total_obra > 0 else 0
