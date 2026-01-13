@@ -228,7 +228,7 @@ with st.form("form_avance", clear_on_submit=True):
 
     guardar = st.form_submit_button("Guardar avance")
 
-# ================= GUARDAR CON LÓGICA DE TRASVASE (CORREGIDO) =================
+# ================= GUARDAR CON LÓGICA DE TRASVASE (SOLUCIÓN EMPTY FILE) =================
 if guardar:
     if not responsable.strip() or not descripcion.strip():
         st.error("Responsable y descripción son obligatorios")
@@ -253,23 +253,32 @@ if guardar:
             
         total_a_descontar_caja = gasto_caja_hoy + exceso_materiales
         
-        # Validación de fondos en Caja Chica
         if total_a_descontar_caja > disponible_caja_antes:
             st.error(f"🚫 Fondo insuficiente en Caja Chica. Falta: S/ {total_a_descontar_caja - disponible_caja_antes:,.2f}")
         else:
-            with st.spinner("Guardando avance y subiendo imágenes..."):
+            with st.spinner("Subiendo imágenes y guardando..."):
                 try:
                     # 1. Subir fotos de la obra
                     urls = []
                     for f in fotos:
+                        f.seek(0) # Asegurar que el archivo se lea desde el inicio
                         res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
                         urls.append(res["secure_url"])
 
-                    # 2. Subir foto de caja chica (CON VERIFICACIÓN PARA EVITAR BADREQUEST)
+                    # 2. Subir foto de caja chica (CON FIX PARA EMPTY FILE)
                     url_foto_gasto = ""
-                    if st.session_state.gasto_extra_foto is not None:
-                        res_caja = cloudinary.uploader.upload(st.session_state.gasto_extra_foto, folder=f"obras/{obra_id}/caja_chica")
-                        url_foto_gasto = res_caja["secure_url"]
+                    foto_caja = st.session_state.get("gasto_extra_foto")
+                    
+                    if foto_caja is not None:
+                        # LEER BYTES PARA COMPROBAR SI ESTÁ VACÍO
+                        foto_caja.seek(0)
+                        contenido = foto_caja.read()
+                        if len(contenido) > 0:
+                            foto_caja.seek(0) # Regresar al inicio para el uploader
+                            res_caja = cloudinary.uploader.upload(foto_caja, folder=f"obras/{obra_id}/caja_chica")
+                            url_foto_gasto = res_caja["secure_url"]
+                        else:
+                            st.warning("⚠️ El archivo de la boleta estaba vacío y no se subió.")
 
                     # 3. Preparar Batch de Firestore
                     batch = db.batch()
@@ -292,27 +301,30 @@ if guardar:
                         "fotos": urls
                     })
 
-                    # 4. Actualizar Obra (Solo una vez)
+                    # 4. Actualizar totales de la obra
                     nuevo_gasto_mats = gasto_mats_acum + pago_desde_materiales
                     nuevo_gasto_caja = gasto_caja_acum + total_a_descontar_caja
                     
-                    update_data = {
+                    batch.update(obra_ref, {
                         "gasto_acumulado": round(nuevo_gasto_mats, 2),
                         "gastos_adicionales": round(nuevo_gasto_caja, 2),
                         "ultima_actualizacion": firestore.SERVER_TIMESTAMP
-                    }
+                    })
                     
-                    batch.update(obra_ref, update_data)
                     batch.commit()
 
-                    # 5. Limpiar Session State y Notificar
+                    # 5. Limpiar y Reiniciar
                     st.session_state.gasto_extra_monto = 0.0
                     st.session_state.gasto_extra_foto = None
+                    st.session_state.gasto_extra_problematica = ""
+                    st.session_state.gasto_extra_solucion = ""
                     st.session_state.mostrar_gasto_extra = False
-                    st.success("✅ Registro exitoso.")
+                    
+                    st.success("✅ Avance guardado correctamente.")
                     st.rerun()
+
                 except Exception as e:
-                    st.error(f"Error crítico: {e}")
+                    st.error(f"❌ Error al procesar el envío: {str(e)}")
 # ================= HISTORIAL DE AVANCES ACTUALIZADO =================
 st.divider()
 st.subheader("📂 Historial de avances")
