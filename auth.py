@@ -1,3 +1,4 @@
+"auth.py"
 """
 Módulo de autenticación y pantalla inicial
 """
@@ -45,6 +46,7 @@ def mostrar_pantalla_inicial():
         font-size: 18px !important;
         padding: 12px 24px !important;
         border-radius: 8px !important;
+        margin-left: 50% !important;  /* 👉 mueve a la derecha */
         width: 100% !important;
     }
 
@@ -74,33 +76,45 @@ def verificar_autenticacion(db):
         # Overlay oscuro + estilos del código A
         st.markdown("""
         <style>
-        .stApp::after {
-            content: "";
-            position: fixed;
-            inset: 0;
-            background-color: rgba(0, 0, 0, 0.6);
-            z-index: 0;
-            pointer-events: none;
+        /* CONTENEDOR DE INPUTS */
+        .login-box {
+            background: rgba(255, 255, 255, 0.15);
+            backdrop-filter: blur(8px);
+            padding: 25px;
+            border-radius: 14px;
+            max-width: 420px;
+            margin: auto;
+            box-shadow: 0 8px 30px rgba(0,0,0,0.4);
         }
 
-        section[data-testid="stAppViewContainer"] > .main {
-            position: relative;
-            z-index: 1;
-        }
-
-        input {
+        /* INPUTS */
+        .login-box input {
             background-color: #ffffff !important;
             color: #000000 !important;
+            border-radius: 10px !important;
+            border: 2px solid #000 !important;
+            padding: 14px 16px !important;
+            font-size: 16px !important;
         }
 
-        label {
-            color: #ffffff !important;
+        /* LABELS */
+        label, 
+        div[data-testid="stTextInput"] label {
+            color: #000000 !important;
+            font-weight: 600;
+        }
+
+        /* ICONOS */
+        .login-icon {
+            font-size: 18px;
+            margin-right: 6px;
         }
         </style>
         """, unsafe_allow_html=True)
 
+
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.title("CONTROL DE OBRAS 2025")
+        st.title("A")
 
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")

@@ -1,3 +1,4 @@
+"util.py"
 import base64
 import streamlit as st
 
@@ -9,9 +10,10 @@ def set_background(image_file):
     <style>
     .stApp {{
         background-image: url("data:image/jpg;base64,{encoded}");
-        background-size: cover;
+        background-size: 120% auto;
+        background-position-x: 33%;
+        background-position-y: 23%;
         background-attachment: fixed;
-        background-position: center top;
     }}
     </style>
     """
