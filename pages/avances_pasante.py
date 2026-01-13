@@ -91,31 +91,52 @@ if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
-    # ================= PRESUPUESTO REAL (OBRA) =================
-presupuesto_otorgado_obra = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
+# ================= MÉTRICAS (VERSUS: INICIAL VS DISPONIBLE) =================
+st.subheader("📊 Estado Financiero: Presupuesto vs. Disponible")
 
-gastos_adicionales = float(obra.get("gastos_adicionales", 0))
+# 1. Extracción de valores desde el documento de la obra
+pres_total_obra = float(obra.get("presupuesto_total", 0))
+pres_caja_inicial = float(obra.get("presupuesto_caja_chica", 0)) 
+pres_mats_inicial = float(obra.get("presupuesto_materiales", 0))
+pres_mo_inicial = float(obra.get("presupuesto_mano_obra", 0))
 
+gasto_mats_acum = float(obra.get("gasto_acumulado", 0))
+gasto_caja_acum = float(obra.get("gastos_adicionales", 0))
+gasto_mo_acum = float(obra.get("gasto_mano_obra", 0))
 
-# ================= GASTO ACUMULADO (DESDE OBRA) =================
-gasto_acumulado = float(obra.get("gasto_acumulado", 0))
-gasto_mano_obra=float(obra.get("gasto_mano_obra", 0))
+# 2. Cálculos de Disponibles (Lo que queda)
+disponible_mats = pres_mats_inicial - gasto_mats_acum
+disponible_caja = pres_caja_inicial - gasto_caja_acum
+disponible_total = pres_total_obra - (gasto_mats_acum + gasto_caja_acum + gasto_mo_acum)
 
-# ================= MÉTRICAS =================
-st.subheader("📊 Estado Financiero")
+# 3. Porcentaje de ejecución total
+porcentaje_ejecutado = ((pres_total_obra - disponible_total) / pres_total_obra * 100) if pres_total_obra > 0 else 0
 
-presupuesto_real = presupuesto_otorgado_obra - gasto_acumulado 
-porcentaje_total = (gasto_acumulado / presupuesto_otorgado_obra) * 100 if presupuesto_otorgado_obra else 0
+# --- FILA 1: VERSUS MATERIALES ---
+st.markdown("#### 🧱 Materiales")
+col1, col2 = st.columns(2)
+col1.metric("Presupuesto Inicial", f"S/ {pres_mats_inicial:,.2f}")
+col2.metric("Disponible Actual", f"S/ {disponible_mats:,.2f}", 
+            delta=f"-S/ {gasto_mats_acum:,.2f}", delta_color="inverse")
 
-st.metric("💰 Presupuesto otorgado total", f"S/ {presupuesto_otorgado_obra:,.2f}")
-st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
-st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
-st.metric("✅ Presupuesto ortorgado disponible ", f"S/ {presupuesto_real:,.2f}")
-st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
+# --- FILA 2: VERSUS CAJA CHICA ---
+st.markdown("#### 📦 Caja Chica")
+col3, col4 = st.columns(2)
+col3.metric("Presupuesto Inicial", f"S/ {pres_caja_inicial:,.2f}")
+col4.metric("Disponible Actual", f"S/ {disponible_caja:,.2f}", 
+            delta=f"-S/ {gasto_caja_acum:,.2f}", delta_color="inverse")
 
-st.progress(min(porcentaje_total / 100, 1.0))
 st.divider()
 
+# --- FILA 3: TOTAL GENERAL ---
+st.markdown("#### 💰 Resumen de Obra")
+col5, col6 = st.columns(2)
+col5.metric("PRESUPUESTO TOTAL", f"S/ {pres_total_obra:,.2f}")
+col6.metric("TOTAL DISPONIBLE", f"S/ {disponible_total:,.2f}", 
+            delta=f"{porcentaje_ejecutado:.1f}% consumido")
+
+st.progress(min(porcentaje_ejecutado / 100, 1.0))
+st.divider()
 # ================= GASTOS ADICIONALES =================
 st.markdown("---")
 st.subheader("➕ Gastos adicionales (Caja chica)")
