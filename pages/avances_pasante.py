@@ -91,20 +91,12 @@ if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
-    # ================= PRESUPUESTO REAL (OBRA) =================
-presupuesto_otorgado_obra = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
-
-gastos_adicionales = float(obra.get("gastos_adicionales", 0))
-
-
-# ================= GASTO ACUMULADO (DESDE OBRA) =================
-gasto_acumulado = float(obra.get("gasto_acumulado", 0))
-gasto_mano_obra=float(obra.get("gasto_mano_obra", 0))
+ 
 # ================= MÉTRICAS (LECTURA DIRECTA DE FIREBASE) =================
 st.subheader("📊 Estado Financiero Detallado")
 
 # 1. Extracción de valores desde el documento de la obra (Firebase)
-pres_total = float(obra.get("presupuesto_total", 0))
+pres_total = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
 pres_caja = float(obra.get("presupuesto_caja_chica", 0)) 
 pres_mats = float(obra.get("presupuesto_materiales", 0))
 pres_mo = float(obra.get("presupuesto_mano_obra", 0))
