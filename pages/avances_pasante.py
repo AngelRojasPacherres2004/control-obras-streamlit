@@ -228,133 +228,98 @@ with st.form("form_avance", clear_on_submit=True):
 
     guardar = st.form_submit_button("Guardar avance")
 
-
-# ================= GUARDAR =================
+# ================= GUARDAR CON LÓGICA DE TRASVASE =================
 if guardar:
     if not responsable.strip() or not descripcion.strip():
         st.error("Responsable y descripción son obligatorios")
-
     elif not materiales_usados:
         st.error("Debes usar al menos un material")
-
     elif not fotos or len(fotos) < 3:
         st.error("Debes subir mínimo 3 fotos")
-
     else:
-        with st.spinner("Guardando avance..."):
-            # ---------- SUBIR FOTOS ----------
-            urls = []
-            for f in fotos:
-                res = cloudinary.uploader.upload(
-                    f,
-                    folder=f"obras/{obra_id}/avances"
-                )
-                urls.append(res["secure_url"])
-
-            batch = db.batch()
+        # --- LÓGICA DE PRESUPUESTO INTELIGENTE ---
+        # 1. ¿Cuánto queda de materiales ANTES de este gasto?
+        disponible_mats_antes = pres_mats_inicial - gasto_mats_acum
+        
+        # 2. ¿Cuánto queda de caja chica ANTES de este gasto?
+        disponible_caja_antes = pres_caja_inicial - gasto_caja_acum
+        
+        gasto_mats_hoy = costo_total_dia
+        gasto_caja_hoy = st.session_state.gasto_extra_monto
+        
+        exceso_materiales = 0.0
+        pago_desde_materiales = gasto_mats_hoy
+        
+        # Si el gasto de hoy supera lo que queda en materiales...
+        if gasto_mats_hoy > disponible_mats_antes:
+            # Solo podemos sacar de la "bolsa" de materiales lo que quede (si queda algo)
+            pago_desde_materiales = max(0, disponible_mats_antes)
+            # El resto se convierte en una deuda para la caja chica
+            exceso_materiales = gasto_mats_hoy - pago_desde_materiales
             
-            # ---------- SUBIR FOTO CAJA CHICA ----------
-            url_foto_gasto = ""
+        total_a_descontar_caja = gasto_caja_hoy + exceso_materiales
+        
+        # --- VALIDACIÓN FINAL ---
+        if total_a_descontar_caja > disponible_caja_antes:
+            st.error(f"""
+            🚫 **FONDO INSUFICIENTE**: 
+            - El gasto de materiales excede el presupuesto en S/ {exceso_materiales:,.2f}.
+            - Se intentó cobrar S/ {total_a_descontar_caja:,.2f} de Caja Chica.
+            - Solo queda S/ {disponible_caja_antes:,.2f} disponible.
+            """)
+        else:
+            with st.spinner("Guardando avance..."):
+                # ---------- SUBIR FOTOS ----------
+                urls = []
+                for f in fotos:
+                    res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
+                    urls.append(res["secure_url"])
 
-            if st.session_state.gasto_extra_foto:
-                res = cloudinary.uploader.upload(
-                    st.session_state.gasto_extra_foto,
-                    folder=f"obras/{obra_id}/caja_chica"
-                )
-                url_foto_gasto = res["secure_url"]
+                url_foto_gasto = ""
+                if st.session_state.gasto_extra_foto:
+                    res = cloudinary.uploader.upload(st.session_state.gasto_extra_foto, folder=f"obras/{obra_id}/caja_chica")
+                    url_foto_gasto = res["secure_url"]
 
+                batch = db.batch()
 
-
-            # ---------- MATERIALES USADOS ----------
-            for m_id, m in materiales_usados.items():
-                ref = obra_ref.collection("materiales_usados").document()
-                batch.set(ref, {
-                    "fecha": datetime.now(),
-                    "material_doc_id": m_id,
-                    **m,
-                    "usuario": username
+                # ---------- REGISTRO DE AVANCE ----------
+                ref_avance = obra_ref.collection("avances").document()
+                batch.set(ref_avance, {
+                    "fecha": datetime.now().isoformat(),
+                    "timestamp": datetime.now(),
+                    "usuario": username,
+                    "responsable": responsable,
+                    "observaciones": descripcion,
+                    "costo_total_dia": round(gasto_mats_hoy, 2),
+                    "gasto_adicional": round(gasto_caja_hoy, 2),
+                    "exceso_mats_a_caja": round(exceso_materiales, 2), # Auditamos el trasvase
+                    "problematica": st.session_state.gasto_extra_problematica if total_a_descontar_caja > 0 else "",
+                    "solucion": st.session_state.gasto_extra_solucion if total_a_descontar_caja > 0 else "",
+                    "foto_gasto_adicional": url_foto_gasto,
+                    "porcentaje_avance_financiero": round((gasto_mats_hoy/pres_mats_inicial*100), 2) if pres_mats_inicial > 0 else 0,
+                    "materiales_usados": list(materiales_usados.values()),
+                    "fotos": urls
                 })
 
-            # ---------- PORCENTAJE DE AVANCE (CORREGIDO) ----------
-            # Ahora comparamos el gasto de hoy contra el presupuesto inicial de MATERIALES
-            porcentaje_avance = (
-            (costo_total_dia / pres_mats_inicial) * 100
-            if pres_mats_inicial > 0 else 0
-            )
+                # ---------- ACTUALIZAR ACUMULADOS EN OBRA ----------
+                # El gasto_acumulado de materiales solo sube hasta el tope, el resto va a caja
+                nuevo_gasto_mats = gasto_mats_acum + pago_desde_materiales
+                nuevo_gasto_caja = gasto_caja_acum + total_a_descontar_caja
+                
+                update_data = {
+                    "gasto_acumulado": round(nuevo_gasto_mats, 2),
+                    "gastos_adicionales": round(nuevo_gasto_caja, 2),
+                    "ultima_actualizacion": firestore.SERVER_TIMESTAMP
+                }
 
-            # ---------- AVANCE DIARIO ----------
-            ref_avance = obra_ref.collection("avances").document()
-            gasto_extra_aplicado = (
-                st.session_state.gasto_extra_monto
-                if st.session_state.gasto_extra_monto > 0
-                else 0.0
-              )
+                obra_ref.update(update_data)
+                batch.commit()
 
-            batch.set(ref_avance, {
-                "fecha": datetime.now().isoformat(),
-                "timestamp": datetime.now(),
-                "usuario": username,
-                "responsable": responsable,
-                "observaciones": descripcion,
-                "costo_total_dia": round(costo_total_dia, 2),
-                "gasto_adicional": round(gasto_extra_aplicado, 2),   # 👈 NUEVO
-                "problematica": st.session_state.gasto_extra_problematica if gasto_extra_aplicado else "",
-                "solucion": st.session_state.gasto_extra_solucion if gasto_extra_aplicado else "",
-                "foto_gasto_adicional": url_foto_gasto,
-                "porcentaje_avance_financiero": round(porcentaje_avance, 2),
-                "materiales_usados": list(materiales_usados.values()),
-                "fotos": urls
-            })
-
-
-            # ---------- COMMIT BATCH ----------
-            batch.commit()
-
-            # ---------- RECALCULAR GASTO ACUMULADO ----------
-            avances_docs = obra_ref.collection("avances").stream()
-            nuevo_gasto_acumulado = sum(
-                float(a.to_dict().get("costo_total_dia", 0))
-                for a in avances_docs
-            )
-
-            # ---------- ACTUALIZAR OBRA ----------
-            update_data = {
-                "gasto_acumulado": round(nuevo_gasto_acumulado, 2),
-                "ultima_actualizacion": firestore.SERVER_TIMESTAMP
-            }
-
-            # 🔴 GASTO ADICIONAL SOLO AQUÍ
-            if st.session_state.gasto_extra_monto > 0:
-                update_data["gastos_adicionales"] = (
-                    gastos_adicionales + st.session_state.gasto_extra_monto
-                )
-                update_data["ultima_problematica"] = st.session_state.gasto_extra_problematica
-                update_data["ultima_solucion"] = st.session_state.gasto_extra_solucion
-
-            obra_ref.update(update_data)
-
-            # ---------- LIMPIAR SESSION STATE (SOLO DESPUÉS DE GUARDAR) ----------
-            st.session_state.gasto_extra_monto = 0.0
-            st.session_state.gasto_extra_problematica = ""
-            st.session_state.gasto_extra_solucion = ""
-            st.session_state.mostrar_gasto_extra = False
-            st.session_state.gasto_extra_foto = None
-            st.success("✅ Avance guardado correctamente")
-            st.rerun()
-
-
-            # ---- aplicar gasto adicional SOLO AQUÍ ----
-            if st.session_state.gasto_extra_monto > 0:
-                update_data["gastos_adicionales"] = (
-                    gastos_adicionales + st.session_state.gasto_extra_monto
-                )
-                update_data["ultima_problematica"] = st.session_state.gasto_extra_problematica
-                update_data["ultima_solucion"] = st.session_state.gasto_extra_solucion
-
-            obra_ref.update(update_data)
-
-
-
+                # ---------- LIMPIAR Y REINICIAR ----------
+                st.session_state.gasto_extra_monto = 0.0
+                st.session_state.mostrar_gasto_extra = False
+                st.success("✅ Avance guardado. El exceso de materiales se descontó de Caja Chica.")
+                st.rerun()
 
 # ================= HISTORIAL DE AVANCES CORREGIDO =================
 st.divider()
