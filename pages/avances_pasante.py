@@ -362,7 +362,7 @@ for av in avances_todos:
     acumulado_paso_a_paso += costo_dia + gasto_extra
 
     d["acumulado_al_momento"] = round(acumulado_paso_a_paso, 2)
-    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_obra
+    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_otorgado_obra
 
     lista_avances.append(d)
 
