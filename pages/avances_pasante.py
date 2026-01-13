@@ -91,63 +91,31 @@ if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
 
- 
-# ================= MÉTRICAS (LECTURA DIRECTA DE FIREBASE) =================
-st.subheader("📊 Estado Financiero Detallado")
+    # ================= PRESUPUESTO REAL (OBRA) =================
+presupuesto_otorgado_obra = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
 
-# 1. Extracción de valores desde el documento de la obra (Firebase)
-pres_total = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
-pres_caja = float(obra.get("presupuesto_caja_chica", 0)) 
-pres_mats = float(obra.get("presupuesto_materiales", 0))
-pres_mo = float(obra.get("presupuesto_mano_obra", 0))
+gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 
-gasto_mats = float(obra.get("gasto_acumulado", 0))
-gasto_caja = float(obra.get("gastos_adicionales", 0))
-gasto_mo = float(obra.get("gasto_mano_obra", 0))
 
-# 2. Cálculos de Disponibles
-disponible_mats = pres_mats - gasto_mats
-disponible_caja = pres_caja - gasto_caja
-# Disponible general restando todos los gastos acumulados al presupuesto total
-disponible_total = pres_total - (gasto_mats + gasto_caja + gasto_mo)
+# ================= GASTO ACUMULADO (DESDE OBRA) =================
+gasto_acumulado = float(obra.get("gasto_acumulado", 0))
+gasto_mano_obra=float(obra.get("gasto_mano_obra", 0))
 
-# --- VISUALIZACIÓN EN COLUMNAS ---
+# ================= MÉTRICAS =================
+st.subheader("📊 Estado Financiero")
 
-# Fila 1: Materiales
-col1, col2 = st.columns(2)
-col1.metric("🧱 Presupuesto Materiales", f"S/ {pres_mats:,.2f}")
-col2.metric("🔓 Materiales Restante", f"S/ {disponible_mats:,.2f}", 
-            delta=f"- S/ {gasto_mats:,.2f}", delta_color="inverse")
+presupuesto_real = presupuesto_otorgado_obra - gasto_acumulado 
+porcentaje_total = (gasto_acumulado / presupuesto_otorgado_obra) * 100 if presupuesto_otorgado_obra else 0
 
-# Fila 2: Caja Chica
-col3, col4 = st.columns(2)
-col3.metric("📦 Presupuesto Caja Chica", f"S/ {pres_caja:,.2f}")
-col4.metric("🔓 Caja Chica Restante", f"S/ {disponible_caja:,.2f}", 
-            delta=f"- S/ {gasto_caja:,.2f}", delta_color="inverse")
+st.metric("💰 Presupuesto otorgado total", f"S/ {presupuesto_otorgado_obra:,.2f}")
+st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
+st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
+st.metric("✅ Presupuesto ortorgado disponible ", f"S/ {presupuesto_real:,.2f}")
+st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
 
+st.progress(min(porcentaje_total / 100, 1.0))
 st.divider()
 
-# Fila 3: Resumen General
-c_t1, c_t2 = st.columns(2)
-c_t1.metric("💰 PRESUPUESTO TOTAL OBRA", f"S/ {pres_total:,.2f}")
-c_t2.metric("✅ DISPONIBLE GENERAL", f"S/ {disponible_total:,.2f}")
-
-# Barra de progreso
-porcentaje_ejecutado = ((pres_total - disponible_total) / pres_total * 100) if pres_total > 0 else 0
-st.progress(min(porcentaje_ejecutado / 100, 1.0))
-st.caption(f"Ejecución financiera global: {porcentaje_ejecutado:.2f}%")
-st.divider()
-
-# --- FILA 3: TOTAL GENERAL ---
-c_t1, c_t2 = st.columns(2)
-c_t1.metric("💰 PRESUPUESTO TOTAL", f"S/ {presupuesto_total_general:,.2f}")
-c_t2.metric("✅ TOTAL DISPONIBLE", f"S/ {disponible_total_general:,.2f}", delta=f"Ejecutado: S/ {gasto_total_general:,.2f}", delta_color="normal")
-
-# Barra de progreso basada en el total general
-porcentaje_ejecucion = (gasto_total_general / presupuesto_total_general * 100) if presupuesto_total_general > 0 else 0
-st.progress(min(porcentaje_ejecucion / 100, 1.0))
-st.caption(f"Progreso de ejecución financiera total: {porcentaje_ejecucion:.2f}%")
-st.divider()
 # ================= GASTOS ADICIONALES =================
 st.markdown("---")
 st.subheader("➕ Gastos adicionales (Caja chica)")
@@ -394,7 +362,7 @@ for av in avances_todos:
     acumulado_paso_a_paso += costo_dia + gasto_extra
 
     d["acumulado_al_momento"] = round(acumulado_paso_a_paso, 2)
-    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_otorgado_obra
+    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_obra
 
     lista_avances.append(d)
 
