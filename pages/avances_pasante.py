@@ -100,22 +100,45 @@ gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 # ================= GASTO ACUMULADO (DESDE OBRA) =================
 gasto_acumulado = float(obra.get("gasto_acumulado", 0))
 gasto_mano_obra=float(obra.get("gasto_mano_obra", 0))
+# ================= MÉTRICAS (PRESUPUESTOS Y DISPONIBLES) =================
+st.subheader("📊 Estado Financiero Detallado")
 
-# ================= MÉTRICAS =================
-st.subheader("📊 Estado Financiero")
+# 1. Cálculos de Caja Chica (Gastos Adicionales)
+# Asumimos que el presupuesto de caja chica es el 10% del total otorgado o un campo fijo
+# Si tienes un campo específico en Firebase úsalo, aquí calcularemos el disponible.
+presupuesto_caja_chica_estimado = presupuesto_otorgado_obra * 0.05  # Ejemplo: 5% del total
+caja_chica_restante = presupuesto_caja_chica_estimado - gastos_adicionales
 
-presupuesto_real = presupuesto_otorgado_obra - gasto_acumulado 
-porcentaje_total = (gasto_acumulado / presupuesto_otorgado_obra) * 100 if presupuesto_otorgado_obra else 0
+# 2. Cálculos de Materiales
+materiales_restante = presupuesto_total - gasto_acumulado
 
-st.metric("💰 Presupuesto otorgado total", f"S/ {presupuesto_otorgado_obra:,.2f}")
-st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
-st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
-st.metric("✅ Presupuesto ortorgado disponible ", f"S/ {presupuesto_real:,.2f}")
-st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
+# 3. Cálculo Total General
+presupuesto_total_general = presupuesto_otorgado_obra + presupuesto_caja_chica_estimado
+gasto_total_general = gasto_acumulado + gastos_adicionales
+disponible_total_general = presupuesto_total_general - gasto_total_general
 
-st.progress(min(porcentaje_total / 100, 1.0))
+# --- FILA 1: MATERIALES ---
+col1, col2 = st.columns(2)
+col1.metric("🧱 Presupuesto Materiales", f"S/ {presupuesto_total:,.2f}")
+col2.metric("🔓 Materiales Disponible", f"S/ {materiales_restante:,.2f}", delta=f"-S/ {gasto_acumulado:,.2f}", delta_color="inverse")
+
+# --- FILA 2: CAJA CHICA ---
+col3, col4 = st.columns(2)
+col3.metric("📦 Presupuesto Caja Chica", f"S/ {presupuesto_caja_chica_estimado:,.2f}")
+col4.metric("🔓 Caja Chica Disponible", f"S/ {caja_chica_restante:,.2f}", delta=f"-S/ {gastos_adicionales:,.2f}", delta_color="inverse")
+
 st.divider()
 
+# --- FILA 3: TOTAL GENERAL ---
+c_t1, c_t2 = st.columns(2)
+c_t1.metric("💰 PRESUPUESTO TOTAL", f"S/ {presupuesto_total_general:,.2f}")
+c_t2.metric("✅ TOTAL DISPONIBLE", f"S/ {disponible_total_general:,.2f}", delta=f"Ejecutado: S/ {gasto_total_general:,.2f}", delta_color="normal")
+
+# Barra de progreso basada en el total general
+porcentaje_ejecucion = (gasto_total_general / presupuesto_total_general * 100) if presupuesto_total_general > 0 else 0
+st.progress(min(porcentaje_ejecucion / 100, 1.0))
+st.caption(f"Progreso de ejecución financiera total: {porcentaje_ejecucion:.2f}%")
+st.divider()
 # ================= GASTOS ADICIONALES =================
 st.markdown("---")
 st.subheader("➕ Gastos adicionales (Caja chica)")
