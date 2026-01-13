@@ -88,9 +88,10 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
         st.subheader("💰 Presupuestos Iniciales")
         col_p1, col_p2 = st.columns(2)
         p_caja_chica = col_p1.number_input("Presupuesto Caja Chica (S/)", min_value=0.0, step=100.0)
-        p_mano_obra = col_p2.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0, step=100.0)
+       
         
         p_materiales = 0.0
+        p_mano_obra = 0.0
         p_total = p_caja_chica + p_mano_obra + p_materiales
         
         st.info(f"**Presupuesto Total Calculado:** S/ {p_total:,.2f}")
@@ -136,20 +137,28 @@ obra_data = doc_ref.to_dict()
 st.subheader(f"🏗️ {obra_data.get('nombre')}")
 st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}")
 
-# --- LÓGICA DE CÁLCULOS ---
+# --- LÓGICA DE CÁLCULOS (CORREGIDA) ---
+# 1. Caja Chica
 p_caja_ini = float(obra_data.get("presupuesto_caja_chica", 0))
 g_caja_uso = float(obra_data.get("gastos_adicionales", 0))
 p_caja_act = p_caja_ini - g_caja_uso
 
+# 2. Materiales
 p_mats_ini = float(obra_data.get("presupuesto_materiales", 0))
-g_acumulado = float(obra_data.get("gasto_acumulado", 0)) 
-p_mats_act = p_mats_ini - g_acumulado
+g_mats_uso = float(obra_data.get("gasto_acumulado", 0)) 
+p_mats_act = p_mats_ini - g_mats_uso
 
+# 3. Mano de Obra
 p_mano_ini = float(obra_data.get("presupuesto_mano_obra", 0))
-p_total_ini = float(obra_data.get("presupuesto_total", 0))
-p_total_act = p_total_ini - g_caja_uso - g_acumulado
+g_mano_uso = float(obra_data.get("gasto_mano_obra", 0)) # <--- Obtenido de Firebase
+p_mano_act = p_mano_ini - g_mano_uso # <--- Esto debería ser 0 si p = g
 
-# --- DISEÑO DE MÉTRICAS (SOLICITADO: INICIAL ARRIBA / ACTUAL ABAJO) ---
+# 4. Totales
+p_total_ini = float(obra_data.get("presupuesto_total", 0))
+# El total disponible es la suma de lo que queda en cada rubro
+p_total_act = p_caja_act + p_mats_act + p_mano_act
+
+# --- DISEÑO DE MÉTRICAS (INICIAL ARRIBA / ACTUAL ABAJO) ---
 m1, m2, m3, m4 = st.columns(4)
 
 with m1:
@@ -158,13 +167,14 @@ with m1:
               delta=f"- S/ {g_caja_uso:,.2f}", delta_color="inverse")
 
 with m2:
-    st.metric("👷 Mano Obra (Asignado)", f"S/ {p_mano_ini:,.2f}")
-    st.caption("Presupuesto para personal")
+    st.metric("👷 Mano Obra (Inicial)", f"S/ {p_mano_ini:,.2f}")
+    st.metric("Mano Obra (Actual)", f"S/ {p_mano_act:,.2f}",
+              delta=f"- S/ {g_mano_uso:,.2f}", delta_color="inverse")
 
 with m3:
     st.metric("🧱 Materiales (Inicial)", f"S/ {p_mats_ini:,.2f}")
     st.metric("Materiales (Actual)", f"S/ {p_mats_act:,.2f}", 
-              delta=f"- S/ {g_acumulado:,.2f}", delta_color="inverse")
+              delta=f"- S/ {g_mats_uso:,.2f}", delta_color="inverse")
 
 with m4:
     st.metric("💰 Total Obra (Inicial)", f"S/ {p_total_ini:,.2f}")

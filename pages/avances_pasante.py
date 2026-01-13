@@ -1,3 +1,4 @@
+
 """avances_pasante.py"""
 import streamlit as st
 import pandas as pd
@@ -43,6 +44,9 @@ if "gasto_extra_solucion" not in st.session_state:
 
 if "mostrar_gasto_extra" not in st.session_state:
     st.session_state.mostrar_gasto_extra = False
+
+if "gasto_extra_foto" not in st.session_state:
+    st.session_state.gasto_extra_foto = None
 
 
 # ================= DATOS DE LA OBRA =================
@@ -97,42 +101,21 @@ gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 # ================= GASTO ACUMULADO (DESDE OBRA) =================
 gasto_acumulado = float(obra.get("gasto_acumulado", 0))
 
-# ================= MÉTRICAS ACTUALIZADAS =================
+# ================= MÉTRICAS =================
 st.subheader("📊 Estado Financiero")
 
-# Cálculos previos
-presupuesto_obra = float(obra.get("presupuesto_total", 0))
-presupuesto_caja_chica = float(obra.get("presupuesto_caja_chica", 0)) # Asegúrate que este campo exista
-gasto_acumulado = float(obra.get("gasto_acumulado", 0))
-gastos_adicionales = float(obra.get("gastos_adicionales", 0))
-
-presupuesto_real_disponible = presupuesto_obra - gasto_acumulado
-disponible_caja_chica = presupuesto_caja_chica - gastos_adicionales
-
-# --- FILA 1: PRESUPUESTO TOTAL OBRA ---
-col1, col2 = st.columns([2, 1])
-with col1:
-    st.metric("💰 Presupuesto Total Obra", f"S/ {presupuesto_obra:,.2f}")
-with col2:
-    # Mostramos el disponible en menor tamaño usando markdown y delta de metric
-    st.metric("Disponible", f"S/ {presupuesto_real_disponible:,.2f}", 
-              delta=f"{((presupuesto_real_disponible/presupuesto_obra)*100):.1f}%", 
-              delta_color="normal")
-
-# --- FILA 2: CAJA CHICA ---
-c1, c2 = st.columns([2, 1])
-with c1:
-    st.metric("📦 Presupuesto Caja Chica", f"S/ {presupuesto_caja_chica:,.2f}")
-with c2:
-    st.metric("Gasto Adicional (Disponible)", f"S/ {disponible_caja_chica:,.2f}",
-              delta=f"- S/ {gastos_adicionales:,.2f} usados", 
-              delta_color="inverse")
-
-# --- FILA 3: PROGRESO ---
+presupuesto_real = presupuesto_obra - gasto_acumulado - gastos_adicionales
 porcentaje_total = (gasto_acumulado / presupuesto_obra) * 100 if presupuesto_obra else 0
-st.write(f"**Progreso de Ejecución Financiera: {porcentaje_total:.2f}%**")
+
+st.metric("💰 Presupuesto total obra", f"S/ {presupuesto_obra:,.2f}")
+st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
+st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
+st.metric("✅ Presupuesto disponible real", f"S/ {presupuesto_real:,.2f}")
+st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
+
 st.progress(min(porcentaje_total / 100, 1.0))
 st.divider()
+
 # ================= GASTOS ADICIONALES =================
 st.markdown("---")
 st.subheader("➕ Gastos adicionales (Caja chica)")
@@ -160,6 +143,15 @@ if st.session_state.mostrar_gasto_extra:
         step=1.0,
         value=st.session_state.gasto_extra_monto
     )
+
+    foto_gasto = st.file_uploader(
+    "📸 Foto del gasto (boleta / evidencia)",
+    type=["jpg", "png", "jpeg"],
+    accept_multiple_files=False
+    )
+
+    st.session_state.gasto_extra_foto = foto_gasto
+
 
     st.info("ℹ️ Este gasto se guardará **junto con el avance diario**")
 
@@ -239,6 +231,18 @@ if guardar:
                 urls.append(res["secure_url"])
 
             batch = db.batch()
+            
+            # ---------- SUBIR FOTO CAJA CHICA ----------
+            url_foto_gasto = ""
+
+            if st.session_state.gasto_extra_foto:
+                res = cloudinary.uploader.upload(
+                    st.session_state.gasto_extra_foto,
+                    folder=f"obras/{obra_id}/caja_chica"
+                )
+                url_foto_gasto = res["secure_url"]
+
+
 
             # ---------- MATERIALES USADOS ----------
             for m_id, m in materiales_usados.items():
@@ -274,6 +278,7 @@ if guardar:
                 "gasto_adicional": round(gasto_extra_aplicado, 2),   # 👈 NUEVO
                 "problematica": st.session_state.gasto_extra_problematica if gasto_extra_aplicado else "",
                 "solucion": st.session_state.gasto_extra_solucion if gasto_extra_aplicado else "",
+                "foto_gasto_adicional": url_foto_gasto,
                 "porcentaje_avance_financiero": round(porcentaje_avance, 2),
                 "materiales_usados": list(materiales_usados.values()),
                 "fotos": urls
@@ -311,7 +316,7 @@ if guardar:
             st.session_state.gasto_extra_problematica = ""
             st.session_state.gasto_extra_solucion = ""
             st.session_state.mostrar_gasto_extra = False
-
+            st.session_state.gasto_extra_foto = None
             st.success("✅ Avance guardado correctamente")
             st.rerun()
 
@@ -329,9 +334,7 @@ if guardar:
 
 
 
-# ================= HISTORIAL =================
-# ================= HISTORIAL DETALLADO =================
-# ================= HISTORIAL =================
+
 # ================= HISTORIAL =================
 st.divider()
 st.subheader("📂 Historial de avances")
@@ -391,7 +394,7 @@ else:
             c1, c2 = st.columns(2)
             c1.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
             c2.metric(
-                "Gasto acumulado de la obra",
+                "Acumulado obra",
                 f"S/ {d['acumulado_al_momento']:,.2f}"
             )
 
@@ -406,6 +409,12 @@ else:
             
             if problematica or solucion:
                 with st.expander("🛑 Ver problemática y solución"):
+                    foto_gasto = d.get("foto_gasto_adicional", "")
+
+                    if foto_gasto:
+                        st.markdown("### 📸 Evidencia de caja chica")
+                        st.image(foto_gasto, use_container_width=True)
+
                     if problematica:
                         st.markdown("### 🛑 Problemática")
                         st.write(problematica)

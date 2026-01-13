@@ -27,7 +27,7 @@ ROLES_CONSTRUCCION = [
 
 # ================= FUNCIONES DE CÁLCULO =================
 def recalcular_mano_obra(obra_id):
-    """Suma el presupuesto de todos los trabajadores y actualiza la obra."""
+    """Suma el presupuesto de todos los trabajadores y actualiza presupuesto y gasto de mano de obra."""
     trabajadores_docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
     total_mano_obra = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
     
@@ -39,8 +39,10 @@ def recalcular_mano_obra(obra_id):
     
     nuevo_total = p_caja + p_mats + total_mano_obra
     
+    # SE AÑADE 'gasto_mano_obra' CON EL MISMO VALOR
     obra_ref.update({
         "presupuesto_mano_obra": round(total_mano_obra, 2),
+        "gasto_mano_obra": round(total_mano_obra, 2), # <--- Nuevo campo añadido
         "presupuesto_total": round(nuevo_total, 2)
     })
     return total_mano_obra
@@ -113,7 +115,6 @@ with tab2:
         st.info("No hay trabajadores registrados en esta obra.")
     else:
         df_t = pd.DataFrame(trabajadores)
-        # Mostrar tabla con nuevos datos
         st.dataframe(
             df_t[["nombre", "rol", "telefono", "email", "grupo", "presupuesto"]],
             use_container_width=True,
@@ -168,7 +169,6 @@ with tab2:
 # ================= EXPORTAR =================
 if trabajadores:
     st.divider()
-    # Exportar incluyendo los nuevos campos
     buffer = pd.DataFrame(trabajadores)[["nombre", "dni", "email", "telefono", "rol", "grupo", "presupuesto"]]
     st.download_button(
         label="📥 Descargar Planilla de Trabajadores",
