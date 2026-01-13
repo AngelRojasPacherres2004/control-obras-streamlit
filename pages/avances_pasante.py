@@ -275,10 +275,11 @@ if guardar:
                     "usuario": username
                 })
 
-            # ---------- PORCENTAJE DE AVANCE ----------
+            # ---------- PORCENTAJE DE AVANCE (CORREGIDO) ----------
+            # Ahora comparamos el gasto de hoy contra el presupuesto inicial de MATERIALES
             porcentaje_avance = (
-                (costo_total_dia / presupuesto_total) * 100
-                if presupuesto_total else 0
+            (costo_total_dia / pres_mats_inicial) * 100
+            if pres_mats_inicial > 0 else 0
             )
 
             # ---------- AVANCE DIARIO ----------
