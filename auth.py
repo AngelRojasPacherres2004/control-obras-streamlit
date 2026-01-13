@@ -126,7 +126,7 @@ def verificar_autenticacion(db):
 
 
         st.markdown("<br><br>", unsafe_allow_html=True)
-        st.title("A")
+        st.title("")
 
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
