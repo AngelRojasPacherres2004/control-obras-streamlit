@@ -92,7 +92,7 @@ if not materiales:
     st.stop()
 
     # ================= PRESUPUESTO REAL (OBRA) =================
-presupuesto_obra = float(obra.get("presupuesto_total", 0))
+presupuesto_otorgado_obra = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
 
 gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 
@@ -104,13 +104,13 @@ gasto_mano_obra=float(obra.get("gasto_mano_obra", 0))
 # ================= MÉTRICAS =================
 st.subheader("📊 Estado Financiero")
 
-presupuesto_real = presupuesto_obra - gasto_acumulado - gastos_adicionales-gasto_mano_obra
-porcentaje_total = (gasto_acumulado / presupuesto_obra) * 100 if presupuesto_obra else 0
+presupuesto_real = presupuesto_otorgado_obra - gasto_acumulado 
+porcentaje_total = (gasto_acumulado / presupuesto_otorgado_obra) * 100 if presupuesto_otorgado_obra else 0
 
-st.metric("💰 Presupuesto total obra", f"S/ {presupuesto_obra:,.2f}")
+st.metric("💰 Presupuesto otorgado total", f"S/ {presupuesto_otorgado_obra:,.2f}")
 st.metric("🔥 Gasto acumulado", f"S/ {gasto_acumulado:,.2f}")
 st.metric("💸 Gastos adicionales", f"S/ {gastos_adicionales:,.2f}")
-st.metric("✅ Presupuesto disponible real", f"S/ {presupuesto_real:,.2f}")
+st.metric("✅ Presupuesto ortorgado disponible ", f"S/ {presupuesto_real:,.2f}")
 st.metric("📈 % ejecutado", f"{porcentaje_total:.2f}%")
 
 st.progress(min(porcentaje_total / 100, 1.0))
