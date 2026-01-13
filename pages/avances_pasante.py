@@ -95,7 +95,7 @@ if not materiales:
 st.subheader("📊 Estado Financiero: Presupuesto vs. Disponible")
 
 # 1. Extracción de valores desde el documento de la obra
-pres_total_obra = float(obra.get("presupuesto_total", 0))
+pres_total_obra = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
 pres_caja_inicial = float(obra.get("presupuesto_caja_chica", 0)) 
 pres_mats_inicial = float(obra.get("presupuesto_materiales", 0))
 pres_mo_inicial = float(obra.get("presupuesto_mano_obra", 0))
@@ -228,7 +228,7 @@ with st.form("form_avance", clear_on_submit=True):
 
     guardar = st.form_submit_button("Guardar avance")
 
-# ================= GUARDAR =================
+
 # ================= GUARDAR =================
 if guardar:
     if not responsable.strip() or not descripcion.strip():
@@ -383,7 +383,7 @@ for av in avances_todos:
     acumulado_paso_a_paso += costo_dia + gasto_extra
 
     d["acumulado_al_momento"] = round(acumulado_paso_a_paso, 2)
-    d["excede_en_su_momento"] = acumulado_paso_a_paso > presupuesto_obra
+    d["excede_en_su_momento"] = acumulado_paso_a_paso > pres_total_obra
 
     lista_avances.append(d)
 
