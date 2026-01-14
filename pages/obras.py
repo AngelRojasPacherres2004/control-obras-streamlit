@@ -7,6 +7,8 @@ import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
 from collections import defaultdict
+from io import BytesIO
+
 
 # ================= CONFIGURACIÓN DE ZONA HORARIA =================
 local_tz = pytz.timezone('America/Lima')
@@ -429,3 +431,118 @@ else:
             if foto_gasto:
                 st.markdown("#### 📸 Evidencia / Boleta")
                 st.image(foto_gasto, use_container_width=True)
+
+def formatear_materiales_texto(materiales):
+    """
+    Convierte materiales_usados a texto legible para Excel
+    """
+    if not materiales:
+        return ""
+
+    lineas = []
+    for m in materiales:
+        nombre = m.get("nombre", "")
+        cant = m.get("cantidad", 0)
+        unidad = m.get("unidad", "")
+        subtotal = m.get("subtotal", 0)
+        lineas.append(f"- {nombre}: {cant} {unidad} (S/ {subtotal:.2f})")
+
+    return "\n".join(lineas)
+
+
+def limpiar_fechas_para_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Elimina timezone para evitar error de Excel
+    """
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.tz_localize(None)
+    return df
+
+def exportar_obra_excel(obra_id):
+    obra_ref = db.collection("obras").document(obra_id)
+    obra = obra_ref.get().to_dict()
+
+    buffer = BytesIO()
+
+    with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
+        workbook = writer.book
+
+        # ================= HOJA 1: RESUMEN =================
+        resumen = {
+            "Campo": [
+                "Nombre de la obra",
+                "Ubicación",
+                "Estado",
+                "Presupuesto Caja Chica",
+                "Presupuesto Materiales",
+                "Presupuesto Mano de Obra",
+                "Presupuesto Total"
+            ],
+            "Valor": [
+                obra.get("nombre"),
+                obra.get("ubicacion"),
+                obra.get("estado"),
+                obra.get("presupuesto_caja_chica", 0),
+                obra.get("presupuesto_materiales", 0),
+                obra.get("presupuesto_mano_obra", 0),
+                obra.get("presupuesto_total", 0),
+            ]
+        }
+
+        df_resumen = pd.DataFrame(resumen)
+        df_resumen.to_excel(writer, sheet_name="Resumen", index=False)
+
+        ws = writer.sheets["Resumen"]
+        ws.set_column("A:A", 30)
+        ws.set_column("B:B", 25)
+
+        # ================= HOJA 2: MATERIALES =================
+        mats_docs = obra_ref.collection("materiales").stream()
+        materiales = [m.to_dict() for m in mats_docs]
+
+        if materiales:
+            df_materiales = pd.DataFrame(materiales)
+            df_materiales = limpiar_fechas_para_excel(df_materiales)
+            df_materiales.to_excel(writer, sheet_name="Materiales", index=False)
+
+        # ================= HOJA 3: MANO DE OBRA =================
+        trab_docs = obra_ref.collection("trabajadores").stream()
+        trabajadores = [t.to_dict() for t in trab_docs]
+
+        if trabajadores:
+            df_trab = pd.DataFrame(trabajadores)
+            df_trab = limpiar_fechas_para_excel(df_trab)
+            df_trab.to_excel(writer, sheet_name="Mano de Obra", index=False)
+
+        # ================= HOJA 4: AVANCES =================
+        avances_docs = obra_ref.collection("avances").order_by(
+            "timestamp", direction=firestore.Query.ASCENDING
+        ).stream()
+
+        avances = []
+        for a in avances_docs:
+            d = a.to_dict()
+            avances.append({
+                "Fecha": d.get("timestamp"),
+                "Responsable": d.get("responsable"),
+                "Descripción": d.get("descripcion"),
+                "Materiales Usados": formatear_materiales_texto(d.get("materiales_usados")),
+                "Costo Materiales": d.get("costo_total_dia", 0),
+                "Gasto Caja Chica": d.get("gasto_adicional", 0),
+            })
+
+        if avances:
+            df_avances = pd.DataFrame(avances)
+            df_avances = limpiar_fechas_para_excel(df_avances)
+            df_avances.to_excel(writer, sheet_name="Avances", index=False)
+
+            ws_av = writer.sheets["Avances"]
+            ws_av.set_column("A:A", 20)
+            ws_av.set_column("B:B", 20)
+            ws_av.set_column("C:C", 40)
+            ws_av.set_column("D:D", 45)
+
+    buffer.seek(0)
+    return buffer
+
