@@ -275,7 +275,7 @@ st.subheader("📊 Resumen de Gastos")
 avances_lista = cargar_avances(obra_id_sel)
 
 if avances_lista:
-    total_gastado = float(obra_data.get("gasto_acumulado", 0)) + float(obra_data.get("gastos_adicionales", 0))
+    total_gastado = float(obra_data.get("gasto_acumulado", 0)) + float(obra_data.get("gastos_adicionales", 0))+ float(obra_data.get("gastos_mano_obra", 0))
     porcentaje = min(total_gastado / p_total_ini, 1.0) if p_total_ini > 0 else 0
     st.write(f"**Gasto Real Total (Materiales + Caja):** S/ {total_gastado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
     st.progress(porcentaje)
