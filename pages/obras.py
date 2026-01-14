@@ -372,23 +372,7 @@ else:
 
         st.bar_chart(chart_df, height=300)
 
-    # ================== PROGRESO TOTAL ==================
-    st.divider()
-    st.subheader("📈 Progreso total de la obra")
-
-    presupuesto = obra.get("presupuesto_total", 0)
-    total_gastado = df["costo"].sum()
-
-    if presupuesto > 0:
-        porcentaje = min(int((total_gastado / presupuesto) * 100), 100)
-    else:
-        porcentaje = 0
-
-    st.progress(porcentaje)
-    st.caption(f"💰 Gastado: S/ {total_gastado:,.2f} / S/ {presupuesto:,.2f}")
-
-
-
+   
 
 # ================= HISTORIAL DE AVANCES (CON PROBLEMÁTICA Y CAJA) =================
 st.divider()
