@@ -69,13 +69,19 @@ def reset():
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
-# -------- SELECCIÓN DE OBRA --------
+# -------- RECUPERAR OBRA SELECCIONADA EN OBRAS.PY --------
+# Intentamos obtener el ID de la obra desde el estado global
+obra_id = st.session_state.get("obra_id_global")
+
+if not obra_id:
+    st.warning("⚠️ No has seleccionado ninguna obra. Por favor, ve a la pestaña **Obras** primero.")
+    st.stop()
+
+# Solo cargamos el nombre para mostrarlo en la barra lateral como referencia
 OBRAS = obtener_obras()
-obra_id = st.sidebar.selectbox(
-    "Seleccionar obra",
-    options=list(OBRAS.keys()),
-    format_func=lambda x: OBRAS[x]
-)
+nombre_obra = OBRAS.get(obra_id, "Desconocida")
+st.sidebar.success(f"🏗️ Obra: **{nombre_obra}**")
+st.sidebar.caption(f"ID: `{obra_id}`")
 
 # ================== SECCIÓN A ==================
 st.header("📦 Materiales globales")

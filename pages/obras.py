@@ -53,27 +53,35 @@ auth = st.session_state["auth"]
 
 if "crear_obra" not in st.session_state:
     st.session_state["crear_obra"] = False
-
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
 
 if auth["role"] == "jefe":
+    # 1. Definimos el selector
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
         options=list(OBRAS.keys()) if OBRAS else [],
         format_func=lambda x: OBRAS.get(x, x),
-        on_change=lambda: st.session_state.update({"crear_obra": False})
+        on_change=lambda: st.session_state.update({"crear_obra": False}),
+        key="selector_de_obra_en_pantalla" 
     )
+    
+    # 2. SINCRONIZACIÓN: Guardamos la elección para que "Materiales.py" pueda leerla
+    st.session_state["obra_id_global"] = obra_id_sel 
+    
     st.sidebar.divider()
     if st.sidebar.button("➕ Crear Nueva Obra", use_container_width=True):
         st.session_state["crear_obra"] = True
 else:
+    # Para pasantes, usamos la obra asignada en su perfil
     obra_id_sel = auth.get("obra")
+    # También lo guardamos globalmente por si el pasante entra a otras páginas
+    st.session_state["obra_id_global"] = obra_id_sel
+    
     if not obra_id_sel:
         st.error("No tienes una obra asignada.")
         st.stop()
     st.sidebar.success(f"Obra asignada: {OBRAS.get(obra_id_sel, 'Desconocida')}")
-
 # ================= FORMULARIO CREAR OBRA =================
 if auth["role"] == "jefe" and st.session_state["crear_obra"]:
     st.title("➕ Crear nueva obra")

@@ -29,10 +29,18 @@ def obtener_usuarios():
         "role": d.to_dict()["role"]
     } for d in docs]
 
-# ================= SELECCIÓN DE OBRA =================
+# ================= CONFIGURACIÓN DE CONTEXTO =================
 auth = st.session_state["auth"]
+obra_id_contexto = st.session_state.get("obra_id_global") # Obra seleccionada en 'Obras'
+
 OBRAS = obtener_obras()
 OBRAS_OPCIONES = ["all"] + list(OBRAS.keys())
+
+# --- Información en Sidebar ---
+if obra_id_contexto:
+    nombre_obra_ctx = OBRAS.get(obra_id_contexto, "Desconocida")
+    st.sidebar.success(f"📍 Obra seleccionada: **{nombre_obra_ctx}**")
+    st.sidebar.caption("Esta selección no afecta la creación de usuarios, es solo informativa.")
 
 # ================= ADMIN: GESTIÓN DE USUARIOS =================
 if auth["role"] == "jefe":
@@ -46,9 +54,11 @@ if auth["role"] == "jefe":
         password = st.text_input("Contraseña", type="password")
         role = st.selectbox("Rol", ["jefe", "pasante"])
         obra = st.selectbox(
-            "Obra asignada",
-            options=OBRAS_OPCIONES,
-            help="Usa 'all' para jefe"
+        "Obra asignada",
+        options=OBRAS_OPCIONES,
+        # Si la obra seleccionada globalmente existe, ponla por defecto
+        index=OBRAS_OPCIONES.index(obra_id_contexto) if obra_id_contexto in OBRAS_OPCIONES else 0,
+        help="Usa 'all' para jefe"
         )
         crear_user = st.form_submit_button("CREAR USUARIO")
 

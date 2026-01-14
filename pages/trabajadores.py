@@ -56,19 +56,26 @@ def obtener_trabajadores_obra(obra_id):
 
 # ================= UI =================
 st.title("👷 Gestión de Trabajadores y Mano de Obra")
+# NUEVA LÓGICA DE CONEXIÓN:
+obra_id_sel = st.session_state.get("obra_id_global")
 
+if not obra_id_sel:
+    st.info("💡 Por favor, selecciona una obra en la pestaña **Obras** para gestionar su personal.")
+    st.stop()
+
+# Solo para mostrar el nombre en el sidebar
 OBRAS = obtener_obras()
-obra_id_sel = st.sidebar.selectbox(
-    "Seleccionar Obra para personal",
-    options=list(OBRAS.keys()),
-    format_func=lambda x: OBRAS[x]
-)
-
+nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
+st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
 # --- Métricas en Sidebar ---
-obra_actual = db.collection("obras").document(obra_id_sel).get().to_dict()
-st.sidebar.divider()
-st.sidebar.metric("Presupuesto Mano Obra", f"S/ {obra_actual.get('presupuesto_mano_obra', 0):,.2f}")
-
+obra_ref = db.collection("obras").document(obra_id_sel).get()
+if obra_ref.exists:
+    obra_actual = obra_ref.to_dict()
+    st.sidebar.divider()
+    st.sidebar.metric("Presupuesto Mano Obra", f"S/ {obra_actual.get('presupuesto_mano_obra', 0):,.2f}")
+else:
+    st.error("La obra seleccionada ya no existe.")
+    st.stop()
 # ================= CRUD TRABAJADORES =================
 tab1, tab2 = st.tabs(["➕ Registrar Personal", "📋 Lista y Edición"])
 
