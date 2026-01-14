@@ -6,15 +6,7 @@ from cookies_manager import cookies
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
 import json
 
-obra_id = st.session_state.get("obra_id_global")
-
-if not obra_id:
-    st.warning("⚠️ Por favor, selecciona una obra en el menú lateral izquierdo para continuar.")
-    st.stop()
-if "logged_in" not in st.session_state:
-    st.session_state.logged_in = False
-
-# ================= INIT =================
+# ================= INIT (Siempre al principio) =================
 if not firebase_admin._apps:
     firebase_admin.initialize_app(
         credentials.Certificate(dict(st.secrets["firebase"]))
@@ -29,42 +21,43 @@ cloudinary.config(
     secure=True
 )
 
+# Configuración de página
 st.set_page_config(page_title="Control de Obras", layout="centered")
 
-
-
+# Esperar a que las cookies estén listas
 if not cookies.ready():
     st.stop()
 
+# ================= ESTADO INICIAL =================
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
 
-
-# ====== ESTADO ======
 if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
-# ====== FLUJO VISUAL ======
+# ================= FLUJO DE AUTENTICACIÓN =================
 
-# 1️⃣ Pantalla inicial (solo diseño)
+# 1️⃣ Pantalla inicial (Portada)
 if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
 
-
-# 2️⃣ Login (diseño + autenticación)
+# 2️⃣ Login (Formulario)
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
-# ... (todo tu código de INIT, FLUJO VISUAL y NAVEGACIÓN se mantiene igual)
 
-# ================= NAVEGACIÓN =================
+# ================= SI LLEGA AQUÍ, EL USUARIO ESTÁ LOGUEADO =================
 auth = st.session_state["auth"]
 
+# Definición de páginas
 usuarios_page     = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
 materiales_page   = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
 obras_page        = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
 avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 
+# Configurar navegación según rol
 if auth["role"] == "jefe":
     pg = st.navigation([
         obras_page, 
@@ -79,52 +72,49 @@ else:
 with st.sidebar:
     st.markdown("### 🏗️ Gestión")
     
-    # 1. Solo mostramos el selector si el usuario es jefe
+    # El selector de obra solo aparece para el jefe después de loguear
     if auth["role"] == "jefe":
-        # Función para obtener obras (puedes optimizarla luego con cache)
+        # Cargar lista de obras desde Firebase
         obras_docs = db.collection("obras").stream()
         OBRAS_DICT = {d.id: d.to_dict().get("nombre", d.id) for d in obras_docs}
         lista_ids = list(OBRAS_DICT.keys())
 
         if lista_ids:
-            # Si no hay nada seleccionado aún, tomamos la primera
+            # Inicializar la obra global si no existe
             if "obra_id_global" not in st.session_state:
                 st.session_state["obra_id_global"] = lista_ids[0]
             
-            # Buscamos el índice para que el selectbox no se mueva al cambiar de pestaña
+            # Calcular índice para que el componente no se resetee al navegar
             try:
                 idx_actual = lista_ids.index(st.session_state["obra_id_global"])
             except ValueError:
                 idx_actual = 0
 
-            # --- EL SELECTOR PERSISTENTE ---
+            # --- SELECTOR MAESTRO ---
             obra_seleccionada = st.selectbox(
-                "Obra activa:",
+                "Seleccionar Obra Activa:",
                 options=lista_ids,
                 index=idx_actual,
                 format_func=lambda x: OBRAS_DICT[x],
-                key="selector_obra_global" # Streamlit guarda esto automáticamente
+                key="selector_maestro_obras"
             )
             
-            # Actualizamos la variable global
+            # Guardar selección en el estado global
             st.session_state["obra_id_global"] = obra_seleccionada
         else:
-            st.warning("Crea una obra primero")
+            st.warning("No se encontraron obras en la base de datos.")
     
     st.divider()
     
-    # Botón de cerrar sesión (tu código original)
+    # Botón de cerrar sesión
     if st.button("🚪 Cerrar sesión", use_container_width=True):
-        del cookies["auth"]
-        cookies.save()
+        if "auth" in cookies:
+            del cookies["auth"]
+            cookies.save()
         st.session_state.clear()
-        st.session_state["logout"] = True
         st.session_state["show_login"] = False
         st.rerun()
 
-# Lanzar la aplicación
-pg.run()
-
-
-
+# ================= EJECUCIÓN =================
+# Esto renderiza la página seleccionada
 pg.run()
