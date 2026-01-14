@@ -51,8 +51,12 @@ if "auth" not in st.session_state:
 
 auth = st.session_state["auth"]
 
-if "crear_obra" not in st.session_state:
+# --- NUEVA LÓGICA: RESET AL CAMBIAR DE PESTAÑA ---
+# Si la última página registrada no es esta, cerramos el formulario de creación
+if st.session_state.get("last_page") != "obras":
     st.session_state["crear_obra"] = False
+    st.session_state["last_page"] = "obras"
+
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
 lista_ids = list(OBRAS.keys())
@@ -67,8 +71,9 @@ if auth["role"] == "jefe":
         "Seleccionar obra",
         options=lista_ids,
         format_func=lambda x: OBRAS.get(x, x),
-        index=indice_actual, # <--- ESTO MANTIENE LA SELECCIÓN AL CAMBIAR DE PÁGINA
+        index=indice_actual,
         key="selector_global",
+        # Esto asegura que si cambias de obra en el menú, se cierre el formulario "Crear"
         on_change=lambda: st.session_state.update({"crear_obra": False})
     )
     
@@ -77,6 +82,7 @@ if auth["role"] == "jefe":
     st.sidebar.divider()
     if st.sidebar.button("➕ Crear Nueva Obra", use_container_width=True):
         st.session_state["crear_obra"] = True
+        st.rerun()  
 else:
     # Para pasantes, usamos la obra asignada en su perfil
     obra_id_sel = auth.get("obra")
