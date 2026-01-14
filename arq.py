@@ -50,6 +50,8 @@ if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
 
+# ... (todo tu código de INIT, FLUJO VISUAL y NAVEGACIÓN se mantiene igual)
+
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
 
@@ -60,40 +62,61 @@ avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", ic
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 
 if auth["role"] == "jefe":
-    # Fíjate aquí: agregamos 'trabajadores_page' a la lista
     pg = st.navigation([
         obras_page, 
         materiales_page, 
-        trabajadores_page,  # <--- ESTA ES LA LÍNEA QUE FALTABA
+        trabajadores_page,
         usuarios_page
     ])
 else:
     pg = st.navigation([avances_page])
-# ================= CERRAR SESIÓN =================
-with st.sidebar:
-    st.divider()
-    if st.button("🚪 Cerrar sesión", use_container_width=True):
 
-        #  eliminar cookie
+# ================= BARRA LATERAL GLOBAL =================
+with st.sidebar:
+    st.markdown("### 🏗️ Gestión")
+    
+    # 1. Solo mostramos el selector si el usuario es jefe
+    if auth["role"] == "jefe":
+        # Función para obtener obras (puedes optimizarla luego con cache)
+        obras_docs = db.collection("obras").stream()
+        OBRAS_DICT = {d.id: d.to_dict().get("nombre", d.id) for d in obras_docs}
+        lista_ids = list(OBRAS_DICT.keys())
+
+        if lista_ids:
+            # Si no hay nada seleccionado aún, tomamos la primera
+            if "obra_id_global" not in st.session_state:
+                st.session_state["obra_id_global"] = lista_ids[0]
+            
+            # Buscamos el índice para que el selectbox no se mueva al cambiar de pestaña
+            try:
+                idx_actual = lista_ids.index(st.session_state["obra_id_global"])
+            except ValueError:
+                idx_actual = 0
+
+            # --- EL SELECTOR PERSISTENTE ---
+            obra_seleccionada = st.selectbox(
+                "Obra activa:",
+                options=lista_ids,
+                index=idx_actual,
+                format_func=lambda x: OBRAS_DICT[x],
+                key="selector_obra_global" # Streamlit guarda esto automáticamente
+            )
+            
+            # Actualizamos la variable global
+            st.session_state["obra_id_global"] = obra_seleccionada
+        else:
+            st.warning("Crea una obra primero")
+    
+    st.divider()
+    
+    # Botón de cerrar sesión (tu código original)
+    if st.button("🚪 Cerrar sesión", use_container_width=True):
         del cookies["auth"]
         cookies.save()
-
-
-
-        #  limpiar sesión
         st.session_state.clear()
-
-        # marcar logout
         st.session_state["logout"] = True
         st.session_state["show_login"] = False
-
-
-        # volver al login
         st.rerun()
 
-
-
-
-
-
+# Lanzar la aplicación
 pg.run()
