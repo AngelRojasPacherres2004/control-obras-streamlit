@@ -546,3 +546,11 @@ def exportar_obra_excel(obra_id):
     buffer.seek(0)
     return buffer
 
+excel = exportar_obra_excel(obra_id_sel)
+
+st.download_button(
+    label="📥 Descargar Excel de la Obra",
+    data=excel,
+    file_name=f"obra_{obra_id_sel}.xlsx",
+    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+)
