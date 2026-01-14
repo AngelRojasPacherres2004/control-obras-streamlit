@@ -69,19 +69,37 @@ def reset():
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
-# -------- RECUPERAR OBRA SELECCIONADA EN OBRAS.PY --------
-# Intentamos obtener el ID de la obra desde el estado global
-obra_id = st.session_state.get("obra_id_global")
+# ================= SELECCIÓN DE OBRA SINCRONIZADA =================
+OBRAS = obtener_obras()
+lista_ids = list(OBRAS.keys())
+
+# 1. Recuperar la selección global de la sesión
+if "obra_id_global" not in st.session_state and lista_ids:
+    st.session_state["obra_id_global"] = lista_ids[0]
+
+# 2. Calcular el índice para que el selector aparezca en la obra correcta
+indice_actual = 0
+if st.session_state["obra_id_global"] in lista_ids:
+    indice_actual = lista_ids.index(st.session_state["obra_id_global"])
+
+# 3. Dibujar el selector en el sidebar
+obra_id = st.sidebar.selectbox(
+    "Seleccionar obra",
+    options=lista_ids,
+    format_func=lambda x: OBRAS.get(x, x),
+    index=indice_actual,
+    key="selector_materiales_nav"
+)
+
+# 4. Actualizar el estado global por si el usuario cambia de obra aquí mismo
+st.session_state["obra_id_global"] = obra_id
+
+# 5. Mostrar confirmación visual de la obra activa
+st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
 
 if not obra_id:
-    st.warning("⚠️ No has seleccionado ninguna obra. Por favor, ve a la pestaña **Obras** primero.")
+    st.warning("⚠️ No hay obras registradas. Crea una primero en la sección de Obras.")
     st.stop()
-
-# Solo cargamos el nombre para mostrarlo en la barra lateral como referencia
-OBRAS = obtener_obras()
-nombre_obra = OBRAS.get(obra_id, "Desconocida")
-st.sidebar.success(f"🏗️ Obra: **{nombre_obra}**")
-st.sidebar.caption(f"ID: `{obra_id}`")
 
 # ================== SECCIÓN A ==================
 st.header("📦 Materiales globales")

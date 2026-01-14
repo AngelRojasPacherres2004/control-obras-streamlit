@@ -55,20 +55,25 @@ if "crear_obra" not in st.session_state:
     st.session_state["crear_obra"] = False
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
+lista_ids = list(OBRAS.keys())
 
 if auth["role"] == "jefe":
-    # 1. Definimos el selector
+    # Buscamos en qué posición de la lista está la obra que seleccionamos antes
+    indice_actual = 0
+    if "obra_id_global" in st.session_state and st.session_state["obra_id_global"] in lista_ids:
+        indice_actual = lista_ids.index(st.session_state["obra_id_global"])
+
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
-        options=list(OBRAS.keys()) if OBRAS else [],
+        options=lista_ids,
         format_func=lambda x: OBRAS.get(x, x),
-        on_change=lambda: st.session_state.update({"crear_obra": False}),
-        key="selector_de_obra_en_pantalla" 
+        index=indice_actual, # <--- ESTO MANTIENE LA SELECCIÓN AL CAMBIAR DE PÁGINA
+        key="selector_global",
+        on_change=lambda: st.session_state.update({"crear_obra": False})
     )
     
-    # 2. SINCRONIZACIÓN: Guardamos la elección para que "Materiales.py" pueda leerla
-    st.session_state["obra_id_global"] = obra_id_sel 
-    
+    # Guardamos para las otras pantallas
+    st.session_state["obra_id_global"] = obra_id_sel
     st.sidebar.divider()
     if st.sidebar.button("➕ Crear Nueva Obra", use_container_width=True):
         st.session_state["crear_obra"] = True

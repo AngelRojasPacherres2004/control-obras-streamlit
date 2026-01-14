@@ -56,17 +56,39 @@ def obtener_trabajadores_obra(obra_id):
 
 # ================= UI =================
 st.title("👷 Gestión de Trabajadores y Mano de Obra")
-# NUEVA LÓGICA DE CONEXIÓN:
-obra_id_sel = st.session_state.get("obra_id_global")
+# ================= SELECCIÓN DE OBRA SINCRONIZADA =================
+OBRAS = obtener_obras()
+lista_ids = list(OBRAS.keys())
 
+# 1. Recuperar la selección global (cerebro compartido)
+if "obra_id_global" not in st.session_state and lista_ids:
+    st.session_state["obra_id_global"] = lista_ids[0]
+
+# 2. Calcular el índice para que el selector no se mueva solo
+indice_actual = 0
+if st.session_state.get("obra_id_global") in lista_ids:
+    indice_actual = lista_ids.index(st.session_state["obra_id_global"])
+
+# 3. Dibujar el selector en el sidebar (igual que en Obras y Materiales)
+obra_id_sel = st.sidebar.selectbox(
+    "Seleccionar Obra para personal",
+    options=lista_ids,
+    format_func=lambda x: OBRAS.get(x, x),
+    index=indice_actual,
+    key="selector_trabajadores_global"
+)
+
+# 4. Sincronizar la elección
+st.session_state["obra_id_global"] = obra_id_sel
+
+# 5. Validación de seguridad
 if not obra_id_sel:
     st.info("💡 Por favor, selecciona una obra en la pestaña **Obras** para gestionar su personal.")
     st.stop()
 
-# Solo para mostrar el nombre en el sidebar
-OBRAS = obtener_obras()
 nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
 st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
+
 # --- Métricas en Sidebar ---
 obra_ref = db.collection("obras").document(obra_id_sel).get()
 if obra_ref.exists:

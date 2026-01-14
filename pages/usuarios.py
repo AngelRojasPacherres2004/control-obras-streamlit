@@ -29,23 +29,37 @@ def obtener_usuarios():
         "role": d.to_dict()["role"]
     } for d in docs]
 
-# ================= CONFIGURACIÓN DE CONTEXTO =================
-auth = st.session_state["auth"]
-obra_id_contexto = st.session_state.get("obra_id_global") # Obra seleccionada en 'Obras'
-
+# ================= SELECCIÓN DE OBRA SINCRONIZADA =================
 OBRAS = obtener_obras()
-OBRAS_OPCIONES = ["all"] + list(OBRAS.keys())
+lista_ids = list(OBRAS.keys())
+OBRAS_OPCIONES = ["all"] + lista_ids
 
-# --- Información en Sidebar ---
-if obra_id_contexto:
-    nombre_obra_ctx = OBRAS.get(obra_id_contexto, "Desconocida")
-    st.sidebar.success(f"📍 Obra seleccionada: **{nombre_obra_ctx}**")
-    st.sidebar.caption("Esta selección no afecta la creación de usuarios, es solo informativa.")
+# 1. Recuperar la selección global para el selector del sidebar
+if "obra_id_global" not in st.session_state and lista_ids:
+    st.session_state["obra_id_global"] = lista_ids[0]
+
+indice_actual_sidebar = 0
+if st.session_state.get("obra_id_global") in lista_ids:
+    indice_actual_sidebar = lista_ids.index(st.session_state["obra_id_global"])
+
+# 2. Selector en Sidebar (para no perder la sincronización al navegar)
+obra_id_contexto = st.sidebar.selectbox(
+    "Seleccionar obra (Navegación)",
+    options=lista_ids,
+    format_func=lambda x: OBRAS.get(x, x),
+    index=indice_actual_sidebar,
+    key="selector_usuarios_nav"
+)
+st.session_state["obra_id_global"] = obra_id_contexto
+
+st.sidebar.divider()
+st.sidebar.info("💡 La selección del menú lateral sincroniza tu vista en las otras pestañas.")
 
 # ================= ADMIN: GESTIÓN DE USUARIOS =================
+auth = st.session_state["auth"]
+
 if auth["role"] == "jefe":
     st.header("👤 Gestión de Usuarios")
-
     st.subheader("➕ Crear usuario")
 
     # ---- CREAR USUARIO ----
@@ -53,15 +67,17 @@ if auth["role"] == "jefe":
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
         role = st.selectbox("Rol", ["jefe", "pasante"])
+        
+        # 3. Predeterminamos la obra del formulario con la del sidebar para ahorrar tiempo
+        idx_defecto_form = OBRAS_OPCIONES.index(obra_id_contexto) if obra_id_contexto in OBRAS_OPCIONES else 0
+        
         obra = st.selectbox(
-        "Obra asignada",
-        options=OBRAS_OPCIONES,
-        # Si la obra seleccionada globalmente existe, ponla por defecto
-        index=OBRAS_OPCIONES.index(obra_id_contexto) if obra_id_contexto in OBRAS_OPCIONES else 0,
-        help="Usa 'all' para jefe"
+            "Obra asignada",
+            options=OBRAS_OPCIONES,
+            index=idx_defecto_form,
+            help="Usa 'all' para administradores"
         )
         crear_user = st.form_submit_button("CREAR USUARIO")
-
     if crear_user:
         if not username or not password:
             st.error("Nombre y contraseña obligatorios")
