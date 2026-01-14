@@ -69,11 +69,13 @@ def reset():
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
-obra_id = st.session_state.get("obra_id_global")
-
-if not obra_id:
-    st.warning("⚠️ Selecciona una obra en el menú lateral para continuar.")
-    st.stop()
+# -------- SELECCIÓN DE OBRA --------
+OBRAS = obtener_obras()
+obra_id = st.sidebar.selectbox(
+    "Seleccionar obra",
+    options=list(OBRAS.keys()),
+    format_func=lambda x: OBRAS[x]
+)
 
 # ================== SECCIÓN A ==================
 st.header("📦 Materiales globales")
