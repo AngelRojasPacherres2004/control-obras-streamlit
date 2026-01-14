@@ -29,31 +29,6 @@ def obtener_usuarios():
         "role": d.to_dict()["role"]
     } for d in docs]
 
-# ================= SELECCIÓN DE OBRA SINCRONIZADA =================
-OBRAS = obtener_obras()
-lista_ids = list(OBRAS.keys())
-OBRAS_OPCIONES = ["all"] + lista_ids
-
-# 1. Recuperar la selección global para el selector del sidebar
-if "obra_id_global" not in st.session_state and lista_ids:
-    st.session_state["obra_id_global"] = lista_ids[0]
-
-indice_actual_sidebar = 0
-if st.session_state.get("obra_id_global") in lista_ids:
-    indice_actual_sidebar = lista_ids.index(st.session_state["obra_id_global"])
-
-# 2. Selector en Sidebar (para no perder la sincronización al navegar)
-obra_id_contexto = st.sidebar.selectbox(
-    "Seleccionar obra (Navegación)",
-    options=lista_ids,
-    format_func=lambda x: OBRAS.get(x, x),
-    index=indice_actual_sidebar,
-    key="selector_usuarios_nav"
-)
-st.session_state["obra_id_global"] = obra_id_contexto
-
-st.sidebar.divider()
-st.sidebar.info("💡 La selección del menú lateral sincroniza tu vista en las otras pestañas.")
 
 # ================= ADMIN: GESTIÓN DE USUARIOS =================
 auth = st.session_state["auth"]
