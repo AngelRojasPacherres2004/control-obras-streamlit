@@ -6,6 +6,11 @@ from cookies_manager import cookies
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
 import json
 
+obra_id = st.session_state.get("obra_id_global")
+
+if not obra_id:
+    st.warning("⚠️ Por favor, selecciona una obra en el menú lateral izquierdo para continuar.")
+    st.stop()
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
@@ -49,7 +54,6 @@ if not st.session_state.get("show_login", False) and "auth" not in st.session_st
 if "auth" not in st.session_state:
     verificar_autenticacion(db)
     st.stop()
-
 # ... (todo tu código de INIT, FLUJO VISUAL y NAVEGACIÓN se mantiene igual)
 
 # ================= NAVEGACIÓN =================
@@ -119,4 +123,8 @@ with st.sidebar:
         st.rerun()
 
 # Lanzar la aplicación
+pg.run()
+
+
+
 pg.run()

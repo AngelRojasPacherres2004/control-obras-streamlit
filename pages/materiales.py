@@ -69,14 +69,6 @@ def reset():
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
-# -------- SELECCIÓN DE OBRA --------
-OBRAS = obtener_obras()
-obra_id = st.sidebar.selectbox(
-    "Seleccionar obra",
-    options=list(OBRAS.keys()),
-    format_func=lambda x: OBRAS[x]
-)
-
 # ================== SECCIÓN A ==================
 st.header("📦 Materiales globales")
 
