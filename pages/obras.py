@@ -336,36 +336,33 @@ else:
     )
 
     # ================== GRAFICO SEMANAL ==================
+   # ================== GRAFICO SEMANAL ==================
     if modo == "Semana (L–V)":
-    dias = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
-    dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
+        dias_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
+    
+        df_sem = df[df["semana"] == semana_sel]
+    
+        gastos_por_dia = {d: 0.0 for d in dias_en}
+    
+        for _, r in df_sem.iterrows():
+            dia = r["fecha"].strftime("%A")
+    
+            if dia in dias_en:
+                avance = r["avance"]
+    
+                gasto_materiales = avance.get("costo_total_dia", 0) or 0
+                gasto_caja = avance.get("gasto_adicional", 0) or 0
+    
+                gastos_por_dia[dia] += gasto_materiales + gasto_caja
+    
+        chart_df = pd.DataFrame({
+            "Día": dias_es,
+            "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
+        }).set_index("Día")
+    
+        st.bar_chart(chart_df, height=320)
 
-    df_sem = df[df["semana"] == semana_sel]
-
-    gastos_por_dia = defaultdict(float)
-
-    for _, r in df_sem.iterrows():
-        dia = r["fecha"].strftime("%A")
-
-        if dia in dias:
-            avance = r["avance"]
-
-            gasto_materiales = avance.get("costo_total_dia", 0)
-            gasto_caja = avance.get("gasto_adicional", 0)
-
-            # ✅ SOLO materiales + caja chica
-            total_dia = gasto_materiales + gasto_caja
-
-            gastos_por_dia[dia] += total_dia
-
-    valores = [gastos_por_dia.get(d, 0) for d in dias]
-
-    chart_df = pd.DataFrame({
-        "Día": dias_es,
-        "Gasto Total (S/)": valores
-    }).set_index("Día")
-
-    st.bar_chart(chart_df, height=300)
 
 
     # ================== GRAFICO MENSUAL ==================
