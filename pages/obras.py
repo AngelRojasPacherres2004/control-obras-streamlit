@@ -96,34 +96,55 @@ else:
 # ================= FORMULARIO CREAR OBRA =================
 if auth["role"] == "jefe" and st.session_state["crear_obra"]:
     st.title("➕ Crear nueva obra")
+
     with st.form("form_crear_obra"):
+        # ---- Datos generales ----
         nombre = st.text_input("Nombre de la obra")
         ubicacion = st.text_input("Ubicación")
-        estado = st.selectbox("Estado", ["en espera", "en progreso", "pausado", "finalizado"])
-        
+        estado = st.selectbox(
+            "Estado",
+            ["en espera", "en progreso", "pausado", "finalizado"]
+        )
+
+        # ---- Fechas ----
         c1, c2 = st.columns(2)
         f_inicio = c1.date_input("Fecha inicio")
         f_fin = c2.date_input("Fecha fin estimado")
-        
+
+        # ---- Presupuestos ----
         st.subheader("💰 Presupuestos Iniciales")
-        col_p1, col_p2 = st.columns(2)
-        p_caja_chica = col_p1.number_input("Presupuesto Caja Chica (S/)", min_value=0.0, step=100.0)
-       
-        
-        p_materiales = 0.0
-        p_mano_obra = 0.0
+
+        p_caja_chica = st.number_input(
+            "Presupuesto Caja Chica (S/)",
+            min_value=0.0,
+            step=100.0
+        )
+        p_mano_obra = st.number_input(
+            "Presupuesto Mano de Obra (S/)",
+            min_value=0.0,
+            step=100.0
+        )
+        p_materiales = st.number_input(
+            "Presupuesto Materiales (S/)",
+            min_value=0.0,
+            step=100.0
+        )
+
         p_total = p_caja_chica + p_mano_obra + p_materiales
-        
         st.info(f"**Presupuesto Total Calculado:** S/ {p_total:,.2f}")
-        
+
+        # ---- Acciones ----
         col_g, col_c = st.columns(2)
+
         if col_g.form_submit_button("💾 Guardar Obra"):
-            if not nombre: 
+            if not nombre:
                 st.error("El nombre es obligatorio")
+            elif f_fin < f_inicio:
+                st.error("La fecha fin no puede ser menor a la fecha inicio")
             else:
                 oid = nombre.lower().strip().replace(" ", "_")
-                ahora_obra = datetime.now(local_tz)
-                
+                ahora_obra = datetime.now(pais_tz)
+
                 db.collection("obras").document(oid).set({
                     "nombre": nombre,
                     "ubicacion": ubicacion,
@@ -138,13 +159,17 @@ if auth["role"] == "jefe" and st.session_state["crear_obra"]:
                     "gastos_adicionales": 0,
                     "creado_en": ahora_obra
                 })
+
                 st.session_state["crear_obra"] = False
                 st.success("Obra creada exitosamente")
                 st.rerun()
+
         if col_c.form_submit_button("❌ Cancelar"):
             st.session_state["crear_obra"] = False
             st.rerun()
+
     st.stop()
+
 
 # ================= INFORMACIÓN DE LA OBRA (MÉTRICAS DOBLES) =================
 if not obra_id_sel:
