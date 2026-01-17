@@ -7,6 +7,8 @@ import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
 from collections import defaultdict
+from io import BytesIO
+
 
 # ================= CONFIGURACIÓN DE ZONA HORARIA =================
 local_tz = pytz.timezone('America/Lima')
@@ -103,7 +105,7 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
     if "temp_datos_obra" not in st.session_state:
         st.session_state.temp_datos_obra = {}
 
-    # --- PASO 1: DATOS GENERALES Y PRESUPUESTO TOTAL ---
+    # --- PASO 1: DATOS GENERALES Y PRESUPUESTOS BASE ---
     if st.session_state.paso_creacion == 1:
         with st.form("form_datos_generales"):
             nombre = st.text_input("Nombre de la obra")
@@ -115,9 +117,12 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
             f_fin = c2.date_input("Fecha fin estimado", value=date.today())
 
             st.subheader("💰 Presupuestos Base")
-            p_caja = st.number_input("Presupuesto Caja Chica (S/)", min_value=0.0)
-            p_mano = st.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0)
-            p_mats_total = st.number_input("Presupuesto TOTAL Materiales (S/)", min_value=0.0, help="Este monto se distribuirá por semanas en el siguiente paso")
+            col_p1, col_p2 = st.columns(2)
+            p_caja = col_p1.number_input("Presupuesto Caja Chica (S/)", min_value=0.0, step=100.0)
+            p_mano = col_p2.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0, step=100.0)
+            
+            p_mats_total = st.number_input("Presupuesto TOTAL Materiales (S/)", min_value=0.0, step=100.0, 
+                                           help="Este monto se distribuirá por semanas en el siguiente paso")
 
             if st.form_submit_button("Siguiente: Configurar Semanas ➡️"):
                 if not nombre or p_mats_total <= 0:
@@ -125,7 +130,6 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                 elif f_fin <= f_inicio:
                     st.error("La fecha fin debe ser mayor a la de inicio.")
                 else:
-                    # Guardar temporalmente en session_state
                     st.session_state.temp_datos_obra = {
                         "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
                         "f_inicio": f_inicio, "f_fin": f_fin,
@@ -134,18 +138,17 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                     st.session_state.paso_creacion = 2
                     st.rerun()
 
-    # --- PASO 2: DESGLOSE SEMANAL MANUAL (CON VALIDACIÓN) ---
+    # --- PASO 2: DISTRIBUCIÓN SEMANAL ---
     elif st.session_state.paso_creacion == 2:
         datos = st.session_state.temp_datos_obra
         st.info(f"📍 **Obra:** {datos['nombre']} | **Presupuesto Materiales a distribuir:** S/ {datos['p_mats_total']:,.2f}")
         
-        # Calcular semanas
+        # Calcular semanas según fechas
         duracion_dias = (datos['f_fin'] - datos['f_inicio']).days + 1
         num_semanas = max(1, (duracion_dias + 6) // 7)
 
         with st.form("form_semanas_materiales"):
             st.subheader("🧱 Distribución Semanal de Materiales")
-            
             lista_semanas = []
             fecha_cursor = datos['f_inicio']
             suma_ingresada = 0.0
@@ -154,9 +157,12 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                 sem_ini = fecha_cursor
                 sem_fin = min(fecha_cursor + pd.Timedelta(days=6), datos['f_fin'])
                 
+                # Sugerir monto equitativo para facilitar el llenado
+                sugerido = round(datos['p_mats_total'] / num_semanas, 2)
+                
                 monto = st.number_input(
                     f"Semana {i+1} ({sem_ini.strftime('%d/%m')} - {sem_fin.strftime('%d/%m')})",
-                    min_value=0.0, step=10.0, key=f"sem_input_{i}"
+                    min_value=0.0, step=10.0, value=sugerido, key=f"sem_input_{i}"
                 )
                 suma_ingresada += monto
                 
@@ -168,8 +174,7 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                 })
                 fecha_cursor = sem_fin + pd.Timedelta(days=1)
 
-            # Mostrar balance
-            diferencia = datos['p_mats_total'] - suma_ingresada
+            diferencia = round(datos['p_mats_total'] - suma_ingresada, 2)
             if diferencia == 0:
                 st.success("✅ El total coincide perfectamente.")
             elif diferencia > 0:
@@ -179,10 +184,9 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
 
             c_col1, c_col2 = st.columns(2)
             if c_col1.form_submit_button("💾 Finalizar y Guardar Obra"):
-                if diferencia != 0:
+                if abs(diferencia) > 0.01: # Tolerancia por decimales
                     st.error(f"La suma de las semanas debe ser exactamente S/ {datos['p_mats_total']:,.2f}")
                 else:
-                    # GUARDAR EN FIREBASE
                     oid = datos['nombre'].lower().strip().replace(" ", "_")
                     ahora = datetime.now(local_tz)
                     
@@ -201,7 +205,6 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                         "creado_en": ahora
                     })
                     
-                    # Resetear estados y cerrar
                     st.session_state.paso_creacion = 1
                     st.session_state.crear_obra = False
                     st.success("Obra creada exitosamente")
@@ -352,8 +355,6 @@ if avances_lista:
     st.progress(porcentaje)
 
 
-
-
 # ================= DASHBOARD DE AVANCES =================
 st.divider()
 st.subheader("📊 Avance económico de la obra")
@@ -404,27 +405,32 @@ else:
         horizontal=True
     )
 
-    # ================== GRAFICO SEMANAL ==================
+   # ================== GRAFICO SEMANAL ==================
     if modo == "Semana (L–V)":
-        dias = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        dias_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
-
+    
         df_sem = df[df["semana"] == semana_sel]
-
-        costos_por_dia = defaultdict(float)
+    
+        gastos_por_dia = {d: 0.0 for d in dias_en}
+    
         for _, r in df_sem.iterrows():
             dia = r["fecha"].strftime("%A")
-            if dia in dias:
-                costos_por_dia[dia] += r["costo"]
-
-        valores = [costos_por_dia.get(d, 0) for d in dias]
-
+    
+            if dia in dias_en:
+                avance = r["avance"]
+    
+                gasto_materiales = avance.get("costo_total_dia", 0) or 0
+                gasto_caja = avance.get("gasto_adicional", 0) or 0
+    
+                gastos_por_dia[dia] += gasto_materiales + gasto_caja
+    
         chart_df = pd.DataFrame({
             "Día": dias_es,
-            "Costo": valores
+            "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
         }).set_index("Día")
-
-        st.bar_chart(chart_df, height=300)
+    
+        st.bar_chart(chart_df, height=320)
 
     # ================== GRAFICO MENSUAL ==================
     else:
@@ -442,8 +448,6 @@ else:
 
 
         st.bar_chart(chart_df, height=300)
-
-   
 
 # ================= HISTORIAL DE AVANCES (CON PROBLEMÁTICA Y CAJA) =================
 st.divider()
@@ -500,3 +504,132 @@ else:
             if foto_gasto:
                 st.markdown("#### 📸 Evidencia / Boleta")
                 st.image(foto_gasto, use_container_width=True)
+
+def limpiar_fechas_para_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Elimina timezone de columnas datetime para que Excel no falle
+    """
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.tz_localize(None)
+    return df
+def formatear_materiales_texto(materiales):
+    """
+    Convierte materiales_usados a texto legible para Excel
+    """
+    if not materiales:
+        return ""
+
+    lineas = []
+    for m in materiales:
+        nombre = m.get("nombre", "")
+        cant = m.get("cantidad", 0)
+        unidad = m.get("unidad", "")
+        subtotal = m.get("subtotal", 0)
+        lineas.append(f"- {nombre}: {cant} {unidad} (S/ {subtotal:.2f})")
+
+    return "\n".join(lineas)
+
+def exportar_obra_excel(obra_id: str):
+    obra_ref = db.collection("obras").document(obra_id)
+    obra = obra_ref.get().to_dict()
+
+    # ================= DATOS GENERALES =================
+    df_resumen = pd.DataFrame([{
+        "Nombre de la Obra": obra.get("nombre"),
+        "Ubicación": obra.get("ubicacion"),
+        "Estado": obra.get("estado"),
+        "Presupuesto Caja Chica (S/)": obra.get("presupuesto_caja_chica", 0),
+        "Presupuesto Materiales (S/)": obra.get("presupuesto_materiales", 0),
+        "Presupuesto Mano de Obra (S/)": obra.get("presupuesto_mano_obra", 0),
+        "Presupuesto Total (S/)": obra.get("presupuesto_total", 0),
+        "Gasto Materiales (S/)": obra.get("gasto_acumulado", 0),
+        "Gasto Caja Chica (S/)": obra.get("gastos_adicionales", 0),
+        "Gasto Mano de Obra (S/)": obra.get("gasto_mano_obra", 0),
+    }])
+
+    # ================= MATERIALES =================
+    mats_docs = obra_ref.collection("materiales").stream()
+    materiales = [m.to_dict() for m in mats_docs]
+    df_materiales = pd.DataFrame(materiales) if materiales else pd.DataFrame()
+
+    # ================= MANO DE OBRA =================
+    trab_docs = obra_ref.collection("trabajadores").stream()
+    trabajadores = [t.to_dict() for t in trab_docs]
+    df_trabajadores = pd.DataFrame(trabajadores) if trabajadores else pd.DataFrame()
+
+    # ================= AVANCES =================
+    avances_docs = obra_ref.collection("avances").stream()
+    avances = [a.to_dict() for a in avances_docs]
+    df_avances = pd.DataFrame(avances) if avances else pd.DataFrame()
+
+    # 🔥 LIMPIEZA DE FECHAS (JUSTO ANTES DE EXCEL)
+    df_resumen = limpiar_fechas_para_excel(df_resumen)
+    if not df_materiales.empty:
+        df_materiales = limpiar_fechas_para_excel(df_materiales)
+    if not df_trabajadores.empty:
+        df_trabajadores = limpiar_fechas_para_excel(df_trabajadores)
+    if not df_avances.empty:
+        df_avances = limpiar_fechas_para_excel(df_avances)
+
+    # ================= CREAR EXCEL =================
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        workbook = writer.book
+
+        # --- FORMATOS ---
+        header_format = workbook.add_format({
+            "bold": True,
+            "bg_color": "#1F4E78",
+            "color": "white",
+            "border": 1,
+            "align": "center"
+        })
+
+        # -------- RESUMEN --------
+        df_resumen.to_excel(writer, sheet_name="Resumen General", index=False)
+        ws = writer.sheets["Resumen General"]
+        ws.set_column("A:J", 30)
+        for col_num, _ in enumerate(df_resumen.columns):
+            ws.write(0, col_num, df_resumen.columns[col_num], header_format)
+
+        # -------- MATERIALES --------
+        if not df_materiales.empty:
+            df_materiales.to_excel(writer, sheet_name="Materiales", index=False)
+            ws = writer.sheets["Materiales"]
+            ws.set_column("A:Z", 22)
+            for col_num, col in enumerate(df_materiales.columns):
+                ws.write(0, col_num, col, header_format)
+
+        # -------- MANO DE OBRA --------
+        if not df_trabajadores.empty:
+            df_trabajadores.to_excel(writer, sheet_name="Mano de Obra", index=False)
+            ws = writer.sheets["Mano de Obra"]
+            ws.set_column("A:Z", 22)
+            for col_num, col in enumerate(df_trabajadores.columns):
+                ws.write(0, col_num, col, header_format)
+
+        # -------- AVANCES --------
+        if not df_avances.empty:
+            df_avances.to_excel(writer, sheet_name="Avances", index=False)
+            ws = writer.sheets["Avances"]
+            ws.set_column("A:Z", 25)
+            for col_num, col in enumerate(df_avances.columns):
+                ws.write(0, col_num, col, header_format)
+
+    output.seek(0)
+    return output
+
+
+if auth["role"] == "jefe":
+    st.divider()
+    st.subheader("📤 Exportar Información de la Obra")
+
+    excel = exportar_obra_excel(obra_id_sel)
+
+    st.download_button(
+        label="📊 Descargar Excel de la Obra",
+        data=excel,
+        file_name=f"obra_{obra_id_sel}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
