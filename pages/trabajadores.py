@@ -56,25 +56,30 @@ def recalcular_mano_obra(obra_id):
     })
     return total_mano_obra
 def recalcular_mano_obra(obra_id):
-    """Calcula el total actual de trabajadores en la subcolección."""
+    """
+    Calcula cuánto se ha gastado en personal y actualiza el saldo disponible 
+    específicamente en el rubro de Mano de Obra.
+    """
+    # 1. Sumar lo que ganan todos los trabajadores actuales
     trabajadores_docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
-    total_mano_obra = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
+    total_asignado_personal = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
     
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    p_caja = float(obra_data.get("presupuesto_caja_chica", 0))
-    p_mats = float(obra_data.get("presupuesto_materiales", 0))
+    # IMPORTANTE: Usamos 'presupuesto_mano_obra_inicial' como la base (el techo)
+    # Si no existe en tu DB, usará el valor actual por única vez
+    p_mo_inicial = float(obra_data.get("presupuesto_mano_obra_inicial", obra_data.get("presupuesto_mano_obra", 0)))
     
-    nuevo_total = p_caja + p_mats + total_mano_obra
+    # El nuevo saldo disponible para mostrar a la izquierda
+    saldo_disponible_mo = p_mo_inicial - total_asignado_personal
     
     obra_ref.update({
-        "presupuesto_mano_obra": round(total_mano_obra, 2),
-        "gasto_mano_obra": round(total_mano_obra, 2),
-        "presupuesto_total": round(nuevo_total, 2)
+        "presupuesto_mano_obra_inicial": round(p_mo_inicial, 2), # Aseguramos que se guarde la base
+        "presupuesto_mano_obra": round(saldo_disponible_mo, 2),   # Este es el que baja en el sidebar
+        "gasto_mano_obra": round(total_asignado_personal, 2)     # Lo que ya se consumió
     })
-    return total_mano_obra
-
+    return saldo_disponible_mo
 def tiene_presupuesto_disponible(obra_id, monto_a_sumar):
     """Verifica si el nuevo trabajador cabe en el presupuesto total de la obra."""
     obra_ref = db.collection("obras").document(obra_id).get().to_dict()
@@ -146,18 +151,16 @@ tab1, tab2 = st.tabs(["➕ Registrar Personal", "📋 Lista y Edición"])
 with tab1:
     st.subheader("Registrar Nuevo Trabajador")
     
-    # Mostrar saldo disponible para mano de obra antes de contratar
-    p_obra_data = db.collection("obras").document(obra_id_sel).get().to_dict()
-    # Suponiendo que el presupuesto total es el techo:
-    saldo_limite = float(p_obra_data.get("presupuesto_total", 0)) - \
-                   (float(p_obra_data.get("presupuesto_caja_chica", 0)) + \
-                    float(p_obra_data.get("presupuesto_materiales", 0)) + \
-                    float(p_obra_data.get("presupuesto_mano_obra", 0)))
+    # Obtenemos los datos actuales de la obra
+    obra_ref_data = db.collection("obras").document(obra_id_sel).get().to_dict()
     
-    if saldo_limite <= 0:
-        st.error(f"⚠️ No hay presupuesto disponible en la obra para más contrataciones. Saldo: S/ {saldo_limite:,.2f}")
+    # El saldo disponible es lo que queda en la "bolsa" de Mano de Obra
+    saldo_mo_actual = float(obra_ref_data.get("presupuesto_mano_obra", 0))
+    
+    if saldo_mo_actual <= 0:
+        st.error(f"⚠️ Saldo de Mano de Obra agotado. Disponible: S/ {saldo_mo_actual:,.2f}")
     else:
-        st.info(f"💰 Presupuesto disponible para nuevas contrataciones: S/ {saldo_limite:,.2f}")
+        st.info(f"💰 Saldo disponible para contratar: S/ {saldo_mo_actual:,.2f}")
 
     with st.form("form_trabajador", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -166,25 +169,24 @@ with tab1:
         email_t = col1.text_input("Correo Electrónico")
         telefono_t = col2.text_input("Teléfono / WhatsApp")
         rol_t = col1.selectbox("Rol / Especialidad", ROLES_CONSTRUCCION)
-        grupo_t = col2.text_input("Grupo / Cuadrilla", placeholder="Ej: Cuadrilla A")
+        grupo_t = col2.text_input("Grupo / Cuadrilla")
         
-        presupuesto_t = st.number_input("Sueldo / Presupuesto Asignado (S/)", min_value=0.0, step=50.0)
-        foto_contrato = st.file_uploader("Subir Foto del Trabajador o Contrato", type=["jpg", "png", "jpeg"])
+        presupuesto_t = st.number_input("Sueldo asignado (S/)", min_value=0.0, step=50.0)
+        foto_contrato = st.file_uploader("Subir Foto/Contrato", type=["jpg", "png", "jpeg"])
         
-        submit = st.form_submit_button("GUARDAR TRABAJADOR")
+        submit = st.form_submit_button("CONTRATAR Y DESCONTAR DEL PRESUPUESTO")
         
         if submit:
             if not nombre_t or not dni_t or not foto_contrato:
-                st.error("Nombre, DNI y Foto son obligatorios.")
-            elif presupuesto_t > saldo_limite:
-                st.error(f"Error: El sueldo de S/ {presupuesto_t} excede el saldo disponible (S/ {saldo_limite})")
+                st.error("Faltan datos obligatorios o la foto.")
+            elif presupuesto_t > saldo_mo_actual:
+                st.error(f"No puedes asignar S/ {presupuesto_t}. El saldo es de solo S/ {saldo_mo_actual}")
             else:
-                with st.spinner("Subiendo foto y registrando..."):
-                    # 1. Subir a Cloudinary
+                with st.spinner("Procesando contratación..."):
+                    # 1. Subir Foto
                     res = cloudinary.uploader.upload(foto_contrato, folder=f"obras/{obra_id_sel}/personal")
-                    url_foto = res["secure_url"]
                     
-                    # 2. Guardar en Firebase
+                    # 2. Registrar Trabajador
                     db.collection("obras").document(obra_id_sel).collection("trabajadores").add({
                         "nombre": nombre_t,
                         "dni": dni_t,
@@ -193,11 +195,14 @@ with tab1:
                         "rol": rol_t,
                         "grupo": grupo_t,
                         "presupuesto": presupuesto_t,
-                        "url_foto": url_foto, # <--- Foto guardada
+                        "url_foto": res["secure_url"],
                         "fecha_registro": datetime.now()
                     })
+                    
+                    # 3. Actualizar la bolsa de dinero de la obra
                     recalcular_mano_obra(obra_id_sel)
-                    st.success(f"✅ {nombre_t} registrado y presupuesto actualizado.")
+                    
+                    st.success(f"✅ {nombre_t} contratado. El presupuesto de mano de obra se ha actualizado.")
                     st.rerun()
 with tab2:
     st.subheader("Personal Asignado")
