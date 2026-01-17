@@ -1,3 +1,4 @@
+"materiales.py"
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -19,6 +20,7 @@ if st.session_state["auth"]["role"] != "jefe":
 # ================= ESTADO =================
 st.session_state.setdefault("mat_global", None)
 st.session_state.setdefault("mat_obra", None)
+st.session_state.setdefault("vista_materiales_globales", False)
 
 # ================= FUNCIONES DE ACTUALIZACIÓN =================
 def recalcular_presupuesto_obra(obra_id):
@@ -69,6 +71,11 @@ def reset():
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
+if not st.session_state["vista_materiales_globales"]:
+    if st.button("📦 Materiales globales"):
+        st.session_state["vista_materiales_globales"] = True
+        st.rerun()
+
 # ================= SELECCIÓN DE OBRA SINCRONIZADA =================
 OBRAS = obtener_obras()
 lista_ids = list(OBRAS.keys())
@@ -100,71 +107,88 @@ st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
 if not obra_id:
     st.warning("⚠️ No hay obras registradas. Crea una primero en la sección de Obras.")
     st.stop()
+# 🔹 Cargar materiales globales UNA SOLA VEZ
+materiales = cargar_materiales()
 
 # ================== SECCIÓN A ==================
-st.header("📦 Materiales globales")
+if st.session_state["vista_materiales_globales"]:
 
-materiales = cargar_materiales()
-df_mat = pd.DataFrame(materiales)
+    st.header("📦 Materiales globales")
 
-col1, col2 = st.columns([1.5, 1])
+   
+    df_mat = pd.DataFrame(materiales)
 
-# ----- LISTA -----
-with col1:
-    busq = st.text_input("Buscar material")
-    df_v = df_mat if not busq else df_mat[df_mat["nombre"].str.contains(busq, case=False)]
+    col1, col2 = st.columns([1.5, 1])
 
-    if not df_v.empty:
-        sel = st.dataframe(
-            df_v[["nombre", "unidad", "precio_unitario"]],
-            hide_index=True,
-            use_container_width=True,
-            selection_mode="single-row",
-            on_select="rerun"
+    if st.button("⬅️ Volver"):
+        st.session_state["vista_materiales_globales"] = False
+        st.rerun()
+
+    # ----- LISTA -----
+    with col1:
+        busq = st.text_input("Buscar material")
+        df_v = df_mat if not busq else df_mat[
+            df_mat["nombre"].str.contains(busq, case=False)
+        ]
+
+        if not df_v.empty:
+            sel = st.dataframe(
+                df_v[["nombre", "unidad", "precio_unitario"]],
+                hide_index=True,
+                use_container_width=True,
+                selection_mode="single-row",
+                on_select="rerun"
+            )
+            if sel and sel["selection"]["rows"]:
+                st.session_state.mat_global = materiales[
+                    df_v.index[sel["selection"]["rows"][0]]
+                ]
+        else:
+            st.info("No hay materiales")
+
+    # ----- FORM CRUD -----
+    with col2:
+        mat = st.session_state.mat_global
+        st.subheader("✏️ Editar" if mat else "➕ Nuevo")
+
+        nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
+        unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
+        precio = st.number_input(
+            "Precio unitario",
+            0.0,
+            step=0.01,
+            value=float(mat["precio_unitario"]) if mat else 0.0
         )
-        if sel and sel["selection"]["rows"]:
-            st.session_state.mat_global = materiales[df_v.index[sel["selection"]["rows"][0]]]
-    else:
-        st.info("No hay materiales")
 
-# ----- FORM CRUD -----
-with col2:
-    mat = st.session_state.mat_global
-    st.subheader("✏️ Editar" if mat else "➕ Nuevo")
-
-    nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
-    unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
-    precio = st.number_input(
-        "Precio unitario",
-        0.0,
-        step=0.01,
-        value=float(mat["precio_unitario"]) if mat else 0.0
-    )
-
-    if mat:
-        if st.button("Actualizar", type="primary", use_container_width=True):
-            db.collection("materiales").document(mat["id"]).update({
-                "nombre": nombre,
-                "unidad": unidad,
-                "precio_unitario": precio
-            })
-            reset()
-
-        if st.button("Eliminar", use_container_width=True):
-            db.collection("materiales").document(mat["id"]).delete()
-            reset()
-    else:
-        if st.button("Crear material", type="primary", use_container_width=True):
-            if nombre and unidad:
-                db.collection("materiales").add({
+        if mat:
+            if st.button("Actualizar", type="primary", use_container_width=True):
+                db.collection("materiales").document(mat["id"]).update({
                     "nombre": nombre,
                     "unidad": unidad,
-                    "precio_unitario": precio,
-                    "creado": datetime.now()
+                    "precio_unitario": precio
                 })
                 reset()
-            else:
-                st.error("Campos obligatorios")
+
+            if st.button("Eliminar", use_container_width=True):
+                db.collection("materiales").document(mat["id"]).delete()
+                reset()
+        else:
+            if st.button("Crear material", type="primary", use_container_width=True):
+                if nombre and unidad:
+                    db.collection("materiales").add({
+                        "nombre": nombre,
+                        "unidad": unidad,
+                        "precio_unitario": precio,
+                        "creado": datetime.now()
+                    })
+                    reset()
+                else:
+                    st.error("Campos obligatorios")
+
+    # ⛔ IMPORTANTE: corta aquí
+    st.stop()
+
+
 
 # ================== SECCIÓN B ==================
 st.divider()
