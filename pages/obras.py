@@ -94,83 +94,129 @@ else:
         st.stop()
     st.sidebar.success(f"Obra asignada: {OBRAS.get(obra_id_sel, 'Desconocida')}")
 # ================= FORMULARIO CREAR OBRA =================
-if auth["role"] == "jefe" and st.session_state["crear_obra"]:
+if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
     st.title("➕ Crear nueva obra")
 
-    with st.form("form_crear_obra"):
-        # ---- Datos generales ----
-        nombre = st.text_input("Nombre de la obra")
-        ubicacion = st.text_input("Ubicación")
-        estado = st.selectbox(
-            "Estado",
-            ["en espera", "en progreso", "pausado", "finalizado"]
-        )
+    # Inicializar estados de pasos si no existen
+    if "paso_creacion" not in st.session_state:
+        st.session_state.paso_creacion = 1
+    if "temp_datos_obra" not in st.session_state:
+        st.session_state.temp_datos_obra = {}
 
-        # ---- Fechas ----
-        c1, c2 = st.columns(2)
-        f_inicio = c1.date_input("Fecha inicio")
-        f_fin = c2.date_input("Fecha fin estimado")
+    # --- PASO 1: DATOS GENERALES Y PRESUPUESTO TOTAL ---
+    if st.session_state.paso_creacion == 1:
+        with st.form("form_datos_generales"):
+            nombre = st.text_input("Nombre de la obra")
+            ubicacion = st.text_input("Ubicación")
+            estado = st.selectbox("Estado", ["en espera", "en progreso", "pausado", "finalizado"])
+            
+            c1, c2 = st.columns(2)
+            f_inicio = c1.date_input("Fecha inicio", value=date.today())
+            f_fin = c2.date_input("Fecha fin estimado", value=date.today())
 
-        # ---- Presupuestos ----
-        st.subheader("💰 Presupuestos Iniciales")
+            st.subheader("💰 Presupuestos Base")
+            p_caja = st.number_input("Presupuesto Caja Chica (S/)", min_value=0.0)
+            p_mano = st.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0)
+            p_mats_total = st.number_input("Presupuesto TOTAL Materiales (S/)", min_value=0.0, help="Este monto se distribuirá por semanas en el siguiente paso")
 
-        p_caja_chica = st.number_input(
-            "Presupuesto Caja Chica (S/)",
-            min_value=0.0,
-            step=100.0
-        )
-        p_mano_obra = st.number_input(
-            "Presupuesto Mano de Obra (S/)",
-            min_value=0.0,
-            step=100.0
-        )
-        p_materiales = st.number_input(
-            "Presupuesto Materiales (S/)",
-            min_value=0.0,
-            step=100.0
-        )
+            if st.form_submit_button("Siguiente: Configurar Semanas ➡️"):
+                if not nombre or p_mats_total <= 0:
+                    st.error("Por favor completa el nombre y el presupuesto de materiales.")
+                elif f_fin <= f_inicio:
+                    st.error("La fecha fin debe ser mayor a la de inicio.")
+                else:
+                    # Guardar temporalmente en session_state
+                    st.session_state.temp_datos_obra = {
+                        "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
+                        "f_inicio": f_inicio, "f_fin": f_fin,
+                        "p_caja": p_caja, "p_mano": p_mano, "p_mats_total": p_mats_total
+                    }
+                    st.session_state.paso_creacion = 2
+                    st.rerun()
 
-        p_total = p_caja_chica + p_mano_obra + p_materiales
-        st.info(f"**Presupuesto Total Calculado:** S/ {p_total:,.2f}")
+    # --- PASO 2: DESGLOSE SEMANAL MANUAL (CON VALIDACIÓN) ---
+    elif st.session_state.paso_creacion == 2:
+        datos = st.session_state.temp_datos_obra
+        st.info(f"📍 **Obra:** {datos['nombre']} | **Presupuesto Materiales a distribuir:** S/ {datos['p_mats_total']:,.2f}")
+        
+        # Calcular semanas
+        duracion_dias = (datos['f_fin'] - datos['f_inicio']).days + 1
+        num_semanas = max(1, (duracion_dias + 6) // 7)
 
-        # ---- Acciones ----
-        col_g, col_c = st.columns(2)
+        with st.form("form_semanas_materiales"):
+            st.subheader("🧱 Distribución Semanal de Materiales")
+            
+            lista_semanas = []
+            fecha_cursor = datos['f_inicio']
+            suma_ingresada = 0.0
 
-        if col_g.form_submit_button("💾 Guardar Obra"):
-            if not nombre:
-                st.error("El nombre es obligatorio")
-            elif f_fin < f_inicio:
-                st.error("La fecha fin no puede ser menor a la fecha inicio")
-            else:
-                oid = nombre.lower().strip().replace(" ", "_")
-                ahora_obra = datetime.now(pais_tz)
-
-                db.collection("obras").document(oid).set({
-                    "nombre": nombre,
-                    "ubicacion": ubicacion,
-                    "estado": estado,
-                    "fecha_inicio": datetime.combine(f_inicio, datetime.min.time()),
-                    "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
-                    "presupuesto_caja_chica": p_caja_chica,
-                    "presupuesto_mano_obra": p_mano_obra,
-                    "presupuesto_materiales": p_materiales,
-                    "presupuesto_total": p_total,
-                    "gasto_acumulado": 0,
-                    "gastos_adicionales": 0,
-                    "creado_en": ahora_obra
+            for i in range(num_semanas):
+                sem_ini = fecha_cursor
+                sem_fin = min(fecha_cursor + pd.Timedelta(days=6), datos['f_fin'])
+                
+                monto = st.number_input(
+                    f"Semana {i+1} ({sem_ini.strftime('%d/%m')} - {sem_fin.strftime('%d/%m')})",
+                    min_value=0.0, step=10.0, key=f"sem_input_{i}"
+                )
+                suma_ingresada += monto
+                
+                lista_semanas.append({
+                    "semana": i + 1,
+                    "fecha_inicio": datetime.combine(sem_ini, datetime.min.time()),
+                    "fecha_fin": datetime.combine(sem_fin, datetime.min.time()),
+                    "presupuesto_materiales": monto
                 })
+                fecha_cursor = sem_fin + pd.Timedelta(days=1)
 
-                st.session_state["crear_obra"] = False
-                st.success("Obra creada exitosamente")
+            # Mostrar balance
+            diferencia = datos['p_mats_total'] - suma_ingresada
+            if diferencia == 0:
+                st.success("✅ El total coincide perfectamente.")
+            elif diferencia > 0:
+                st.warning(f"Faltan asignar: S/ {diferencia:,.2f}")
+            else:
+                st.error(f"Te has pasado por: S/ {abs(diferencia):,.2f}")
+
+            c_col1, c_col2 = st.columns(2)
+            if c_col1.form_submit_button("💾 Finalizar y Guardar Obra"):
+                if diferencia != 0:
+                    st.error(f"La suma de las semanas debe ser exactamente S/ {datos['p_mats_total']:,.2f}")
+                else:
+                    # GUARDAR EN FIREBASE
+                    oid = datos['nombre'].lower().strip().replace(" ", "_")
+                    ahora = datetime.now(local_tz)
+                    
+                    db.collection("obras").document(oid).set({
+                        "nombre": datos['nombre'],
+                        "ubicacion": datos['ubicacion'],
+                        "estado": datos['estado'],
+                        "fecha_inicio": datetime.combine(datos['f_inicio'], datetime.min.time()),
+                        "fecha_fin_estimado": datetime.combine(datos['f_fin'], datetime.min.time()),
+                        "presupuesto_caja_chica": datos['p_caja'],
+                        "presupuesto_mano_obra": datos['p_mano'],
+                        "presupuesto_materiales": datos['p_mats_total'],
+                        "presupuesto_materiales_semanal": lista_semanas,
+                        "presupuesto_total": datos['p_caja'] + datos['p_mano'] + datos['p_mats_total'],
+                        "gasto_acumulado": 0, "gastos_adicionales": 0, "gasto_mano_obra": 0,
+                        "creado_en": ahora
+                    })
+                    
+                    # Resetear estados y cerrar
+                    st.session_state.paso_creacion = 1
+                    st.session_state.crear_obra = False
+                    st.success("Obra creada exitosamente")
+                    st.rerun()
+
+            if c_col2.form_submit_button("⬅️ Volver / Editar Totales"):
+                st.session_state.paso_creacion = 1
                 st.rerun()
 
-        if col_c.form_submit_button("❌ Cancelar"):
-            st.session_state["crear_obra"] = False
-            st.rerun()
+    if st.button("❌ Cancelar todo"):
+        st.session_state.paso_creacion = 1
+        st.session_state.crear_obra = False
+        st.rerun()
 
     st.stop()
-
-
 # ================= INFORMACIÓN DE LA OBRA (MÉTRICAS DOBLES) =================
 if not obra_id_sel:
     st.info("Selecciona o crea una obra para comenzar.")
