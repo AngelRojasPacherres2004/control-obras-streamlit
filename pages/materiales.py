@@ -24,29 +24,29 @@ st.session_state.setdefault("vista_materiales_globales", False)
 
 # ================= FUNCIONES DE ACTUALIZACIÓN =================
 def recalcular_presupuesto_obra(obra_id):
-    """Calcula materiales y actualiza el total en Firebase sin borrar caja chica/mano de obra."""
-    # 1. Sumar subtotal de la subcolección materiales
+    """Actualiza el gasto de materiales y el saldo restante en Firebase."""
+    # 1. Sumar lo gastado actualmente en la subcolección materiales
     mats_docs = db.collection("obras").document(obra_id).collection("materiales").stream()
-    total_materiales = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
+    total_gastado_mats = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
     
-    # 2. Obtener valores actuales de la obra
+    # 2. Obtener la obra para ver su presupuesto base
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    p_caja = float(obra_data.get("presupuesto_caja_chica", 0))
-    p_mano = float(obra_data.get("presupuesto_mano_obra", 0))
+    # 3. Guardar el 'techo' inicial si no existe (para tener referencia)
+    p_mats_inicial = float(obra_data.get("presupuesto_materiales_inicial", obra_data.get("presupuesto_materiales", 0)))
     
-    # 3. Nuevo Total
-    nuevo_total = p_caja + p_mano + total_materiales
+    # 4. Calcular saldo que queda
+    saldo_disponible_mats = p_mats_inicial - total_gastado_mats
     
-    # 4. Guardar en Firebase
+    # 5. Actualizar Firebase
     obra_ref.update({
-        "presupuesto_materiales": round(total_materiales, 2),
-        "presupuesto_total": round(nuevo_total, 2),
+        "presupuesto_materiales_inicial": round(p_mats_inicial, 2), # Techo inicial
+        "presupuesto_materiales": round(saldo_disponible_mats, 2),   # Saldo que baja
+        "gasto_materiales": round(total_gastado_mats, 2),           # Lo consumido
         "presupuesto_actualizado": datetime.now()
     })
-    return total_materiales
-
+    return saldo_disponible_mats
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -189,10 +189,15 @@ if st.session_state["vista_materiales_globales"]:
     st.stop()
 
 
-
 # ================== SECCIÓN B ==================
 st.divider()
 st.header("➕ Asignar material a la obra")
+
+# Obtener datos de la obra para validar presupuesto
+obra_info = db.collection("obras").document(obra_id).get().to_dict()
+saldo_mats = float(obra_info.get("presupuesto_materiales", 0))
+
+st.info(f"💰 Saldo disponible para materiales: S/ {saldo_mats:,.2f}")
 
 if materiales:
     mat_sel = st.selectbox(
@@ -201,22 +206,24 @@ if materiales:
         format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
     )
     cantidad = st.number_input("Cantidad", min_value=1.0, step=1.0)
+    costo_total = cantidad * mat_sel["precio_unitario"]
 
     if st.button("Asignar a obra", type="primary"):
-        db.collection("obras").document(obra_id).collection("materiales").add({
-            "material_id": mat_sel["id"],
-            "nombre": mat_sel["nombre"],
-            "unidad": mat_sel["unidad"],
-            "cantidad": cantidad,
-            "precio_unitario": mat_sel["precio_unitario"],
-            "subtotal": round(cantidad * mat_sel["precio_unitario"], 2),
-            "fecha": datetime.now()
-        })
-        # Actualización automática en Firebase
-        recalcular_presupuesto_obra(obra_id)
-        st.success("Material asignado y presupuesto actualizado")
-        st.rerun()
-
+        if costo_total > saldo_mats:
+            st.error(f"❌ Presupuesto insuficiente. El costo es S/ {costo_total:,.2f} y solo tienes S/ {saldo_mats:,.2f}")
+        else:
+            db.collection("obras").document(obra_id).collection("materiales").add({
+                "material_id": mat_sel["id"],
+                "nombre": mat_sel["nombre"],
+                "unidad": mat_sel["unidad"],
+                "cantidad": cantidad,
+                "precio_unitario": mat_sel["precio_unitario"],
+                "subtotal": round(costo_total, 2),
+                "fecha": datetime.now()
+            })
+            recalcular_presupuesto_obra(obra_id)
+            st.success("Material asignado y saldo actualizado")
+            st.rerun()
 # ================== SECCIÓN C ==================
 st.divider()
 st.header("🧾 Materiales de la obra")
@@ -297,17 +304,20 @@ if archivo:
 
 # ================== SECCIÓN E ==================
 st.divider()
-st.header("💰 Presupuesto total de la obra")
+st.header("💰 Estado del Presupuesto de Materiales")
 
-total_actual_mats = sum(float(m.get("subtotal", 0)) for m in mats_obra)
-st.metric("Total Materiales", f"S/ {total_actual_mats:,.2f}")
+obra_final = db.collection("obras").document(obra_id).get().to_dict()
+inicial = float(obra_final.get("presupuesto_materiales_inicial", 0))
+actual = float(obra_final.get("presupuesto_materiales", 0))
+gastado = float(obra_final.get("gasto_materiales", 0))
 
-# El presupuesto ya se actualiza solo, pero mantengo el botón por si quieres forzar sincronización
-if st.button("Sincronizar Presupuesto Total ahora", type="secondary"):
-    total = recalcular_presupuesto_obra(obra_id)
-    st.success(f"Presupuesto de materiales (S/ {total:,.2f}) sincronizado con el total de la obra.")
-    st.rerun()
+c1, c2, c3 = st.columns(3)
+c1.metric("Asignado al inicio", f"S/ {inicial:,.2f}")
+c2.metric("Saldo Disponible", f"S/ {actual:,.2f}", delta=f"{-gastado:,.2f}", delta_color="inverse")
+c3.metric("Total Gastado", f"S/ {gastado:,.2f}")
 
+if actual < (inicial * 0.15):
+    st.warning("⚠️ Atención: Queda menos del 15% del presupuesto para materiales.")
 # ================== SECCIÓN X ==================
 st.divider()
 st.header("📤 Exportar materiales de la obra a Excel")
