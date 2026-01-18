@@ -16,61 +16,56 @@ if st.session_state["auth"]["role"] != "jefe":
     st.warning("Sin permisos")
     st.stop()
 
-# ================= UI =================
-st.title("📊 Informes Mensuales")
-
-# ================= OBRAS =================
+# ================= FUNCIONES =================
 def obtener_obras():
     return {
         d.id: d.to_dict().get("nombre", d.id)
         for d in db.collection("obras").stream()
     }
 
+def obtener_datos_obra(obra_id):
+    doc = db.collection("obras").document(obra_id).get()
+    return doc.to_dict() if doc.exists else {}
+
+# ================= UI =================
+st.title("📊 Informes Mensuales")
+
+# ---------- Selector de obra (IGUAL que materiales.py) ----------
 OBRAS = obtener_obras()
-lista_ids = list(OBRAS.keys())
+ids = list(OBRAS.keys())
 
-if not lista_ids:
-    st.warning("No hay obras registradas")
-    st.stop()
+if "obra_id_global" not in st.session_state and ids:
+    st.session_state["obra_id_global"] = ids[0]
 
-# Selección persistente
-if "obra_id_global" not in st.session_state:
-    st.session_state["obra_id_global"] = lista_ids[0]
-
-indice = lista_ids.index(st.session_state["obra_id_global"])
+indice = ids.index(st.session_state["obra_id_global"])
 
 obra_id = st.sidebar.selectbox(
     "Seleccionar obra",
-    options=lista_ids,
-    format_func=lambda x: OBRAS.get(x, x),
+    options=ids,
+    format_func=lambda x: OBRAS[x],
     index=indice
 )
 
 st.session_state["obra_id_global"] = obra_id
-st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
+st.sidebar.success(f"🏗️ Obra activa: **{OBRAS[obra_id]}**")
 
-# ================= DATOS DE OBRA =================
-obra = db.collection("obras").document(obra_id).get().to_dict()
+# ================= DATOS =================
+obra = obtener_datos_obra(obra_id)
 
 presupuesto_total = float(obra.get("presupuesto_total", 0))
 gasto_materiales = float(obra.get("gasto_acumulado", 0))
 gasto_mano_obra = float(obra.get("gasto_mano_obra", 0))
 gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 
-gastos_ejecutados = (
-    gasto_materiales +
-    gasto_mano_obra +
-    gastos_adicionales
-)
-
+gastos_ejecutados = gasto_materiales + gasto_mano_obra + gastos_adicionales
 saldo_final = presupuesto_total - gastos_ejecutados
 
 # ================= MATRIZ =================
-mes_actual = datetime.now().strftime("%B").upper()
+mes = datetime.now().strftime("%B").upper()
 
 data = [
     ["Saldo inicial", presupuesto_total, presupuesto_total],
-    ["Donaciones recibidas", 0, presupuesto_total],
+    ["Donaciones recibidas", 0.0, presupuesto_total],
     ["Total ingresos", presupuesto_total, presupuesto_total],
     ["Gastos ejecutados", gastos_ejecutados, gastos_ejecutados],
     ["Saldo final", saldo_final, saldo_final],
@@ -78,34 +73,47 @@ data = [
 
 df = pd.DataFrame(
     data,
-    columns=[
-        f"MES {mes_actual} – Concepto",
-        "Mes (S/)",
-        "Acumulado (S/)"
-    ]
+    columns=[f"MES {mes} - Concepto", "Mes (S/)", "Acumulado (S/)"]
 )
 
-# ================= MOSTRAR =================
-st.subheader("📋 Resumen financiero mensual")
-st.dataframe(df, use_container_width=True)
+# ================= ESTILO =================
+def formato_soles(x):
+    return f"S/ {x:,.2f}"
+
+styled = (
+    df.style
+    .format(formato_soles, subset=["Mes (S/)", "Acumulado (S/)"])
+    .set_properties(**{
+        "border": "2px solid black",
+        "padding": "14px",
+        "font-size": "16px"
+    })
+    .set_table_styles([
+        {"selector": "th", "props": [
+            ("border", "2px solid black"),
+            ("font-size", "16px"),
+            ("padding", "14px"),
+            ("background-color", "#f0f0f0")
+        ]}
+    ])
+)
+
+st.dataframe(styled, use_container_width=True)
 
 # ================= EXCEL =================
 buffer = BytesIO()
+df_excel = df.copy()
+df_excel["Mes (S/)"] = df_excel["Mes (S/)"].astype(float)
+df_excel["Acumulado (S/)"] = df_excel["Acumulado (S/)"].astype(float)
+
 with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-    df.to_excel(writer, index=False, sheet_name="Informe Mensual")
+    df_excel.to_excel(writer, index=False, sheet_name="Informe Mensual")
 
 buffer.seek(0)
 
 st.download_button(
-    label="📥 Descargar informe en Excel",
+    "📥 Descargar Excel",
     data=buffer,
-    file_name=f"informe_{OBRAS.get(obra_id)}.xlsx",
+    file_name=f"informe_mensual_{OBRAS[obra_id]}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
-
-# ================= CERRAR SESIÓN =================
-with st.sidebar:
-    st.divider()
-    if st.button("🚪 Cerrar sesión", use_container_width=True):
-        st.session_state.clear()
-        st.rerun()
