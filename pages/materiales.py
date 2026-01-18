@@ -104,6 +104,34 @@ st.session_state["obra_id_global"] = obra_id
 # 5. Mostrar confirmación visual de la obra activa
 st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
 
+# --- NUEVO: MÉTRICAS DE MATERIALES EN EL SIDEBAR ---
+obra_ref_sidebar = db.collection("obras").document(obra_id).get()
+if obra_ref_sidebar.exists:
+    obra_data_sidebar = obra_ref_sidebar.to_dict()
+    
+    # Extraemos los valores de Firebase
+    p_mats_actual = float(obra_data_sidebar.get("presupuesto_materiales", 0))
+    p_mats_gastado = float(obra_data_sidebar.get("gasto_materiales", 0))
+    
+    st.sidebar.divider()
+    st.sidebar.subheader("📊 Resumen Materiales")
+    
+    # Muestra el saldo que va bajando
+    st.sidebar.metric(
+        label="Saldo Materiales", 
+        value=f"S/ {p_mats_actual:,.2f}",
+        delta=f"- S/ {p_mats_gastado:,.2f} gastados",
+        delta_color="inverse"
+    )
+    
+    # Barra de progreso visual (opcional)
+    p_inicial = float(obra_data_sidebar.get("presupuesto_materiales_inicial", p_mats_actual))
+    if p_inicial > 0:
+        progreso = max(0.0, min(1.0, p_mats_actual / p_inicial))
+        st.sidebar.progress(progreso, text=f"Disponible: {progreso*100:.1f}%")
+
+st.sidebar.divider()
+
 if not obra_id:
     st.warning("⚠️ No hay obras registradas. Crea una primero en la sección de Obras.")
     st.stop()
