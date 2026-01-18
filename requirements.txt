@@ -5,4 +5,5 @@ xlsxwriter
 streamlit-cookies-manager
 streamlit-authenticator
 python-docx
+streamlit-quill
 
