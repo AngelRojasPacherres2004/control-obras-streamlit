@@ -1,11 +1,17 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from firebase_admin import firestore
+from firebase_admin import firestore, initialize_app, get_app
 from io import BytesIO
 from docx import Document
+from streamlit_quill import st_quill
 
-# ================= DB =================
+# ================= FIREBASE INIT (SEGURO) =================
+try:
+    get_app()
+except ValueError:
+    initialize_app()
+
 db = firestore.client()
 
 # ================= SEGURIDAD =================
@@ -22,7 +28,10 @@ st.title("📊 Informes Mensuales")
 
 # ================= OBRAS =================
 def obtener_obras():
-    return {d.id: d.to_dict() for d in db.collection("obras").stream()}
+    return {
+        d.id: d.to_dict()
+        for d in db.collection("obras").stream()
+    }
 
 OBRAS = obtener_obras()
 ids = list(OBRAS.keys())
@@ -31,7 +40,6 @@ if not ids:
     st.warning("No hay obras registradas")
     st.stop()
 
-# Mantener obra global (igual que materiales.py)
 if "obra_id_global" not in st.session_state:
     st.session_state["obra_id_global"] = ids[0]
 
@@ -45,9 +53,9 @@ obra_id = st.sidebar.selectbox(
 st.session_state["obra_id_global"] = obra_id
 obra = OBRAS[obra_id]
 
-st.sidebar.success(f"🏗️ Obra activa: **{obra['nombre']}**")
+st.sidebar.success(f"🏗️ Obra activa:\n{obra['nombre']}")
 
-# ================= DATOS REALES (MISMA LÓGICA QUE OBRAS.PY) =================
+# ================= DATOS OBRA =================
 presupuesto_total = float(obra.get("presupuesto_total", 0))
 gasto_materiales = float(obra.get("gasto_acumulado", 0))
 gasto_mano_obra = float(obra.get("gasto_mano_obra", 0))
@@ -83,14 +91,14 @@ df_style = (
     })
     .set_properties(**{
         "border": "2px solid black",
-        "padding": "18px",
+        "padding": "16px",
         "font-size": "16px",
         "text-align": "center"
     })
     .set_table_styles([
         {"selector": "th", "props": [
             ("border", "2px solid black"),
-            ("padding", "18px"),
+            ("padding", "16px"),
             ("font-size", "16px"),
             ("text-align", "center")
         ]}
@@ -100,7 +108,7 @@ df_style = (
 st.subheader(f"MES {mes_actual}")
 st.dataframe(df_style, use_container_width=True)
 
-# ================= EXPORTAR EXCEL =================
+# ================= EXCEL =================
 buffer_excel = BytesIO()
 with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
     df.to_excel(writer, index=False, sheet_name="Informe Mensual")
@@ -108,22 +116,21 @@ with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
 buffer_excel.seek(0)
 
 st.download_button(
-    label="📥 Descargar informe mensual en Excel",
+    "📥 Descargar informe mensual en Excel",
     data=buffer_excel,
-    file_name=f"informe_mensual_{obra['nombre'].replace(' ', '_')}.xlsx",
+    file_name=f"informe_{obra['nombre'].replace(' ', '_')}.xlsx",
     mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# ================= CARTA DE INFORME =================
+# ================= CARTA =================
 st.divider()
-st.header("📄 Carta de Informe Mensual")
+st.header("📄 Carta de Informe Mensual (Word real)")
 
 fecha_actual = datetime.now().strftime("%d de %B del %Y")
 
-carta_texto = st.text_area(
-    "✏️ Documento editable",
-    height=520,
-    value=f"""CARTA DE INFORME MENSUAL
+carta_base = f"""
+CARTA DE INFORME MENSUAL
+
 Ventanilla, {fecha_actual}
 
 Estimados señores:
@@ -133,14 +140,15 @@ agradecimiento por el apoyo brindado a la construcción del proyecto
 {obra['nombre']}.
 
 Durante el presente mes se ejecutaron las siguientes actividades principales:
+
 - 
 - 
 
-El monto total ejecutado en el período asciende a S/. {gastos_ejecutados:,.2f},
-manteniendo una gestión responsable.
+El monto total ejecutado en el período asciende a
+S/. {gastos_ejecutados:,.2f}, manteniendo una gestión responsable.
 
-Adjuntamos el informe financiero en formato Excel
-y el registro fotográfico del avance de obra.
+Adjuntamos el informe financiero en formato Excel y el registro fotográfico
+del avance de obra.
 
 Sin otro particular reiteramos nuestro agradecimiento y quedamos atentos
 a cualquier consulta adicional.
@@ -152,12 +160,29 @@ Gerardo Langberg Bacigalupo
 Cargo
 Cuasi Parroquia Señora de La Paz
 """
+
+contenido = st_quill(
+    value=carta_base,
+    key="editor_carta",
+    toolbar=True
 )
 
-# ================= DESCARGAR WORD (CORRECTO) =================
+# ================= DESCARGAR WORD CORRECTO =================
 if st.button("📥 Descargar Carta en Word", type="primary"):
     doc = Document()
-    for linea in carta_texto.split("\n"):
+
+    # limpiar HTML de Quill
+    texto = (
+        contenido
+        .replace("<p>", "")
+        .replace("</p>", "\n")
+        .replace("<br>", "\n")
+        .replace("<strong>", "")
+        .replace("</strong>", "")
+        .replace("&nbsp;", " ")
+    )
+
+    for linea in texto.split("\n"):
         doc.add_paragraph(linea)
 
     buffer_word = BytesIO()
@@ -165,7 +190,7 @@ if st.button("📥 Descargar Carta en Word", type="primary"):
     buffer_word.seek(0)
 
     st.download_button(
-        label="⬇️ Descargar .docx",
+        "⬇️ Descargar .docx",
         data=buffer_word,
         file_name=f"Carta_Informe_{obra['nombre'].replace(' ', '_')}.docx",
         mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
