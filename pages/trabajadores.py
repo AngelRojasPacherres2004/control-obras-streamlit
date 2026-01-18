@@ -36,48 +36,28 @@ ROLES_CONSTRUCCION = [
 
 # ================= FUNCIONES DE CÁLCULO =================
 def recalcular_mano_obra(obra_id):
-    """Suma el presupuesto de todos los trabajadores y actualiza presupuesto y gasto de mano de obra."""
-    trabajadores_docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
-    total_mano_obra = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
-    
-    obra_ref = db.collection("obras").document(obra_id)
-    obra_data = obra_ref.get().to_dict()
-    
-    p_caja = float(obra_data.get("presupuesto_caja_chica", 0))
-    p_mats = float(obra_data.get("presupuesto_materiales", 0))
-    
-    nuevo_total = p_caja + p_mats + total_mano_obra
-    
-    # SE AÑADE 'gasto_mano_obra' CON EL MISMO VALOR
-    obra_ref.update({
-        "presupuesto_mano_obra": round(total_mano_obra, 2),
-        "gasto_mano_obra": round(total_mano_obra, 2), # <--- Nuevo campo añadido
-        "presupuesto_total": round(nuevo_total, 2)
-    })
-    return total_mano_obra
-def recalcular_mano_obra(obra_id):
     """
-    Calcula cuánto se ha gastado en personal y actualiza el saldo disponible 
-    específicamente en el rubro de Mano de Obra.
+    Mantiene el presupuesto_mano_obra intacto y calcula el saldo disponible 
+    restando el sueldo total comprometido del personal.
     """
     # 1. Sumar lo que ganan todos los trabajadores actuales
     trabajadores_docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
-    total_asignado_personal = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
+    total_gastado_personal = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
     
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    # IMPORTANTE: Usamos 'presupuesto_mano_obra_inicial' como la base (el techo)
-    # Si no existe en tu DB, usará el valor actual por única vez
-    p_mo_inicial = float(obra_data.get("presupuesto_mano_obra_inicial", obra_data.get("presupuesto_mano_obra", 0)))
+    # 2. El presupuesto original es 'presupuesto_mano_obra' (el fijo definido en obras.py)
+    p_mo_original = float(obra_data.get("presupuesto_mano_obra", 0))
     
-    # El nuevo saldo disponible para mostrar a la izquierda
-    saldo_disponible_mo = p_mo_inicial - total_asignado_personal
+    # 3. Cálculo del saldo que queda para contratar más gente
+    saldo_disponible_mo = p_mo_original - total_gastado_personal
     
+    # 4. Actualización en Firebase: NO tocamos presupuesto_mano_obra
     obra_ref.update({
-        "presupuesto_mano_obra_inicial": round(p_mo_inicial, 2), # Aseguramos que se guarde la base
-        "presupuesto_mano_obra": round(saldo_disponible_mo, 2),   # Este es el que baja en el sidebar
-        "gasto_mano_obra": round(total_asignado_personal, 2)     # Lo que ya se consumió
+        "presupuesto_mano_obra_actual": round(saldo_disponible_mo, 2), # Saldo dinámico
+        "gasto_mano_obra_acumulado": round(total_gastado_personal, 2), # Gasto total en personal
+        "presupuesto_actualizado": datetime.now()
     })
     return saldo_disponible_mo
 def tiene_presupuesto_disponible(obra_id, monto_a_sumar):
@@ -136,31 +116,49 @@ if not obra_id_sel:
 nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
 st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
 
-# --- Métricas en Sidebar ---
-obra_ref = db.collection("obras").document(obra_id_sel).get()
-if obra_ref.exists:
-    obra_actual = obra_ref.to_dict()
+# --- MÉTRICAS ACTUALIZADAS EN EL SIDEBAR ---
+obra_ref_sidebar = db.collection("obras").document(obra_id_sel).get()
+if obra_ref_sidebar.exists:
+    obra_data_sidebar = obra_ref_sidebar.to_dict()
+    
+    # Presupuesto Fijo vs Saldo Actual
+    p_mo_total = float(obra_data_sidebar.get("presupuesto_mano_obra", 0))
+    p_mo_quedan = float(obra_data_sidebar.get("presupuesto_mano_obra_actual", p_mo_total))
+    p_mo_gastado = float(obra_data_sidebar.get("gasto_mano_obra_acumulado", 0))
+    
     st.sidebar.divider()
-    st.sidebar.metric("Presupuesto Mano Obra", f"S/ {obra_actual.get('presupuesto_mano_obra', 0):,.2f}")
-else:
-    st.error("La obra seleccionada ya no existe.")
-    st.stop()
+    st.sidebar.subheader("📊 Resumen Mano de Obra")
+    
+    st.sidebar.metric(
+        label="Saldo para Contratar", 
+        value=f"S/ {p_mo_quedan:,.2f}",
+        delta=f"- S/ {p_mo_gastado:,.2f} en planillas",
+        delta_color="inverse"
+    )
+    
+    if p_mo_total > 0:
+        progreso_mo = max(0.0, min(1.0, p_mo_quedan / p_mo_total))
+        st.sidebar.progress(progreso_mo, text=f"Disponible: {progreso_mo*100:.1f}%")
 # ================= CRUD TRABAJADORES =================
 tab1, tab2 = st.tabs(["➕ Registrar Personal", "📋 Lista y Edición"])
 
 with tab1:
     st.subheader("Registrar Nuevo Trabajador")
     
-    # Obtenemos los datos actuales de la obra
+    # 1. Obtener datos maestros de la obra
     obra_ref_data = db.collection("obras").document(obra_id_sel).get().to_dict()
     
-    # El saldo disponible es lo que queda en la "bolsa" de Mano de Obra
-    saldo_mo_actual = float(obra_ref_data.get("presupuesto_mano_obra", 0))
+    # 2. Lógica de Saldo Dinámico
+    # El 'presupuesto_mano_obra' es el inicial (fijo)
+    p_inicial_mo = float(obra_ref_data.get("presupuesto_mano_obra", 0))
+    # El 'presupuesto_mano_obra_actual' es lo que queda (calculado por la función)
+    saldo_mo_actual = float(obra_ref_data.get("presupuesto_mano_obra_actual", p_inicial_mo))
     
+    # Mostrar información de presupuesto
     if saldo_mo_actual <= 0:
-        st.error(f"⚠️ Saldo de Mano de Obra agotado. Disponible: S/ {saldo_mo_actual:,.2f}")
+        st.error(f"⚠️ Presupuesto de Mano de Obra agotado. Disponible: S/ {saldo_mo_actual:,.2f}")
     else:
-        st.info(f"💰 Saldo disponible para contratar: S/ {saldo_mo_actual:,.2f}")
+        st.info(f"💰 Saldo disponible para nuevas contrataciones: S/ {saldo_mo_actual:,.2f}")
 
     with st.form("form_trabajador", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -179,8 +177,9 @@ with tab1:
         if submit:
             if not nombre_t or not dni_t or not foto_contrato:
                 st.error("Faltan datos obligatorios o la foto.")
+            # VALIDACIÓN CLAVE: Comparar contra el saldo ACTUAL
             elif presupuesto_t > saldo_mo_actual:
-                st.error(f"No puedes asignar S/ {presupuesto_t}. El saldo es de solo S/ {saldo_mo_actual}")
+                st.error(f"❌ No puedes asignar S/ {presupuesto_t:,.2f}. El saldo disponible es solo S/ {saldo_mo_actual:,.2f}")
             else:
                 with st.spinner("Procesando contratación..."):
                     # 1. Subir Foto
@@ -199,10 +198,10 @@ with tab1:
                         "fecha_registro": datetime.now()
                     })
                     
-                    # 3. Actualizar la bolsa de dinero de la obra
+                    # 3. Recalcular y actualizar campos en Firebase
                     recalcular_mano_obra(obra_id_sel)
                     
-                    st.success(f"✅ {nombre_t} contratado. El presupuesto de mano de obra se ha actualizado.")
+                    st.success(f"✅ {nombre_t} contratado. Saldo actualizado correctamente.")
                     st.rerun()
 with tab2:
     st.subheader("Personal Asignado")
