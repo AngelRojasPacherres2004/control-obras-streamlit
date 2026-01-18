@@ -1,17 +1,12 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-from firebase_admin import firestore, initialize_app, get_app
+from firebase_admin import firestore
 from io import BytesIO
 from docx import Document
 from streamlit_quill import st_quill
 
-# ================= FIREBASE INIT (SEGURO) =================
-try:
-    get_app()
-except ValueError:
-    initialize_app()
-
+# ================= DB =================
 db = firestore.client()
 
 # ================= SEGURIDAD =================
@@ -29,7 +24,7 @@ st.title("📊 Informes Mensuales")
 # ================= OBRAS =================
 def obtener_obras():
     return {
-        d.id: d.to_dict()
+        d.id: d.to_dict().get("nombre", d.id)
         for d in db.collection("obras").stream()
     }
 
@@ -40,22 +35,29 @@ if not ids:
     st.warning("No hay obras registradas")
     st.stop()
 
+# ================= CONTROL CORRECTO DE CAMBIO =================
+def cambiar_obra():
+    st.session_state["obra_id_global"] = st.session_state["selector_obra"]
+    st.rerun()
+
 if "obra_id_global" not in st.session_state:
     st.session_state["obra_id_global"] = ids[0]
 
 obra_id = st.sidebar.selectbox(
     "Seleccionar obra",
     options=ids,
+    format_func=lambda x: OBRAS[x],
+    key="selector_obra",
     index=ids.index(st.session_state["obra_id_global"]),
-    format_func=lambda x: OBRAS[x]["nombre"]
+    on_change=cambiar_obra
 )
 
-st.session_state["obra_id_global"] = obra_id
-obra = OBRAS[obra_id]
+# ================= DATOS OBRA (SIEMPRE FRESCOS) =================
+obra = db.collection("obras").document(obra_id).get().to_dict()
 
-st.sidebar.success(f"🏗️ Obra activa:\n{obra['nombre']}")
+st.sidebar.success(f"🏗️ Obra activa: **{obra['nombre']}**")
 
-# ================= DATOS OBRA =================
+# ================= CÁLCULOS =================
 presupuesto_total = float(obra.get("presupuesto_total", 0))
 gasto_materiales = float(obra.get("gasto_acumulado", 0))
 gasto_mano_obra = float(obra.get("gasto_mano_obra", 0))
@@ -95,14 +97,6 @@ df_style = (
         "font-size": "16px",
         "text-align": "center"
     })
-    .set_table_styles([
-        {"selector": "th", "props": [
-            ("border", "2px solid black"),
-            ("padding", "16px"),
-            ("font-size", "16px"),
-            ("text-align", "center")
-        ]}
-    ])
 )
 
 st.subheader(f"MES {mes_actual}")
@@ -116,82 +110,49 @@ with pd.ExcelWriter(buffer_excel, engine="xlsxwriter") as writer:
 buffer_excel.seek(0)
 
 st.download_button(
-    "📥 Descargar informe mensual en Excel",
-    data=buffer_excel,
-    file_name=f"informe_{obra['nombre'].replace(' ', '_')}.xlsx",
-    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    "📥 Descargar Excel",
+    buffer_excel,
+    f"informe_{obra['nombre'].replace(' ', '_')}.xlsx",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 )
 
-# ================= CARTA =================
+# ================= CARTA WORD =================
 st.divider()
-st.header("📄 Carta de Informe Mensual (Word real)")
+st.header("📄 Carta de Informe Mensual")
 
 fecha_actual = datetime.now().strftime("%d de %B del %Y")
 
 carta_base = f"""
-CARTA DE INFORME MENSUAL
-
-Ventanilla, {fecha_actual}
-
-Estimados señores:
-
+<b>CARTA DE INFORME MENSUAL</b><br><br>
+Ventanilla, {fecha_actual}<br><br>
+Estimados señores:<br><br>
 Por medio de la presente nos dirigimos a ustedes para expresar nuestro
 agradecimiento por el apoyo brindado a la construcción del proyecto
-{obra['nombre']}.
-
-Durante el presente mes se ejecutaron las siguientes actividades principales:
-
-- 
-- 
-
+<b>{obra['nombre']}</b>.<br><br>
+Durante el presente mes se ejecutaron las siguientes actividades principales:<br>
+- <br>- <br><br>
 El monto total ejecutado en el período asciende a
-S/. {gastos_ejecutados:,.2f}, manteniendo una gestión responsable.
-
-Adjuntamos el informe financiero en formato Excel y el registro fotográfico
-del avance de obra.
-
-Sin otro particular reiteramos nuestro agradecimiento y quedamos atentos
-a cualquier consulta adicional.
-
-Atentamente,
-
-______________________________
+<b>S/. {gastos_ejecutados:,.2f}</b>.<br><br>
+Atentamente,<br><br>
+______________________________<br>
 Gerardo Langberg Bacigalupo
-Cargo
-Cuasi Parroquia Señora de La Paz
 """
 
-contenido = st_quill(
-    value=carta_base,
-    key="editor_carta",
-    toolbar=True
-)
+contenido = st_quill(value=carta_base, html=True)
 
-# ================= DESCARGAR WORD CORRECTO =================
-if st.button("📥 Descargar Carta en Word", type="primary"):
+if st.button("📥 Descargar Carta Word"):
     doc = Document()
-
-    # limpiar HTML de Quill
-    texto = (
-        contenido
-        .replace("<p>", "")
-        .replace("</p>", "\n")
-        .replace("<br>", "\n")
-        .replace("<strong>", "")
-        .replace("</strong>", "")
-        .replace("&nbsp;", " ")
-    )
-
+    texto = contenido.replace("<br>", "\n").replace("<b>", "").replace("</b>", "")
     for linea in texto.split("\n"):
         doc.add_paragraph(linea)
 
-    buffer_word = BytesIO()
-    doc.save(buffer_word)
-    buffer_word.seek(0)
+    buffer = BytesIO()
+    doc.save(buffer)
+    buffer.seek(0)
 
     st.download_button(
         "⬇️ Descargar .docx",
-        data=buffer_word,
-        file_name=f"Carta_Informe_{obra['nombre'].replace(' ', '_')}.docx",
-        mime="application/vnd.openxmlformats-officedocument.wordprocessingml.document"
+        buffer,
+        f"Carta_{obra['nombre'].replace(' ', '_')}.docx",
+        "application/vnd.openxmlformats-officedocument.wordprocessingml.document"
     )
