@@ -24,29 +24,33 @@ st.session_state.setdefault("vista_materiales_globales", False)
 
 # ================= FUNCIONES DE ACTUALIZACIÓN =================
 def recalcular_presupuesto_obra(obra_id):
-    """Actualiza el gasto de materiales y el saldo restante en Firebase."""
-    # 1. Sumar lo gastado actualmente en la subcolección materiales
+    """Calcula el gasto y actualiza el saldo (presupuesto_materiales) en Firebase."""
+    # 1. Sumar el gasto real de la subcolección
     mats_docs = db.collection("obras").document(obra_id).collection("materiales").stream()
-    total_gastado_mats = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
+    total_gastado = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
     
-    # 2. Obtener la obra para ver su presupuesto base
+    # 2. Obtener datos actuales
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    # 3. Guardar el 'techo' inicial si no existe (para tener referencia)
-    p_mats_inicial = float(obra_data.get("presupuesto_materiales_inicial", obra_data.get("presupuesto_materiales", 0)))
+    # 3. Definir el inicial (Si no existe 'inicial', el valor actual se convierte en el inicial)
+    if "presupuesto_materiales_inicial" in obra_data:
+        p_inicial = float(obra_data["presupuesto_materiales_inicial"])
+    else:
+        # La primera vez, el presupuesto_materiales que viene de 'Obras' es nuestro inicial
+        p_inicial = float(obra_data.get("presupuesto_materiales", 0))
     
-    # 4. Calcular saldo que queda
-    saldo_disponible_mats = p_mats_inicial - total_gastado_mats
+    # 4. LA LÓGICA: Saldo = Inicial - Gasto
+    nuevo_saldo = p_inicial - total_gastado
     
-    # 5. Actualizar Firebase
+    # 5. Guardar todo en Firebase
     obra_ref.update({
-        "presupuesto_materiales_inicial": round(p_mats_inicial, 2), # Techo inicial
-        "presupuesto_materiales": round(saldo_disponible_mats, 2),   # Saldo que baja
-        "gasto_materiales": round(total_gastado_mats, 2),           # Lo consumido
+        "presupuesto_materiales_inicial": round(p_inicial, 2), # Monto fijo original
+        "presupuesto_materiales": round(nuevo_saldo, 2),       # Saldo actual (restado)
+        "gasto_materiales": round(total_gastado, 2),           # Acumulado gastado
         "presupuesto_actualizado": datetime.now()
     })
-    return saldo_disponible_mats
+    return nuevo_saldo
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
