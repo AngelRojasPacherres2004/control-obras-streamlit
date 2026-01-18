@@ -24,28 +24,27 @@ st.session_state.setdefault("vista_materiales_globales", False)
 
 # ================= FUNCIONES DE ACTUALIZACIÓN =================
 def recalcular_presupuesto_obra(obra_id):
-    """Calcula el gasto y actualiza el saldo unificado con obras.py."""
-    # 1. Sumar lo gastado en la subcolección materiales de esta obra
+    """Mantiene presupuesto_materiales intacto y calcula el saldo actual."""
+    # 1. Sumar lo gastado en materiales
     mats_docs = db.collection("obras").document(obra_id).collection("materiales").stream()
     total_gastado = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
     
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    # 2. Obtener el inicial. Si no existe, usamos el presupuesto_materiales actual como base
-    p_inicial = float(obra_data.get("presupuesto_materiales_inicial", obra_data.get("presupuesto_materiales", 0)))
+    # 2. El presupuesto original es 'presupuesto_materiales' (definido en obras.py)
+    p_original = float(obra_data.get("presupuesto_materiales", 0))
     
-    # 3. Lógica de resta: Saldo = Inicial - Gastado
-    saldo_restante = p_inicial - total_gastado
+    # 3. Cálculo del saldo actual
+    saldo_actual = p_original - total_gastado
     
-    # 4. Actualización unificada (usando gasto_acumulado como en obras.py)
+    # 4. Actualización: NO tocamos presupuesto_materiales
     obra_ref.update({
-        "presupuesto_materiales_inicial": round(p_inicial, 2),
-        "presupuesto_materiales": round(saldo_restante, 2),
-        "gasto_acumulado": round(total_gastado, 2), # <--- CAMBIO CLAVE: nombre unificado
+        "presupuesto_materiales_actual": round(saldo_actual, 2), # Campo nuevo/actualizado
+        "gasto_acumulado": round(total_gastado, 2),             # Sincronizado con obras.py
         "presupuesto_actualizado": datetime.now()
     })
-    return saldo_restante
+    return saldo_actual
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -102,29 +101,30 @@ st.session_state["obra_id_global"] = obra_id
 
 # 5. Mostrar confirmación visual de la obra activa
 st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
-# --- MÉTRICAS UNIFICADAS EN EL SIDEBAR ---
+# --- MÉTRICAS ACTUALIZADAS EN EL SIDEBAR ---
 obra_ref_sidebar = db.collection("obras").document(obra_id).get()
 if obra_ref_sidebar.exists:
     obra_data_sidebar = obra_ref_sidebar.to_dict()
     
-    # Leemos los campos unificados
-    p_mats_actual = float(obra_data_sidebar.get("presupuesto_materiales", 0))
-    p_mats_gastado = float(obra_data_sidebar.get("gasto_acumulado", 0)) # <--- Cambiado aquí
-    p_inicial = float(obra_data_sidebar.get("presupuesto_materiales_inicial", p_mats_actual))
+    # presupuesto_materiales es el TOTAL (fijo)
+    p_mats_total = float(obra_data_sidebar.get("presupuesto_materiales", 0))
+    # presupuesto_materiales_actual es lo que QUEDA
+    p_mats_quedan = float(obra_data_sidebar.get("presupuesto_materiales_actual", p_mats_total))
+    p_mats_gastado = float(obra_data_sidebar.get("gasto_acumulado", 0))
     
     st.sidebar.divider()
     st.sidebar.subheader("📊 Resumen Materiales")
     
     st.sidebar.metric(
-        label="Saldo Disponible", 
-        value=f"S/ {p_mats_actual:,.2f}",
-        delta=f"- S/ {p_mats_gastado:,.2f} usados",
-        delta_color="inverse"
+        label="Presupuesto Actual", 
+        value=f"S/ {p_mats_quedan:,.2f}",
+        delta=f"De un total de S/ {p_mats_total:,.2f}",
+        delta_color="off"
     )
     
-    if p_inicial > 0:
-        progreso = max(0.0, min(1.0, p_mats_actual / p_inicial))
-        st.sidebar.progress(progreso, text=f"Fondo: {progreso*100:.1f}%")
+    if p_mats_total > 0:
+        progreso = max(0.0, min(1.0, p_mats_quedan / p_mats_total))
+        st.sidebar.progress(progreso, text=f"Disponible: {progreso*100:.1f}%")
    
 st.sidebar.divider()
 
@@ -325,19 +325,19 @@ if archivo:
             recalcular_presupuesto_obra(obra_id)
             st.success("Materiales importados y presupuesto actualizado")
             st.rerun()
-# ================== SECCIÓN E (ACTUALIZADA) ==================
+# ================== SECCIÓN E (REESTRUCTURADA) ==================
 st.divider()
 st.header("💰 Estado del Presupuesto de Materiales")
 
 obra_final = db.collection("obras").document(obra_id).get().to_dict()
-inicial = float(obra_final.get("presupuesto_materiales_inicial", 0))
-actual = float(obra_final.get("presupuesto_materiales", 0))
-gastado = float(obra_final.get("gasto_acumulado", 0)) # <--- Cambiado aquí
+p_total = float(obra_final.get("presupuesto_materiales", 0))
+p_actual = float(obra_final.get("presupuesto_materiales_actual", p_total))
+p_gastado = float(obra_final.get("gasto_acumulado", 0))
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Asignado al inicio", f"S/ {inicial:,.2f}")
-c2.metric("Saldo Disponible", f"S/ {actual:,.2f}", delta=f"{-gastado:,.2f}", delta_color="inverse")
-c3.metric("Total Gastado", f"S/ {gastado:,.2f}")
+c1.metric("Presupuesto Total", f"S/ {p_total:,.2f}")
+c2.metric("Presupuesto Actual", f"S/ {p_actual:,.2f}", delta=f"{-p_gastado:,.2f}", delta_color="inverse")
+c3.metric("Total Gastado", f"S/ {p_gastado:,.2f}")
 # ================== SECCIÓN X ==================
 st.divider()
 st.header("📤 Exportar materiales de la obra a Excel")
