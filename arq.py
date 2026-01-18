@@ -1,3 +1,4 @@
+"arq.py"
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -58,6 +59,7 @@ materiales_page   = st.Page("pages/materiales.py", title="Materiales", icon=":ma
 obras_page        = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
 avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
+informes_page = st.Page("pages/informes.py", title="Informes", icon=":material/assessment:")
 
 if auth["role"] == "jefe":
     # Fíjate aquí: agregamos 'trabajadores_page' a la lista
@@ -65,6 +67,7 @@ if auth["role"] == "jefe":
         obras_page, 
         materiales_page, 
         trabajadores_page,  # <--- ESTA ES LA LÍNEA QUE FALTABA
+        informes_page,
         usuarios_page
     ])
 else:
