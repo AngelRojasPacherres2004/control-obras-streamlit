@@ -1,3 +1,4 @@
+"materiales.py"
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -19,32 +20,31 @@ if st.session_state["auth"]["role"] != "jefe":
 # ================= ESTADO =================
 st.session_state.setdefault("mat_global", None)
 st.session_state.setdefault("mat_obra", None)
+st.session_state.setdefault("vista_materiales_globales", False)
 
 # ================= FUNCIONES DE ACTUALIZACIÓN =================
 def recalcular_presupuesto_obra(obra_id):
-    """Calcula materiales y actualiza el total en Firebase sin borrar caja chica/mano de obra."""
-    # 1. Sumar subtotal de la subcolección materiales
+    """Mantiene presupuesto_materiales intacto y calcula el saldo actual."""
+    # 1. Sumar lo gastado en materiales
     mats_docs = db.collection("obras").document(obra_id).collection("materiales").stream()
-    total_materiales = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
+    total_gastado = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
     
-    # 2. Obtener valores actuales de la obra
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    p_caja = float(obra_data.get("presupuesto_caja_chica", 0))
-    p_mano = float(obra_data.get("presupuesto_mano_obra", 0))
+    # 2. El presupuesto original es 'presupuesto_materiales' (definido en obras.py)
+    p_original = float(obra_data.get("presupuesto_materiales", 0))
     
-    # 3. Nuevo Total
-    nuevo_total = p_caja + p_mano + total_materiales
+    # 3. Cálculo del saldo actual
+    saldo_actual = p_original - total_gastado
     
-    # 4. Guardar en Firebase
+    # 4. Actualización: NO tocamos presupuesto_materiales
     obra_ref.update({
-        "presupuesto_materiales": round(total_materiales, 2),
-        "presupuesto_total": round(nuevo_total, 2),
+        "presupuesto_materiales_actual": round(saldo_actual, 2), # Campo nuevo/actualizado
+        "gasto_acumulado": round(total_gastado, 2),             # Sincronizado con obras.py
         "presupuesto_actualizado": datetime.now()
     })
-    return total_materiales
-
+    return saldo_actual
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -68,6 +68,11 @@ def reset():
 
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
+
+if not st.session_state["vista_materiales_globales"]:
+    if st.button("📦 Materiales globales"):
+        st.session_state["vista_materiales_globales"] = True
+        st.rerun()
 
 # ================= SELECCIÓN DE OBRA SINCRONIZADA =================
 OBRAS = obtener_obras()
@@ -96,79 +101,127 @@ st.session_state["obra_id_global"] = obra_id
 
 # 5. Mostrar confirmación visual de la obra activa
 st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
+# --- MÉTRICAS ACTUALIZADAS EN EL SIDEBAR ---
+obra_ref_sidebar = db.collection("obras").document(obra_id).get()
+if obra_ref_sidebar.exists:
+    obra_data_sidebar = obra_ref_sidebar.to_dict()
+    
+    # presupuesto_materiales es el TOTAL (fijo)
+    p_mats_total = float(obra_data_sidebar.get("presupuesto_materiales", 0))
+    # presupuesto_materiales_actual es lo que QUEDA
+    p_mats_quedan = float(obra_data_sidebar.get("presupuesto_materiales_actual", p_mats_total))
+    p_mats_gastado = float(obra_data_sidebar.get("gasto_acumulado", 0))
+    
+    st.sidebar.divider()
+    st.sidebar.subheader("📊 Resumen Materiales")
+    
+    st.sidebar.metric(
+        label="Presupuesto Actual", 
+        value=f"S/ {p_mats_quedan:,.2f}",
+        delta=f"De un total de S/ {p_mats_total:,.2f}",
+        delta_color="off"
+    )
+    
+    if p_mats_total > 0:
+        progreso = max(0.0, min(1.0, p_mats_quedan / p_mats_total))
+        st.sidebar.progress(progreso, text=f"Disponible: {progreso*100:.1f}%")
+   
+st.sidebar.divider()
 
 if not obra_id:
     st.warning("⚠️ No hay obras registradas. Crea una primero en la sección de Obras.")
     st.stop()
+# 🔹 Cargar materiales globales UNA SOLA VEZ
+materiales = cargar_materiales()
 
 # ================== SECCIÓN A ==================
-st.header("📦 Materiales globales")
+if st.session_state["vista_materiales_globales"]:
 
-materiales = cargar_materiales()
-df_mat = pd.DataFrame(materiales)
+    st.header("📦 Materiales globales")
 
-col1, col2 = st.columns([1.5, 1])
+   
+    df_mat = pd.DataFrame(materiales)
 
-# ----- LISTA -----
-with col1:
-    busq = st.text_input("Buscar material")
-    df_v = df_mat if not busq else df_mat[df_mat["nombre"].str.contains(busq, case=False)]
+    col1, col2 = st.columns([1.5, 1])
 
-    if not df_v.empty:
-        sel = st.dataframe(
-            df_v[["nombre", "unidad", "precio_unitario"]],
-            hide_index=True,
-            use_container_width=True,
-            selection_mode="single-row",
-            on_select="rerun"
+    if st.button("⬅️ Volver"):
+        st.session_state["vista_materiales_globales"] = False
+        st.rerun()
+
+    # ----- LISTA -----
+    with col1:
+        busq = st.text_input("Buscar material")
+        df_v = df_mat if not busq else df_mat[
+            df_mat["nombre"].str.contains(busq, case=False)
+        ]
+
+        if not df_v.empty:
+            sel = st.dataframe(
+                df_v[["nombre", "unidad", "precio_unitario"]],
+                hide_index=True,
+                use_container_width=True,
+                selection_mode="single-row",
+                on_select="rerun"
+            )
+            if sel and sel["selection"]["rows"]:
+                st.session_state.mat_global = materiales[
+                    df_v.index[sel["selection"]["rows"][0]]
+                ]
+        else:
+            st.info("No hay materiales")
+
+    # ----- FORM CRUD -----
+    with col2:
+        mat = st.session_state.mat_global
+        st.subheader("✏️ Editar" if mat else "➕ Nuevo")
+
+        nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
+        unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
+        precio = st.number_input(
+            "Precio unitario",
+            0.0,
+            step=0.01,
+            value=float(mat["precio_unitario"]) if mat else 0.0
         )
-        if sel and sel["selection"]["rows"]:
-            st.session_state.mat_global = materiales[df_v.index[sel["selection"]["rows"][0]]]
-    else:
-        st.info("No hay materiales")
 
-# ----- FORM CRUD -----
-with col2:
-    mat = st.session_state.mat_global
-    st.subheader("✏️ Editar" if mat else "➕ Nuevo")
-
-    nombre = st.text_input("Nombre", value=mat["nombre"] if mat else "")
-    unidad = st.text_input("Unidad", value=mat["unidad"] if mat else "")
-    precio = st.number_input(
-        "Precio unitario",
-        0.0,
-        step=0.01,
-        value=float(mat["precio_unitario"]) if mat else 0.0
-    )
-
-    if mat:
-        if st.button("Actualizar", type="primary", use_container_width=True):
-            db.collection("materiales").document(mat["id"]).update({
-                "nombre": nombre,
-                "unidad": unidad,
-                "precio_unitario": precio
-            })
-            reset()
-
-        if st.button("Eliminar", use_container_width=True):
-            db.collection("materiales").document(mat["id"]).delete()
-            reset()
-    else:
-        if st.button("Crear material", type="primary", use_container_width=True):
-            if nombre and unidad:
-                db.collection("materiales").add({
+        if mat:
+            if st.button("Actualizar", type="primary", use_container_width=True):
+                db.collection("materiales").document(mat["id"]).update({
                     "nombre": nombre,
                     "unidad": unidad,
-                    "precio_unitario": precio,
-                    "creado": datetime.now()
+                    "precio_unitario": precio
                 })
                 reset()
-            else:
-                st.error("Campos obligatorios")
+
+            if st.button("Eliminar", use_container_width=True):
+                db.collection("materiales").document(mat["id"]).delete()
+                reset()
+        else:
+            if st.button("Crear material", type="primary", use_container_width=True):
+                if nombre and unidad:
+                    db.collection("materiales").add({
+                        "nombre": nombre,
+                        "unidad": unidad,
+                        "precio_unitario": precio,
+                        "creado": datetime.now()
+                    })
+                    reset()
+                else:
+                    st.error("Campos obligatorios")
+
+    # ⛔ IMPORTANTE: corta aquí
+    st.stop()
+
 
 # ================== SECCIÓN B ==================
 st.divider()
 st.header("➕ Asignar material a la obra")
+
+# Obtener datos de la obra para validar presupuesto
+obra_info = db.collection("obras").document(obra_id).get().to_dict()
+saldo_mats = float(obra_info.get("presupuesto_materiales", 0))
+
+st.info(f"💰 Saldo disponible para materiales: S/ {saldo_mats:,.2f}")
 
 if materiales:
     mat_sel = st.selectbox(
@@ -177,22 +230,24 @@ if materiales:
         format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
     )
     cantidad = st.number_input("Cantidad", min_value=1.0, step=1.0)
+    costo_total = cantidad * mat_sel["precio_unitario"]
 
     if st.button("Asignar a obra", type="primary"):
-        db.collection("obras").document(obra_id).collection("materiales").add({
-            "material_id": mat_sel["id"],
-            "nombre": mat_sel["nombre"],
-            "unidad": mat_sel["unidad"],
-            "cantidad": cantidad,
-            "precio_unitario": mat_sel["precio_unitario"],
-            "subtotal": round(cantidad * mat_sel["precio_unitario"], 2),
-            "fecha": datetime.now()
-        })
-        # Actualización automática en Firebase
-        recalcular_presupuesto_obra(obra_id)
-        st.success("Material asignado y presupuesto actualizado")
-        st.rerun()
-
+        if costo_total > saldo_mats:
+            st.error(f"❌ Presupuesto insuficiente. El costo es S/ {costo_total:,.2f} y solo tienes S/ {saldo_mats:,.2f}")
+        else:
+            db.collection("obras").document(obra_id).collection("materiales").add({
+                "material_id": mat_sel["id"],
+                "nombre": mat_sel["nombre"],
+                "unidad": mat_sel["unidad"],
+                "cantidad": cantidad,
+                "precio_unitario": mat_sel["precio_unitario"],
+                "subtotal": round(costo_total, 2),
+                "fecha": datetime.now()
+            })
+            recalcular_presupuesto_obra(obra_id)
+            st.success("Material asignado y saldo actualizado")
+            st.rerun()
 # ================== SECCIÓN C ==================
 st.divider()
 st.header("🧾 Materiales de la obra")
@@ -270,20 +325,19 @@ if archivo:
             recalcular_presupuesto_obra(obra_id)
             st.success("Materiales importados y presupuesto actualizado")
             st.rerun()
-
-# ================== SECCIÓN E ==================
+# ================== SECCIÓN E (REESTRUCTURADA) ==================
 st.divider()
-st.header("💰 Presupuesto total de la obra")
+st.header("💰 Estado del Presupuesto de Materiales")
 
-total_actual_mats = sum(float(m.get("subtotal", 0)) for m in mats_obra)
-st.metric("Total Materiales", f"S/ {total_actual_mats:,.2f}")
+obra_final = db.collection("obras").document(obra_id).get().to_dict()
+p_total = float(obra_final.get("presupuesto_materiales", 0))
+p_actual = float(obra_final.get("presupuesto_materiales_actual", p_total))
+p_gastado = float(obra_final.get("gasto_acumulado", 0))
 
-# El presupuesto ya se actualiza solo, pero mantengo el botón por si quieres forzar sincronización
-if st.button("Sincronizar Presupuesto Total ahora", type="secondary"):
-    total = recalcular_presupuesto_obra(obra_id)
-    st.success(f"Presupuesto de materiales (S/ {total:,.2f}) sincronizado con el total de la obra.")
-    st.rerun()
-
+c1, c2, c3 = st.columns(3)
+c1.metric("Presupuesto Total", f"S/ {p_total:,.2f}")
+c2.metric("Presupuesto Actual", f"S/ {p_actual:,.2f}", delta=f"{-p_gastado:,.2f}", delta_color="inverse")
+c3.metric("Total Gastado", f"S/ {p_gastado:,.2f}")
 # ================== SECCIÓN X ==================
 st.divider()
 st.header("📤 Exportar materiales de la obra a Excel")
