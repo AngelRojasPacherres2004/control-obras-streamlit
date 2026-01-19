@@ -37,29 +37,34 @@ ROLES_CONSTRUCCION = [
 # ================= FUNCIONES DE CÁLCULO =================
 def recalcular_mano_obra(obra_id):
     """
-    Mantiene el presupuesto_mano_obra intacto y calcula el saldo disponible 
-    restando el sueldo total comprometido del personal.
+    Suma el presupuesto asignado a cada trabajador y actualiza el saldo
+    disponible en el documento principal de la obra.
     """
-    # 1. Sumar lo que ganan todos los trabajadores actuales
+    # 1. Obtener todos los trabajadores de la subcolección
     trabajadores_docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
-    total_gastado_personal = sum(float(d.to_dict().get("presupuesto", 0)) for d in trabajadores_docs)
     
+    # 2. Calcular el total comprometido en sueldos
+    total_en_planillas = 0.0
+    for d in trabajadores_docs:
+        data_t = d.to_dict()
+        total_en_planillas += float(data_t.get("presupuesto", 0))
+    
+    # 3. Obtener el presupuesto inicial de la obra
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    # 2. El presupuesto original es 'presupuesto_mano_obra' (el fijo definido en obras.py)
-    p_mo_original = float(obra_data.get("presupuesto_mano_obra", 0))
+    p_mo_inicial = float(obra_data.get("presupuesto_mano_obra", 0))
     
-    # 3. Cálculo del saldo que queda para contratar más gente
-    saldo_disponible_mo = p_mo_original - total_gastado_personal
+    # 4. Calcular saldo restante
+    saldo_disponible = p_mo_inicial - total_en_planillas
     
-    # 4. Actualización en Firebase: NO tocamos presupuesto_mano_obra
+    # 5. ACTUALIZACIÓN CRÍTICA: Estos nombres de campos deben coincidir en obras.py
     obra_ref.update({
-        "presupuesto_mano_obra_actual": round(saldo_disponible_mo, 2), # Saldo dinámico
-        "gasto_mano_obra_acumulado": round(total_gastado_personal, 2), # Gasto total en personal
-        "presupuesto_actualizado": datetime.now()
+        "presupuesto_mano_obra_actual": round(saldo_disponible, 2),
+        "gasto_mano_obra": round(total_en_planillas, 2), # Cambiado a 'gasto_mano_obra' para estandarizar
+        "fecha_actualizacion_mo": datetime.now()
     })
-    return saldo_disponible_mo
+    return saldo_disponible
 def tiene_presupuesto_disponible(obra_id, monto_a_sumar):
     """Verifica si el nuevo trabajador cabe en el presupuesto total de la obra."""
     obra_ref = db.collection("obras").document(obra_id).get().to_dict()
@@ -115,30 +120,35 @@ if not obra_id_sel:
 
 nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
 st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
-
 # --- MÉTRICAS ACTUALIZADAS EN EL SIDEBAR ---
-obra_ref_sidebar = db.collection("obras").document(obra_id_sel).get()
-if obra_ref_sidebar.exists:
-    obra_data_sidebar = obra_ref_sidebar.to_dict()
+obra_snap = db.collection("obras").document(obra_id_sel).get()
+if obra_snap.exists:
+    obra_d = obra_snap.to_dict()
     
-    # Presupuesto Fijo vs Saldo Actual
-    p_mo_total = float(obra_data_sidebar.get("presupuesto_mano_obra", 0))
-    p_mo_quedan = float(obra_data_sidebar.get("presupuesto_mano_obra_actual", p_mo_total))
-    p_mo_gastado = float(obra_data_sidebar.get("gasto_mano_obra_acumulado", 0))
+    # Extraer valores con seguros (defaults)
+    p_mo_fijo = float(obra_d.get("presupuesto_mano_obra", 0))
+    p_mo_restante = float(obra_d.get("presupuesto_mano_obra_actual", p_mo_fijo))
+    p_mo_gastado = float(obra_d.get("gasto_mano_obra", 0))
     
     st.sidebar.divider()
     st.sidebar.subheader("📊 Resumen Mano de Obra")
     
+    # Métrica principal
     st.sidebar.metric(
-        label="Saldo para Contratar", 
-        value=f"S/ {p_mo_quedan:,.2f}",
-        delta=f"- S/ {p_mo_gastado:,.2f} en planillas",
+        label="Disponible para contratar", 
+        value=f"S/ {p_mo_restante:,.2f}",
+        delta=f"Gastado: S/ {p_mo_gastado:,.2f}",
         delta_color="inverse"
     )
     
-    if p_mo_total > 0:
-        progreso_mo = max(0.0, min(1.0, p_mo_quedan / p_mo_total))
-        st.sidebar.progress(progreso_mo, text=f"Disponible: {progreso_mo*100:.1f}%")
+    # Barra de progreso
+    if p_mo_fijo > 0:
+        # Calcular porcentaje disponible
+        porcentaje = max(0.0, min(1.0, p_mo_restante / p_mo_fijo))
+        st.sidebar.progress(porcentaje, text=f"Cupo: {porcentaje*100:.1f}%")
+        
+    if p_mo_restante < 0:
+        st.sidebar.error("⚠️ Presupuesto excedido")
 # ================= CRUD TRABAJADORES =================
 tab1, tab2 = st.tabs(["➕ Registrar Personal", "📋 Lista y Edición"])
 
@@ -272,11 +282,13 @@ with tab2:
                     st.success("Datos actualizados correctamente")
                     st.rerun()
                     
+                
+                    # Dentro del Tab 2, en la parte de eliminar:
                 if btn_delete:
-                    # Opcional: Podrías añadir un código aquí para borrar la imagen de Cloudinary también
                     db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).delete()
-                    recalcular_mano_obra(obra_id_sel)
-                    st.warning("Trabajador eliminado")
+                    # Esta llamada es la que sincroniza con obras.py
+                    recalcular_mano_obra(obra_id_sel) 
+                    st.warning("Trabajador eliminado y presupuesto liberado")
                     st.rerun()
 # ================= EXPORTAR =================
 if trabajadores:

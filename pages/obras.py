@@ -190,19 +190,22 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                     oid = datos['nombre'].lower().strip().replace(" ", "_")
                     ahora = datetime.now(local_tz)
                     
+                    
                     db.collection("obras").document(oid).set({
-                        "nombre": datos['nombre'],
-                        "ubicacion": datos['ubicacion'],
-                        "estado": datos['estado'],
-                        "fecha_inicio": datetime.combine(datos['f_inicio'], datetime.min.time()),
-                        "fecha_fin_estimado": datetime.combine(datos['f_fin'], datetime.min.time()),
-                        "presupuesto_caja_chica": datos['p_caja'],
-                        "presupuesto_mano_obra": datos['p_mano'],
-                        "presupuesto_materiales": datos['p_mats_total'],
-                        "presupuesto_materiales_semanal": lista_semanas,
-                        "presupuesto_total": datos['p_caja'] + datos['p_mano'] + datos['p_mats_total'],
-                        "gasto_acumulado": 0, "gastos_adicionales": 0, "gasto_mano_obra": 0,
-                        "creado_en": ahora
+                    "nombre": datos['nombre'],
+                    "ubicacion": datos['ubicacion'],
+                    "estado": datos['estado'],
+                    "fecha_inicio": datetime.combine(datos['f_inicio'], datetime.min.time()),
+                    "fecha_fin_estimado": datetime.combine(datos['f_fin'], datetime.min.time()),
+                    "presupuesto_caja_chica": datos['p_caja'],
+                    "presupuesto_mano_obra": datos['p_mano'],
+                    "presupuesto_materiales": datos['p_mats_total'],
+                    "presupuesto_materiales_semanal": lista_semanas,
+                    "presupuesto_total": datos['p_caja'] + datos['p_mano'] + datos['p_mats_total'],
+                    "gasto_materiales": 0,      
+                    "gasto_caja_chica": 0,     
+                    "gasto_mano_obra": 0,       
+                    "creado_en": ahora
                     })
                     
                     st.session_state.paso_creacion = 1
@@ -234,12 +237,12 @@ st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}"
 # --- LÓGICA DE CÁLCULOS (CORREGIDA) ---
 # 1. Caja Chica
 p_caja_ini = float(obra_data.get("presupuesto_caja_chica", 0))
-g_caja_uso = float(obra_data.get("gastos_adicionales", 0))
+g_caja_uso = float(obra_data.get("gasto_caja_chica", 0))
 p_caja_act = p_caja_ini - g_caja_uso
 
 # 2. Materiales
 p_mats_ini = float(obra_data.get("presupuesto_materiales", 0))
-g_mats_uso = float(obra_data.get("gasto_acumulado", 0)) 
+g_mats_uso = float(obra_data.get("gasto_materiales", 0)) 
 p_mats_act = p_mats_ini - g_mats_uso
 
 # 3. Mano de Obra
@@ -328,7 +331,7 @@ if auth["role"] == "pasante":
                     "descripcion": desc,
                     "problematica": prob_input,
                     "solucion": sol_input,
-                    "gasto_adicional": gasto_caja_input,
+                    "gasto_caja_chica": gasto_caja_input,
                     "materiales_usados": mats_usados,
                     "costo_total_dia": costo_dia_mats,
                     "fotos": urls
@@ -336,25 +339,36 @@ if auth["role"] == "pasante":
                 
                 # Actualizar acumulados de la obra
                 db.collection("obras").document(obra_id_sel).update({
-                    "gasto_acumulado": firestore.Increment(costo_dia_mats),
-                    "gastos_adicionales": firestore.Increment(gasto_caja_input)
+                    "gasto_materiales": firestore.Increment(costo_dia_mats),
+                    "gastos_caja_chica": firestore.Increment(gasto_caja_input)
                 })
                 st.success("✅ Avance guardado correctamente")
                 st.rerun()
-
-# ================= ANÁLISIS ECONÓMICO =================
+# Carga única de avances para usar en toda la página (Gráficos, Historial y Excel)
+avances_lista = cargar_avances(obra_id_sel)
+# ================= ANÁLISIS ECONÓMICO (REPARADO) =================
 st.divider()
 st.subheader("📊 Resumen de Gastos")
 
-avances_lista = cargar_avances(obra_id_sel)
+g_mats = float(obra_data.get("gasto_materiales", 0))
+g_caja = float(obra_data.get("gastos_caja_chica", 0))
+g_mano = float(obra_data.get("gasto_mano_obra", 0))
+p_total_ini = float(obra_data.get("presupuesto_total", 0))
 
-if avances_lista:
-    total_gastado = float(obra_data.get("gasto_acumulado", 0)) + float(obra_data.get("gastos_adicionales", 0))+ float(obra_data.get("gasto_mano_obra", 0))
-    porcentaje = min(total_gastado / p_total_ini, 1.0) if p_total_ini > 0 else 0
-    st.write(f"**Gasto Real Total (Materiales + Caja+ Mano de obra):** S/ {total_gastado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
+total_gastado = g_mats + g_caja + g_mano
+
+if p_total_ini > 0:
+    porcentaje = min(total_gastado / p_total_ini, 1.0)
+    st.write(f"**Gasto Real Total:** S/ {total_gastado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
     st.progress(porcentaje)
-
-
+    
+    # Desglose visual rápido
+    c1, c2, c3 = st.columns(3)
+    c1.caption(f"🧱 Mats: S/ {g_mats:,.2f}")
+    c2.caption(f"📦 Caja: S/ {g_caja:,.2f}")
+    c3.caption(f"👷 Mano Obra: S/ {g_mano:,.2f}")
+else:
+    st.info("Presupuesto no configurado.")
 # ================= DASHBOARD DE AVANCES =================
 st.divider()
 st.subheader("📊 Avance económico de la obra")
@@ -421,7 +435,7 @@ else:
                 avance = r["avance"]
     
                 gasto_materiales = avance.get("costo_total_dia", 0) or 0
-                gasto_caja = avance.get("gasto_adicional", 0) or 0
+                gasto_caja = avance.get("gasto_caja_chica", 0) or 0
     
                 gastos_por_dia[dia] += gasto_materiales + gasto_caja
     
@@ -449,10 +463,11 @@ else:
 
         st.bar_chart(chart_df, height=300)
 
-# ================= HISTORIAL DE AVANCES (CON PROBLEMÁTICA Y CAJA) =================
+# ================= HISTORIAL DE AVANCES =================
 st.divider()
 st.header("📚 Historial de Avances")
 
+# Usamos avances_lista que definimos al inicio de la página
 if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
@@ -479,7 +494,7 @@ else:
             # --- MÉTRICAS DEL DÍA ---
             c_col1, c_col2 = st.columns(2)
             c_col1.metric("Costo Materiales", f"S/ {av.get('costo_total_dia', 0):,.2f}")
-            c_col2.metric("Gasto Caja Chica", f"S/ {av.get('gasto_adicional', 0):,.2f}")
+            c_col2.metric("Gasto Caja Chica", f"S/ {av.get('gasto_caja_chica', 0):,.2f}")
             
             # --- FOTOS ---
             fotos = av.get("fotos", [])
@@ -543,8 +558,8 @@ def exportar_obra_excel(obra_id: str):
         "Presupuesto Materiales (S/)": obra.get("presupuesto_materiales", 0),
         "Presupuesto Mano de Obra (S/)": obra.get("presupuesto_mano_obra", 0),
         "Presupuesto Total (S/)": obra.get("presupuesto_total", 0),
-        "Gasto Materiales (S/)": obra.get("gasto_acumulado", 0),
-        "Gasto Caja Chica (S/)": obra.get("gastos_adicionales", 0),
+        "Gasto Materiales (S/)": obra.get("gasto_materiales", 0),
+        "Gasto Caja Chica (S/)": obra.get("gastos_caja_chica", 0),
         "Gasto Mano de Obra (S/)": obra.get("gasto_mano_obra", 0),
     }])
 
