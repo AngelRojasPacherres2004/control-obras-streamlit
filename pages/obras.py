@@ -344,37 +344,31 @@ if auth["role"] == "pasante":
                 })
                 st.success("✅ Avance guardado correctamente")
                 st.rerun()
-
-# ================= ANÁLISIS ECONÓMICO (CORREGIDO) =================
+# Carga única de avances para usar en toda la página (Gráficos, Historial y Excel)
+avances_lista = cargar_avances(obra_id_sel)
+# ================= ANÁLISIS ECONÓMICO (REPARADO) =================
 st.divider()
-st.subheader("📊 Resumen de Gastos Generales")
+st.subheader("📊 Resumen de Gastos")
 
-# Calculamos el total sumando los tres rubros desde la data de la obra
 g_mats = float(obra_data.get("gasto_materiales", 0))
 g_caja = float(obra_data.get("gastos_caja_chica", 0))
 g_mano = float(obra_data.get("gasto_mano_obra", 0))
+p_total_ini = float(obra_data.get("presupuesto_total", 0))
 
-total_gastado_real = g_mats + g_caja + g_mano
+total_gastado = g_mats + g_caja + g_mano
 
 if p_total_ini > 0:
-    porcentaje_total = min(total_gastado_real / p_total_ini, 1.0)
+    porcentaje = min(total_gastado / p_total_ini, 1.0)
+    st.write(f"**Gasto Real Total:** S/ {total_gastado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
+    st.progress(porcentaje)
     
-    # Mostramos el progreso aunque no haya "avances" de pasantes aún
-    st.write(f"**Gasto Real Acumulado:** S/ {total_gastado_real:,.2f} de un presupuesto total de S/ {p_total_ini:,.2f}")
-    
-    # Color dinámico: rojo si supera el 90%
-    if porcentaje_total > 0.9:
-        st.error(f"¡Atención! Has consumido el {porcentaje_total*100:.1f}% del presupuesto total.")
-    
-    st.progress(porcentaje_total)
-    
-    # Desglose pequeño
-    col_d1, col_d2, col_d3 = st.columns(3)
-    col_d1.caption(f"🧱 Mats: S/ {g_mats:,.2f}")
-    col_d2.caption(f"📦 Caja: S/ {g_caja:,.2f}")
-    col_d3.caption(f"👷 Personal: S/ {g_mano:,.2f}")
+    # Desglose visual rápido
+    c1, c2, c3 = st.columns(3)
+    c1.caption(f"🧱 Mats: S/ {g_mats:,.2f}")
+    c2.caption(f"📦 Caja: S/ {g_caja:,.2f}")
+    c3.caption(f"👷 Mano Obra: S/ {g_mano:,.2f}")
 else:
-    st.info("Configura los presupuestos iniciales para ver el análisis económico.")
+    st.info("Presupuesto no configurado.")
 # ================= DASHBOARD DE AVANCES =================
 st.divider()
 st.subheader("📊 Avance económico de la obra")
@@ -469,10 +463,11 @@ else:
 
         st.bar_chart(chart_df, height=300)
 
-# ================= HISTORIAL DE AVANCES (CON PROBLEMÁTICA Y CAJA) =================
+# ================= HISTORIAL DE AVANCES =================
 st.divider()
 st.header("📚 Historial de Avances")
 
+# Usamos avances_lista que definimos al inicio de la página
 if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
