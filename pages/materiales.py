@@ -1,12 +1,21 @@
-"materiales.py"
 import streamlit as st
 import pandas as pd
 from datetime import datetime
 from firebase_admin import firestore
 from io import BytesIO
+import cloudinary
+import cloudinary.uploader
 
 # ================= DB =================
 db = firestore.client()
+
+# Configuración Cloudinary
+cloudinary.config(
+    cloud_name=st.secrets["cloudinary"]["cloud_name"],
+    api_key=st.secrets["cloudinary"]["api_key"],
+    api_secret=st.secrets["cloudinary"]["api_secret"],
+    secure=True
+)
 
 # ================= SEGURIDAD =================
 if "auth" not in st.session_state:
@@ -40,11 +49,12 @@ def recalcular_presupuesto_obra(obra_id):
     
     # 4. Actualización: NO tocamos presupuesto_materiales
     obra_ref.update({
-        "presupuesto_materiales_actual": round(saldo_actual, 2), # Campo nuevo/actualizado
-        "gasto_acumulado": round(total_gastado, 2),             # Sincronizado con obras.py
+        "presupuesto_materiales_actual": round(saldo_actual, 2),
+        "gasto_materiales": round(total_gastado, 2),
         "presupuesto_actualizado": datetime.now()
     })
     return saldo_actual
+
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -101,6 +111,7 @@ st.session_state["obra_id_global"] = obra_id
 
 # 5. Mostrar confirmación visual de la obra activa
 st.sidebar.success(f"🏗️ Obra activa: **{OBRAS.get(obra_id)}**")
+
 # --- MÉTRICAS ACTUALIZADAS EN EL SIDEBAR ---
 obra_ref_sidebar = db.collection("obras").document(obra_id).get()
 if obra_ref_sidebar.exists:
@@ -110,7 +121,7 @@ if obra_ref_sidebar.exists:
     p_mats_total = float(obra_data_sidebar.get("presupuesto_materiales", 0))
     # presupuesto_materiales_actual es lo que QUEDA
     p_mats_quedan = float(obra_data_sidebar.get("presupuesto_materiales_actual", p_mats_total))
-    p_mats_gastado = float(obra_data_sidebar.get("gasto_acumulado", 0))
+    p_mats_gastado = float(obra_data_sidebar.get("gasto_materiales", 0))
     
     st.sidebar.divider()
     st.sidebar.subheader("📊 Resumen Materiales")
@@ -131,6 +142,7 @@ st.sidebar.divider()
 if not obra_id:
     st.warning("⚠️ No hay obras registradas. Crea una primero en la sección de Obras.")
     st.stop()
+
 # 🔹 Cargar materiales globales UNA SOLA VEZ
 materiales = cargar_materiales()
 
@@ -139,7 +151,6 @@ if st.session_state["vista_materiales_globales"]:
 
     st.header("📦 Materiales globales")
 
-   
     df_mat = pd.DataFrame(materiales)
 
     col1, col2 = st.columns([1.5, 1])
@@ -212,42 +223,60 @@ if st.session_state["vista_materiales_globales"]:
     # ⛔ IMPORTANTE: corta aquí
     st.stop()
 
-
-# ================== SECCIÓN B ==================
+# ================== SECCIÓN B (CORREGIDA) ==================
 st.divider()
 st.header("➕ Asignar material a la obra")
 
-# Obtener datos de la obra para validar presupuesto
-obra_info = db.collection("obras").document(obra_id).get().to_dict()
-saldo_mats = float(obra_info.get("presupuesto_materiales", 0))
+# Obtener datos de la obra con validación de existencia de campos
+obra_doc = db.collection("obras").document(obra_id).get()
+if obra_doc.exists:
+    obra_info = obra_doc.to_dict()
+    # Si el campo 'actual' no existe, usamos el presupuesto total como inicial
+    p_total = float(obra_info.get("presupuesto_materiales", 0))
+    p_actual = float(obra_info.get("presupuesto_materiales_actual", p_total))
+    
+    st.info(f"💰 Saldo disponible: S/ {p_actual:,.2f}")
 
-st.info(f"💰 Saldo disponible para materiales: S/ {saldo_mats:,.2f}")
+    if materiales:
+        # Usamos un formulario para evitar ejecuciones parciales
+        with st.form("form_asignar_material"):
+            mat_sel = st.selectbox(
+                "Seleccionar Material",
+                options=materiales,
+                format_func=lambda x: f"{x['nombre']} ({x['unidad']}) - S/ {x['precio_unitario']}"
+            )
+            cantidad = st.number_input("Cantidad", min_value=0.1, step=1.0, value=1.0)
+            
+            btn_asignar = st.form_submit_button("Asignar a obra", type="primary")
 
-if materiales:
-    mat_sel = st.selectbox(
-        "Material",
-        options=materiales,
-        format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
-    )
-    cantidad = st.number_input("Cantidad", min_value=1.0, step=1.0)
-    costo_total = cantidad * mat_sel["precio_unitario"]
-
-    if st.button("Asignar a obra", type="primary"):
-        if costo_total > saldo_mats:
-            st.error(f"❌ Presupuesto insuficiente. El costo es S/ {costo_total:,.2f} y solo tienes S/ {saldo_mats:,.2f}")
-        else:
-            db.collection("obras").document(obra_id).collection("materiales").add({
-                "material_id": mat_sel["id"],
-                "nombre": mat_sel["nombre"],
-                "unidad": mat_sel["unidad"],
-                "cantidad": cantidad,
-                "precio_unitario": mat_sel["precio_unitario"],
-                "subtotal": round(costo_total, 2),
-                "fecha": datetime.now()
-            })
-            recalcular_presupuesto_obra(obra_id)
-            st.success("Material asignado y saldo actualizado")
-            st.rerun()
+            if btn_asignar:
+                costo_total = round(cantidad * mat_sel["precio_unitario"], 2)
+                
+                # Volvemos a consultar el saldo más reciente antes de guardar
+                obra_ref = db.collection("obras").document(obra_id)
+                saldo_fresco = float(obra_ref.get().to_dict().get("presupuesto_materiales_actual", p_total))
+                
+                if costo_total > saldo_fresco:
+                    st.error(f"❌ Presupuesto insuficiente. Costo: S/ {costo_total:,.2f} | Disponible: S/ {saldo_fresco:,.2f}")
+                else:
+                    # 1. Agregar a la subcolección
+                    obra_ref.collection("materiales").add({
+                        "material_id": mat_sel["id"],
+                        "nombre": mat_sel["nombre"],
+                        "unidad": mat_sel["unidad"],
+                        "cantidad": cantidad,
+                        "precio_unitario": mat_sel["precio_unitario"],
+                        "subtotal": costo_total,
+                        "fecha": datetime.now()
+                    })
+                    
+                    # 2. Actualizar saldos en el documento padre (Obra)
+                    recalcular_presupuesto_obra(obra_id)
+                    
+                    st.success(f"✅ {mat_sel['nombre']} asignado correctamente.")
+                    st.rerun()
+else:
+    st.error("No se encontró la información de la obra.")
 # ================== SECCIÓN C ==================
 st.divider()
 st.header("🧾 Materiales de la obra")
@@ -293,7 +322,8 @@ if mat_o:
         db.collection("obras").document(obra_id) \
             .collection("materiales").document(mat_o["id"]).delete()
         # Actualización automática en Firebase
-        recalcular_presupuesto_obra(obra_id)
+        nuevo_saldo = recalcular_presupuesto_obra(obra_id)
+        st.success(f"✅ Material eliminado. Nuevo saldo: S/ {nuevo_saldo:,.2f}")
         reset()
 
 # ================== SECCIÓN D ==================
@@ -312,50 +342,209 @@ if archivo:
         st.dataframe(df_excel, use_container_width=True)
 
         if st.button("Importar materiales a la obra", type="primary"):
-            for _, r in df_excel.iterrows():
-                db.collection("obras").document(obra_id).collection("materiales").add({
-                    "nombre": r["nombre"],
-                    "unidad": r["unidad"],
-                    "cantidad": float(r["cantidad"]),
-                    "precio_unitario": float(r["precio_unitario"]),
-                    "subtotal": round(float(r["cantidad"] * r["precio_unitario"]), 2),
-                    "fecha": datetime.now()
-                })
-            # Actualización automática masiva en Firebase
-            recalcular_presupuesto_obra(obra_id)
-            st.success("Materiales importados y presupuesto actualizado")
-            st.rerun()
-# ================== SECCIÓN E (REESTRUCTURADA) ==================
+            total_importacion = df_excel["subtotal"].sum()
+            obra_actual = db.collection("obras").document(obra_id).get().to_dict()
+            saldo_disponible = float(obra_actual.get("presupuesto_materiales_actual", 0))
+            
+            if total_importacion > saldo_disponible:
+                st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
+            else:
+                for _, r in df_excel.iterrows():
+                    db.collection("obras").document(obra_id).collection("materiales").add({
+                        "nombre": r["nombre"],
+                        "unidad": r["unidad"],
+                        "cantidad": float(r["cantidad"]),
+                        "precio_unitario": float(r["precio_unitario"]),
+                        "subtotal": round(float(r["cantidad"] * r["precio_unitario"]), 2),
+                        "fecha": datetime.now()
+                    })
+                nuevo_saldo = recalcular_presupuesto_obra(obra_id)
+                st.success(f"✅ {len(df_excel)} materiales importados. Nuevo saldo: S/ {nuevo_saldo:,.2f}")
+                st.rerun()
+
+# ================== SECCIÓN E (MEJORADA) ==================
 st.divider()
 st.header("💰 Estado del Presupuesto de Materiales")
 
 obra_final = db.collection("obras").document(obra_id).get().to_dict()
-p_total = float(obra_final.get("presupuesto_materiales", 0))
-p_actual = float(obra_final.get("presupuesto_materiales_actual", p_total))
-p_gastado = float(obra_final.get("gasto_acumulado", 0))
+p_total_final = float(obra_final.get("presupuesto_materiales", 0))
+p_actual_final = float(obra_final.get("presupuesto_materiales_actual", p_total_final))
+p_gastado_final = float(obra_final.get("gasto_materiales", 0))
 
 c1, c2, c3 = st.columns(3)
-c1.metric("Presupuesto Total", f"S/ {p_total:,.2f}")
-c2.metric("Presupuesto Actual", f"S/ {p_actual:,.2f}", delta=f"{-p_gastado:,.2f}", delta_color="inverse")
-c3.metric("Total Gastado", f"S/ {p_gastado:,.2f}")
+c1.metric("Presupuesto Total", f"S/ {p_total_final:,.2f}")
+c2.metric("Disponible", f"S/ {p_actual_final:,.2f}", delta=f"-{p_gastado_final:,.2f}", delta_color="inverse")
+c3.metric("Gastado", f"S/ {p_gastado_final:,.2f}")
+
+# Barra de progreso visual
+if p_total_final > 0:
+    porcentaje_gastado = (p_gastado_final / p_total_final) * 100
+    st.progress(p_gastado_final / p_total_final, text=f"💸 Gastado: {porcentaje_gastado:.1f}%")
+
+# ================== SECCIÓN F - GESTIÓN DE RECIBOS ==================
+st.divider()
+st.header("🧾 Gestión de Recibos de Materiales")
+
+tab1, tab2 = st.tabs(["📤 Subir Recibo", "📋 Ver Recibos"])
+
+# ---------- TAB 1: SUBIR RECIBO ----------
+with tab1:
+    st.subheader("Subir recibo de compra de materiales")
+    
+    with st.form("form_subir_recibo", clear_on_submit=True):
+        col_r1, col_r2 = st.columns(2)
+        
+        proveedor = col_r1.text_input("Proveedor")
+        monto_recibo = col_r2.number_input("Monto Total (S/)", min_value=0.0, step=10.0)
+        
+        fecha_recibo = st.date_input("Fecha del recibo", value=datetime.now().date())
+        descripcion_recibo = st.text_area("Descripción / Concepto")
+        
+        # Campo para subir fotos
+        fotos_recibo = st.file_uploader(
+            "📸 Subir fotos del recibo/boleta",
+            type=["jpg", "png", "jpeg"],
+            accept_multiple_files=True,
+            help="Puedes subir múltiples fotos del recibo"
+        )
+        
+        submit_recibo = st.form_submit_button("💾 Guardar Recibo", type="primary")
+    
+    if submit_recibo:
+        if not proveedor or monto_recibo <= 0 or not fotos_recibo:
+            st.error("⚠️ Completa todos los campos y sube al menos una foto del recibo")
+        else:
+            with st.spinner("Subiendo recibo a la nube..."):
+                try:
+                    # Subir fotos a Cloudinary
+                    urls_recibo = []
+                    for foto in fotos_recibo:
+                        resultado = cloudinary.uploader.upload(
+                            foto,
+                            folder=f"obras/{obra_id}/recibos"
+                        )
+                        urls_recibo.append(resultado["secure_url"])
+                    
+                    # Guardar en Firebase
+                    db.collection("obras").document(obra_id).collection("recibos").add({
+                        "proveedor": proveedor,
+                        "monto": monto_recibo,
+                        "fecha": datetime.combine(fecha_recibo, datetime.min.time()),
+                        "descripcion": descripcion_recibo,
+                        "fotos": urls_recibo,
+                        "subido_por": st.session_state["auth"].get("username", "Desconocido"),
+                        "timestamp": datetime.now()
+                    })
+                    
+                    st.success(f"✅ Recibo guardado exitosamente con {len(urls_recibo)} foto(s)")
+                    st.rerun()
+                    
+                except Exception as e:
+                    st.error(f"❌ Error al subir el recibo: {str(e)}")
+
+# ---------- TAB 2: VER RECIBOS ----------
+with tab2:
+    # Cargar recibos de la obra
+    recibos_docs = db.collection("obras").document(obra_id).collection("recibos") \
+        .order_by("timestamp", direction=firestore.Query.DESCENDING).stream()
+    
+    recibos_lista = [{"id": d.id, **d.to_dict()} for d in recibos_docs]
+    
+    if not recibos_lista:
+        st.info("📭 No hay recibos registrados para esta obra")
+    else:
+        # Mostrar resumen
+        total_recibos = sum(r.get("monto", 0) for r in recibos_lista)
+        col_t1, col_t2 = st.columns(2)
+        col_t1.metric("Total de Recibos", len(recibos_lista))
+        col_t2.metric("Monto Total Registrado", f"S/ {total_recibos:,.2f}")
+        
+        st.divider()
+        
+        # Mostrar cada recibo
+        for recibo in recibos_lista:
+            with st.expander(
+                f"🧾 {recibo.get('proveedor', 'Sin proveedor')} - S/ {recibo.get('monto', 0):,.2f}",
+                expanded=False
+            ):
+                col_det1, col_det2 = st.columns(2)
+                
+                # Información del recibo
+                fecha_r = recibo.get("fecha")
+                if fecha_r:
+                    fecha_texto = fecha_r.strftime("%d/%m/%Y") if hasattr(fecha_r, 'strftime') else str(fecha_r)
+                else:
+                    fecha_texto = "Sin fecha"
+                
+                col_det1.write(f"**Fecha:** {fecha_texto}")
+                col_det2.write(f"**Monto:** S/ {recibo.get('monto', 0):,.2f}")
+                
+                st.write(f"**Descripción:** {recibo.get('descripcion', 'Sin descripción')}")
+                st.caption(f"Subido por: {recibo.get('subido_por', 'Desconocido')}")
+                
+                # Mostrar fotos
+                fotos = recibo.get("fotos", [])
+                if fotos:
+                    st.write("**📸 Fotos del recibo:**")
+                    cols_fotos = st.columns(min(len(fotos), 3))
+                    for i, url in enumerate(fotos):
+                        cols_fotos[i % 3].image(url, use_container_width=True)
+                
+                # Botón para eliminar recibo
+                if st.button(f"🗑️ Eliminar recibo", key=f"del_recibo_{recibo['id']}"):
+                    db.collection("obras").document(obra_id).collection("recibos").document(recibo["id"]).delete()
+                    st.success("✅ Recibo eliminado")
+                    st.rerun()
+
 # ================== SECCIÓN X ==================
 st.divider()
-st.header("📤 Exportar materiales de la obra a Excel")
+st.header("📤 Exportar materiales y recibos a Excel")
 
+# Preparar datos de materiales
 if mats_obra:
-    df_export = pd.DataFrame(mats_obra)
-    df_export = df_export[["nombre", "unidad", "precio_unitario", "cantidad", "subtotal"]]
+    df_export_mats = pd.DataFrame(mats_obra)
+    df_export_mats = df_export_mats[["nombre", "unidad", "precio_unitario", "cantidad", "subtotal"]]
+else:
+    df_export_mats = pd.DataFrame()
 
+# Preparar datos de recibos
+recibos_export = db.collection("obras").document(obra_id).collection("recibos").stream()
+recibos_data = []
+for r in recibos_export:
+    r_dict = r.to_dict()
+    fecha_r = r_dict.get("fecha")
+    fecha_str = fecha_r.strftime("%d/%m/%Y") if fecha_r and hasattr(fecha_r, 'strftime') else str(fecha_r) if fecha_r else "Sin fecha"
+    
+    recibos_data.append({
+        "Proveedor": r_dict.get("proveedor", ""),
+        "Monto (S/)": r_dict.get("monto", 0),
+        "Fecha": fecha_str,
+        "Descripción": r_dict.get("descripcion", ""),
+        "Subido por": r_dict.get("subido_por", ""),
+        "URLs Fotos": ", ".join(r_dict.get("fotos", []))
+    })
+
+df_export_recibos = pd.DataFrame(recibos_data) if recibos_data else pd.DataFrame()
+
+# Crear Excel con múltiples hojas
+if not df_export_mats.empty or not df_export_recibos.empty:
     buffer = BytesIO()
     with pd.ExcelWriter(buffer, engine="xlsxwriter") as writer:
-        df_export.to_excel(writer, index=False, sheet_name="Materiales")
+        # Hoja de Materiales
+        if not df_export_mats.empty:
+            df_export_mats.to_excel(writer, index=False, sheet_name="Materiales")
+        
+        # Hoja de Recibos
+        if not df_export_recibos.empty:
+            df_export_recibos.to_excel(writer, index=False, sheet_name="Recibos")
+    
     buffer.seek(0)
 
     st.download_button(
-        label="📥 Descargar Excel",
+        label="📥 Descargar Excel completo",
         data=buffer,
-        file_name=f"materiales_{obra_id}.xlsx",
+        file_name=f"materiales_recibos_{obra_id}.xlsx",
         mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
 else:
-    st.info("No hay materiales para exportar")
+    st.info("No hay materiales ni recibos para exportar")
