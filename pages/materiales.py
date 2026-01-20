@@ -33,28 +33,49 @@ st.session_state.setdefault("vista_materiales_globales", False)
 
 # ================= FUNCIONES DE ACTUALIZACIÓN =================
 def recalcular_presupuesto_obra(obra_id):
-    """Mantiene presupuesto_materiales intacto y calcula el saldo actual."""
-    # 1. Sumar lo gastado en materiales
-    mats_docs = db.collection("obras").document(obra_id).collection("materiales").stream()
-    total_gastado = sum(float(d.to_dict().get("subtotal", 0)) for d in mats_docs)
-    
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    # 2. El presupuesto original es 'presupuesto_materiales' (definido en obras.py)
-    p_original = float(obra_data.get("presupuesto_materiales", 0))
+    # 1. Calcular gasto total de materiales (Subcolección)
+    mats_docs = obra_ref.collection("materiales").stream()
+    mats_lista = [d.to_dict() for d in mats_docs]
+    total_gastado = sum(float(m.get("subtotal", 0)) for m in mats_lista)
     
-    # 3. Cálculo del saldo actual
+    # 2. Recalcular saldos semanales
+    presupuesto_semanal_original = obra_data.get("presupuesto_materiales_semanal", [])
+    
+    # Clonamos la lista para no afectar la original mientras calculamos
+    # y reiniciamos el 'gasto' de cada semana para volverlo a sumar
+    for sem in presupuesto_semanal_original:
+        sem["gasto_real"] = 0.0
+        sem["saldo_semanal"] = sem.get("presupuesto_materiales", 0.0)
+
+    # Distribuir cada gasto de la subcolección en su semana correspondiente
+    for m in mats_lista:
+        fecha_mat = m.get("fecha")
+        if hasattr(fecha_mat, "to_datetime"): fecha_mat = fecha_mat.to_datetime()
+        
+        num_sem = obtener_semana_actual_obra(obra_data, fecha_mat)
+        
+        # Buscar la semana en la lista y restarle
+        for sem in presupuesto_semanal_original:
+            if sem.get("semana") == num_sem:
+                sem["gasto_real"] = round(sem.get("gasto_real", 0) + float(m.get("subtotal", 0)), 2)
+                sem["saldo_semanal"] = round(sem["presupuesto_materiales"] - sem["gasto_real"], 2)
+                break
+
+    # 3. Cálculo de saldo general
+    p_original = float(obra_data.get("presupuesto_materiales", 0))
     saldo_actual = p_original - total_gastado
     
-    # 4. Actualización: NO tocamos presupuesto_materiales
+    # 4. Actualizar Firebase con los nuevos saldos semanales
     obra_ref.update({
         "presupuesto_materiales_actual": round(saldo_actual, 2),
         "gasto_materiales": round(total_gastado, 2),
+        "presupuesto_materiales_semanal": presupuesto_semanal_original, # Lista actualizada
         "presupuesto_actualizado": datetime.now()
     })
     return saldo_actual
-
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -75,7 +96,27 @@ def reset():
     st.session_state.mat_global = None
     st.session_state.mat_obra = None
     st.rerun()
-
+def obtener_semana_actual_obra(obra_data, fecha_consulta=None):
+    """Retorna el número de semana (1, 2, 3...) según la fecha de inicio de la obra."""
+    if not fecha_consulta:
+        fecha_consulta = datetime.now()
+    
+    f_inicio_obra = obra_data.get("fecha_inicio")
+    if not f_inicio_obra:
+        return 1
+    
+    # Convertir a datetime si viene de Firestore (Timestamp)
+    if hasattr(f_inicio_obra, "to_datetime"):
+        f_inicio_obra = f_inicio_obra.to_datetime()
+        
+    # Asegurar que ambos sean sin zona horaria para comparar o manejar zonas
+    f_inicio_obra = f_inicio_obra.replace(tzinfo=None)
+    fecha_consulta = fecha_consulta.replace(tzinfo=None)
+    
+    dias_transcurridos = (fecha_consulta - f_inicio_obra).days
+    if dias_transcurridos < 0: return 1 # Aún no empieza
+    
+    return (dias_transcurridos // 7) + 1
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
@@ -361,25 +402,35 @@ if archivo:
                 nuevo_saldo = recalcular_presupuesto_obra(obra_id)
                 st.success(f"✅ {len(df_excel)} materiales importados. Nuevo saldo: S/ {nuevo_saldo:,.2f}")
                 st.rerun()
-
-# ================== SECCIÓN E (MEJORADA) ==================
+# ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
 st.divider()
 st.header("💰 Estado del Presupuesto de Materiales")
 
 obra_final = db.collection("obras").document(obra_id).get().to_dict()
-p_total_final = float(obra_final.get("presupuesto_materiales", 0))
-p_actual_final = float(obra_final.get("presupuesto_materiales_actual", p_total_final))
-p_gastado_final = float(obra_final.get("gasto_materiales", 0))
+p_semanal_lista = obra_final.get("presupuesto_materiales_semanal", [])
+num_sem_actual = obtener_semana_actual_obra(obra_final)
 
-c1, c2, c3 = st.columns(3)
-c1.metric("Presupuesto Total", f"S/ {p_total_final:,.2f}")
-c2.metric("Disponible", f"S/ {p_actual_final:,.2f}", delta=f"-{p_gastado_final:,.2f}", delta_color="inverse")
-c3.metric("Gastado", f"S/ {p_gastado_final:,.2f}")
+# Buscar datos de la semana actual
+datos_sem_actual = next((s for s in p_semanal_lista if s["semana"] == num_sem_actual), None)
 
-# Barra de progreso visual
-if p_total_final > 0:
-    porcentaje_gastado = (p_gastado_final / p_total_final) * 100
-    st.progress(p_gastado_final / p_total_final, text=f"💸 Gastado: {porcentaje_gastado:.1f}%")
+if datos_sem_actual:
+    st.subheader(f"📅 Semana Actual: {num_sem_actual}")
+    col_s1, col_s2, col_s3 = st.columns(3)
+    
+    p_sem_ini = datos_sem_actual.get("presupuesto_materiales", 0)
+    g_sem_real = datos_sem_actual.get("gasto_real", 0)
+    s_sem_disp = datos_sem_actual.get("saldo_semanal", p_sem_ini)
+    
+    col_s1.metric("Asignado Semana", f"S/ {p_sem_ini:,.2f}")
+    col_s2.metric("Gastado Semana", f"S/ {g_sem_real:,.2f}", delta=f"Actual", delta_color="inverse")
+    col_s3.metric("Disponible Semana", f"S/ {s_sem_disp:,.2f}")
+    
+    if p_sem_ini > 0:
+        st.progress(min(1.0, g_sem_real / p_sem_ini), text=f"Consumo semanal: {(g_sem_real/p_sem_ini)*100:.1f}%")
+else:
+    st.warning("⚠️ No se encontró presupuesto configurado para esta semana.")
+
+# ... (Aquí continúan tus métricas generales de Presupuesto Total) ...
 
 # ================== SECCIÓN F - GESTIÓN DE RECIBOS ==================
 st.divider()
