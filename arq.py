@@ -61,6 +61,11 @@ avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", ic
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 informes_page = st.Page("pages/informes.py", title="Informes", icon=":material/assessment:")
 
+donaciones_page = st.Page(
+    "pages/donaciones.py", 
+    title="Donaciones", 
+    icon=":material/redeem:"  
+)
 solicitudes_pasante_page = st.Page("pages/solicitudes_pasante.py", title="Solicitudes", icon=":material/request_quote:")
 solicitudes_jefe_page = st.Page("pages/solicitudes_jefe.py", title="Recepción", icon=":material/inbox:")
 
