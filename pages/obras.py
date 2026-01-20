@@ -317,7 +317,10 @@ else:
     # ---------- PROCESAR AVANCES ----------
     registros = []
     for av in avances:
-        fecha = datetime.fromisoformat(av["fecha"])
+        fecha = datetime.fromisoformat(av["fecha"]) \
+            .replace(tzinfo=pytz.UTC) \
+            .astimezone(local_tz)
+
         registros.append({
             "fecha": fecha,
             "semana": fecha.isocalendar()[1],
@@ -325,6 +328,7 @@ else:
             "costo": av.get("costo_total_dia", 0),
             "avance": av
         })
+
 
     df = pd.DataFrame(registros)
 
@@ -354,31 +358,39 @@ else:
         horizontal=True
     )
 
-   # ================== GRAFICO SEMANAL ==================
+ # ================== GRAFICO SEMANAL (CORREGIDO) ==================
     if modo == "Semana (L–V)":
+
+        # Orden fijo L–V
         dias_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
-    
-        df_sem = df[df["semana"] == semana_sel]
-    
-        gastos_por_dia = {d: 0.0 for d in dias_en}
-    
+
+        # 🔥 FILTRAR POR SEMANA Y MES
+        df_sem = df[
+            (df["semana"] == semana_sel) &
+            (df["mes"] == mes_sel)
+        ]
+
+        # Inicializar SIEMPRE en orden correcto
+        gastos_por_dia = {dia: 0.0 for dia in dias_en}
+
         for _, r in df_sem.iterrows():
-            dia = r["fecha"].strftime("%A")
-    
-            if dia in dias_en:
+            dia_en = r["fecha"].strftime("%A")
+
+            if dia_en in gastos_por_dia:
                 avance = r["avance"]
-    
+
                 gasto_materiales = avance.get("costo_total_dia", 0) or 0
                 gasto_caja = avance.get("gasto_caja_chica", 0) or 0
-    
-                gastos_por_dia[dia] += gasto_materiales + gasto_caja
-    
+
+                gastos_por_dia[dia_en] += gasto_materiales + gasto_caja
+
+        # DataFrame ORDENADO
         chart_df = pd.DataFrame({
             "Día": dias_es,
             "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
         }).set_index("Día")
-    
+
         st.bar_chart(chart_df, height=320)
 
     # ================== GRAFICO MENSUAL ==================
