@@ -387,11 +387,21 @@ else:
 
         # DataFrame ORDENADO
         chart_df = pd.DataFrame({
-            "Día": dias_es,
-            "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
-        }).set_index("Día")
+             "Día": dias_es,
+              "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
+        })
+
+        # 🔥 FORZAR ORDEN L–V
+        chart_df["Día"] = pd.Categorical(
+            chart_df["Día"],
+            categories=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+            ordered=True
+        )
+
+        chart_df = chart_df.sort_values("Día").set_index("Día")
 
         st.bar_chart(chart_df, height=320)
+
 
     # ================== GRAFICO MENSUAL ==================
     else:
