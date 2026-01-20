@@ -19,40 +19,37 @@ if st.session_state["auth"]["role"] != "jefe":
 
 # ================= FUNCIONES =================
 def obtener_obras():
-    return {d.id: d.to_dict().get("nombre", d.id)
-            for d in db.collection("obras").stream()}
+    return {
+        d.id: d.to_dict().get("nombre", d.id)
+        for d in db.collection("obras").stream()
+    }
 
 def obtener_solicitudes(obra_id):
-    docs = (
-        db.collection("obras")
-        .document(obra_id)
-        .collection("solicitudes")
-        .stream()
-    )
-
     solicitudes = []
+    docs = db.collection("obras").document(obra_id).collection("solicitudes").stream()
+
     for d in docs:
         data = d.to_dict()
         data["doc_id"] = d.id
         solicitudes.append(data)
 
-    # ordenar en Python
+    # ordenar por timestamp
     solicitudes.sort(
         key=lambda x: x.get("timestamp", datetime.min),
         reverse=True
     )
-
     return solicitudes
-
 
 # ================= UI =================
 st.title("📬 Solicitudes de Pasantes")
 
 OBRAS = obtener_obras()
+
 obra_id = st.sidebar.selectbox(
     "Seleccionar obra",
     options=list(OBRAS.keys()),
-    format_func=lambda x: OBRAS[x]
+    format_func=lambda x: OBRAS[x],
+    key="obra_jefe"
 )
 
 st.sidebar.success(f"🏗️ {OBRAS[obra_id]}")
@@ -64,8 +61,9 @@ if not solicitudes:
     st.stop()
 
 # ================= LISTADO =================
-for doc_id, s in solicitudes:
+for s in solicitudes:
     estado = s.get("estado", "pendiente")
+    doc_id = s["doc_id"]
 
     color = {
         "pendiente": "🟡",
@@ -73,16 +71,31 @@ for doc_id, s in solicitudes:
         "rechazada": "🔴"
     }.get(estado, "⚪")
 
-    tipo_icon = "👷" if s.get("tipo") == "personal" else "🧱"
-    fecha = s.get("timestamp")
-    fecha_str = fecha.astimezone(tz).strftime("%d/%m/%Y %H:%M") if fecha else "N/D"
+    tipo = s.get("tipo", "—")
+    solicitante = s.get("solicitante", "—")
 
-    with st.expander(
-        f"{color} {tipo_icon} {s.get('tipo','')} | {s.get('solicitante','')} | {fecha_str}"
-    ):
+    ts = s.get("timestamp")
+    if ts and hasattr(ts, "astimezone"):
+        ts = ts.astimezone(tz)
+        fecha = ts.strftime("%d/%m/%Y %H:%M")
+    else:
+        fecha = "Fecha N/D"
 
-        st.write(f"**Estado:** {estado.upper()}")
-        st.write(f"**Descripción:** {s['descripcion']}")
+    with st.expander(f"{color} {tipo.upper()} | {solicitante} | {fecha}"):
+
+        st.markdown(f"**Estado:** `{estado.upper()}`")
+        st.write(f"**Descripción:** {s.get('descripcion', '—')}")
+
+        if tipo == "personal":
+            st.info(
+                f"Cantidad: {s.get('cantidad')} trabajadores\n\n"
+                f"Grupo: {s.get('grupo')}"
+            )
+
+        if tipo == "materiales":
+            mats = s.get("materiales", [])
+            if mats:
+                st.table(mats)
 
         if estado == "pendiente":
             respuesta = st.text_area(
@@ -113,5 +126,4 @@ for doc_id, s in solicitudes:
                 st.rerun()
 
         else:
-            st.markdown("**Respuesta del jefe:**")
-            st.info(s.get("respuesta_jefe", "—"))
+            st.info(f"Respuesta del jefe: {s.get('respuesta_jefe', '—')}")
