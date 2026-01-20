@@ -60,6 +60,12 @@ obras_page        = st.Page("pages/obras.py", title="Obras", icon=":material/con
 avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 informes_page = st.Page("pages/informes.py", title="Informes", icon=":material/assessment:")
+# --- Opcional: Si quieres algo más corporativo ---
+donaciones_page = st.Page(
+    "pages/donaciones.py", 
+    title="Donaciones", 
+    icon=":material/redeem:"  # Icono de un regalo/paquete
+)
 
 donaciones_page = st.Page(
     "pages/donaciones.py", 
