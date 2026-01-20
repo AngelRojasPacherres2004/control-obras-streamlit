@@ -232,7 +232,15 @@ doc_ref = db.collection("obras").document(obra_id_sel).get()
 obra_data = doc_ref.to_dict()
 
 st.subheader(f"🏗️ {obra_data.get('nombre')}")
-st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}")
+
+# Formatear fechas
+fecha_inicio = obra_data.get('fecha_inicio')
+fecha_fin = obra_data.get('fecha_fin_estimado')
+
+f_inicio_str = fecha_inicio.strftime('%d/%m/%Y') if fecha_inicio else 'N/D'
+f_fin_str = fecha_fin.strftime('%d/%m/%Y') if fecha_fin else 'N/D'
+
+st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')} | 📅 {f_inicio_str} → {f_fin_str}")
 
 # --- LÓGICA DE CÁLCULOS (CORREGIDA) ---
 # 1. Caja Chica
