@@ -48,10 +48,13 @@ tab1, tab2 = st.tabs(["➕ Nueva Solicitud", "📂 Mis Solicitudes"])
 # ==========================================================
 # TAB 1 – NUEVA SOLICITUD
 # ==========================================================
+
+
+
 with tab1:
     tipo_solicitud = st.radio(
         "Tipo de solicitud",
-        ["👷 Personal", "🧱 Materiales"],
+        ["👷 Personal", "🧱 Materiales", "💵 Caja Chica"],
         horizontal=True
     )
 
@@ -83,7 +86,7 @@ with tab1:
                     st.rerun()
 
     # ---------- MATERIALES ----------
-    else:
+    elif tipo_solicitud == "🧱 Materiales":
         materiales = []
         for m in obra_ref.collection("materiales").stream():
             d = m.to_dict()
@@ -135,6 +138,35 @@ with tab1:
                         st.success("✅ Solicitud enviada")
                         st.rerun()
 
+    # ---------- CAJA CHICA ----------
+    elif tipo_solicitud == "💵 Caja Chica":
+        with st.form("form_caja_chica", clear_on_submit=True):
+            costo = st.number_input("Monto solicitado (S/)", min_value=0.0, step=1.0)
+            problematica = st.text_area("Problemática", height=100)
+            solucion = st.text_area("Solución", height=100)
+
+            enviar = st.form_submit_button("📤 Enviar solicitud")
+
+            if enviar:
+                if costo <= 0:
+                    st.error("El monto debe ser mayor a 0")
+                elif not problematica or not solucion:
+                    st.error("Todos los campos son obligatorios")
+                else:
+                    ahora = datetime.now(pais_tz)
+                    obra_ref.collection("solicitudes").add({
+                        "tipo": "caja_chica",
+                        "estado": "pendiente",
+                        "timestamp": ahora,
+                        "fecha": ahora.isoformat(),
+                        "solicitante": username,
+                        "costo": costo,
+                        "problematica": problematica,
+                        "solucion": solucion
+                    })
+                    st.success("✅ Solicitud de caja chica enviada")
+                    st.rerun()
+
 # ==========================================================
 # TAB 2 – MIS SOLICITUDES
 # ==========================================================
@@ -158,39 +190,62 @@ with tab2:
         st.stop()
 
     col1, col2 = st.columns(2)
+
     filtro_tipo = col1.selectbox(
         "Tipo",
-        ["Todas", "Personal", "Materiales"],
-        key="filtro_tipo"
+        ["Todas", "Personal", "Materiales", "Caja Chica"]
     )
+
     filtro_estado = col2.selectbox(
         "Estado",
-        ["Todos", "Pendiente", "Aprobada", "Rechazada"],
-        key="filtro_estado"
+        ["Todos", "Pendiente", "Aprobada", "Rechazada"]
     )
 
+    mapa = {
+        "Personal": "personal",
+        "Materiales": "materiales",
+        "Caja Chica": "caja_chica"
+    }
+
     if filtro_tipo != "Todas":
-        mapa = {"Personal": "personal", "Materiales": "materiales"}
-        solicitudes = [s for s in solicitudes if s["tipo"] == mapa[filtro_tipo]]
+        solicitudes = [
+            s for s in solicitudes
+            if s.get("tipo") == mapa[filtro_tipo]
+        ]
 
     if filtro_estado != "Todos":
-        solicitudes = [s for s in solicitudes if s["estado"] == filtro_estado.lower()]
+        solicitudes = [
+            s for s in solicitudes
+            if s.get("estado") == filtro_estado.lower()
+        ]
 
     st.divider()
 
     for s in solicitudes:
         ts = s.get("timestamp")
         fecha = ts.astimezone(pais_tz).strftime("%d/%m/%Y %H:%M") if ts else "N/D"
-        icono = "👷" if s["tipo"] == "personal" else "🧱"
 
-        with st.expander(f"{icono} {s['tipo'].capitalize()} · {fecha}"):
+        icono = {
+            "personal": "👷",
+            "materiales": "🧱",
+            "caja_chica": "💵"
+        }.get(s["tipo"], "📄")
+
+        with st.expander(f"{icono} {s['tipo'].replace('_',' ').title()} · {fecha}"):
             st.markdown(f"**Estado:** `{s['estado'].upper()}`")
-            st.write(f"**Descripción:** {s.get('descripcion')}")
 
             if s["tipo"] == "personal":
                 st.info(f"Cantidad: {s['cantidad']} | Grupo: {s['grupo']}")
-            else:
+                st.write(s.get("descripcion", ""))
+
+            elif s["tipo"] == "materiales":
                 st.table(pd.DataFrame(s.get("materiales", [])))
+                st.write(s.get("descripcion", ""))
+
+            elif s["tipo"] == "caja_chica":
+                st.metric("Monto solicitado", f"S/ {s.get('costo', 0):,.2f}")
+                st.warning(f"**Problemática:** {s.get('problematica', '')}")
+                st.success(f"**Solución:** {s.get('solucion', '')}")
 
             if s["estado"] == "rechazada":
-                st.warning(f"Motivo: {s.get('respuesta_jefe', 'Sin observaciones')}")
+                st.error(f"Motivo: {s.get('respuesta_jefe', 'Sin observaciones')}")

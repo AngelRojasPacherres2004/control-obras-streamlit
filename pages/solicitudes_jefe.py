@@ -97,6 +97,22 @@ for s in solicitudes:
             if mats:
                 st.table(mats)
 
+        elif tipo == "caja_chica":
+            st.metric(
+                "Monto solicitado",
+                f"S/ {s.get('costo', 0):,.2f}"
+            )
+
+            st.warning(
+                f"**Problemática:**\n\n{s.get('problematica', '—')}"
+            )
+
+            st.success(
+                f"**Solución propuesta:**\n\n{s.get('solucion', '—')}"
+            )
+
+
+
         if estado == "pendiente":
             respuesta = st.text_area(
                 "Respuesta / Observación",
