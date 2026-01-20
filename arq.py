@@ -60,13 +60,6 @@ obras_page        = st.Page("pages/obras.py", title="Obras", icon=":material/con
 avances_page      = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 informes_page = st.Page("pages/informes.py", title="Informes", icon=":material/assessment:")
-# --- Opcional: Si quieres algo más corporativo ---
-donaciones_page = st.Page(
-    "pages/donaciones.py", 
-    title="Donaciones", 
-    icon=":material/redeem:"  # Icono de un regalo/paquete
-)
-
 donaciones_page = st.Page(
     "pages/donaciones.py", 
     title="Donaciones", 
@@ -81,7 +74,8 @@ if auth["role"] == "jefe":
     pg = st.navigation([
         obras_page, 
         materiales_page, 
-        trabajadores_page,  # <--- ESTA ES LA LÍNEA QUE FALTABA
+        trabajadores_page,  
+        donaciones_page,
         informes_page,
         solicitudes_jefe_page,
         usuarios_page
@@ -89,7 +83,8 @@ if auth["role"] == "jefe":
 else:
     pg = st.navigation([
         avances_page,
-        solicitudes_pasante_page  # 🔥 NUEVA: Enviar solicitudes
+        solicitudes_pasante_page , # 🔥 NUEVA: Enviar solicitudes
+        donaciones_page
     ])
 # ================= CERRAR SESIÓN =================
 with st.sidebar:
