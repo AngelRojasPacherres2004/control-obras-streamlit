@@ -343,83 +343,94 @@ if obra_doc.exists:
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
-# ================== SECCIÓN C: INVENTARIO TOTAL (CONSOLIDADA) ==================
+# ================== SECCIÓN C: INVENTARIO TOTAL Y CONTROL DE CAMPO ==================
 st.divider()
-st.header("🧾 Inventario Total de la Obra")
-st.caption("Visualiza todos los materiales asignados: Catálogo, Importados y Donaciones.")
+st.header("🧾 Inventario Total y Control de Stock")
+st.caption("Resumen sincronizado con los partes diarios de los pasantes.")
 
-# Cargar todos los materiales de la subcolección de la obra
+# 1. Cargar materiales actuales (lo que queda en base de datos)
 mats_obra = cargar_materiales_obra(obra_id)
 
-if mats_obra:
-    df_obra = pd.DataFrame(mats_obra)
-    
-    # Asegurar que existan las columnas necesarias para la visualización
-    if 'tipo' not in df_obra.columns:
-        df_obra['tipo'] = 'COMPRADO'
-    
-    # Crear columna de Estado visual
-    df_obra['Origen'] = df_obra['tipo'].apply(
-        lambda x: "💝 DONACIÓN" if x == "DONACIÓN" else "🛒 COMPRADO"
-    )
+# 2. Calcular consumo desde los avances (lo que el pasante registró como usado)
+consumo_por_material = {}
+avances_docs = db.collection("obras").document(obra_id).collection("avances").stream()
 
-    # Mostrar tabla principal
+for av in avances_docs:
+    usos = av.to_dict().get("materiales_usados", [])
+    for u in usos:
+        mid = u.get("material_id")
+        cant = float(u.get("cantidad", 0))
+        consumo_por_material[mid] = consumo_por_material.get(mid, 0) + cant
+
+if mats_obra:
+    resumen_visual = []
+    for m in mats_obra:
+        mid = m["id"]
+        stock_actual = float(m.get("cantidad", 0)) # Lo que queda tras descuentos
+        gastado = consumo_por_material.get(mid, 0)  # Lo que el pasante ya usó
+        total_inicial = stock_actual + gastado      # Estimación de cuánto hubo al inicio
+        
+        resumen_visual.append({
+            "Material": m.get("nombre"),
+            "Unidad": m.get("unidad"),
+            "Origen": "💝 DONACIÓN" if m.get("tipo") == "DONACIÓN" else "🛒 COMPRADO",
+            "Inicial": total_inicial,
+            "Gastado (Campo)": gastado,
+            "Stock Disponible": stock_actual,
+            "id": mid,
+            "precio_unitario": m.get("precio_unitario", 0)
+        })
+
+    df_resumen = pd.DataFrame(resumen_visual)
+
+    # Mostrar tabla con formato de colores/barras
     st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Origen"]],
+        df_resumen[["Material", "Unidad", "Origen", "Inicial", "Gastado (Campo)", "Stock Disponible"]],
         hide_index=True,
         use_container_width=True,
         column_config={
-            "precio_unitario": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
-            "subtotal": st.column_config.NumberColumn("Total (S/)", format="S/ %.2f"),
-            "cantidad": st.column_config.NumberColumn("Cant.", format="%.2f"),
+            "Stock Disponible": st.column_config.NumberColumn("Disponible", help="Cantidad física en almacén"),
+            "Gastado (Campo)": st.column_config.NumberColumn("Uso Real", help="Consumido en avances diarios"),
+            "Inicial": st.column_config.NumberColumn("Total Ingresado", help="Suma de stock actual + consumido")
         }
     )
 
-    # Bloque único de Edición y Eliminación
-    with st.expander("⚙️ Gestionar materiales del inventario (Editar / Eliminar)"):
+    # --- Bloque único de Edición y Eliminación ---
+    with st.expander("⚙️ Ajustar Inventario Manualmente (Corregir errores)"):
         mat_seleccionado = st.selectbox(
-            "Seleccione el material que desea modificar",
+            "Seleccione material para modificar stock físico",
             options=mats_obra,
-            format_func=lambda x: f"[{x.get('tipo', 'COMPRADO')}] {x['nombre']} - {x['cantidad']} {x['unidad']}"
+            format_func=lambda x: f"{x['nombre']} - Actualmente hay: {x['cantidad']} {x['unidad']}"
         )
         
         if mat_seleccionado:
-            # Mostrar info si es donado
-            if mat_seleccionado.get("tipo") == "DONACIÓN":
-                st.info(f"ℹ️ Material donado por: **{mat_seleccionado.get('donante', 'Anónimo')}**")
-
             col_ed1, col_ed2 = st.columns(2)
             
-            # Campo de nueva cantidad con validación anti-error de Streamlit
-            valor_db = float(mat_seleccionado.get('cantidad', 0))
+            # Ajuste de stock real
+            valor_actual = float(mat_seleccionado.get('cantidad', 0))
             nueva_cant = col_ed1.number_input(
-                "Nueva Cantidad", 
+                "Corregir Cantidad Disponible", 
                 min_value=0.0, 
-                value=max(0.0, valor_db),
-                step=1.0,
-                key=f"edit_cant_{mat_seleccionado['id']}"
+                value=max(0.0, valor_actual),
+                key=f"adj_{mat_seleccionado['id']}"
             )
             
-            # Botones de acción
-            if col_ed1.button("💾 Guardar Cambios", use_container_width=True, type="primary"):
-                # Calculamos el nuevo subtotal (si es donación, el precio unitario suele ser 0 o informativo)
+            if col_ed1.button("💾 Guardar Ajuste", use_container_width=True, type="primary"):
+                # Si ajustamos la cantidad, también recalculamos el subtotal monetario
                 nuevo_subtotal = round(nueva_cant * mat_seleccionado.get('precio_unitario', 0), 2)
                 
                 db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).update({
                     "cantidad": nueva_cant,
-                    "subtotal": nuevo_subtotal,
-                    "ultima_edicion": datetime.now()
+                    "subtotal": nuevo_subtotal
                 })
                 
                 recalcular_presupuesto_obra(obra_id)
-                st.success("✅ Inventario actualizado")
+                st.success("Inventario ajustado correctamente")
                 st.rerun()
 
             if col_ed2.button("🗑️ Eliminar de la Obra", use_container_width=True):
                 db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
-                
                 recalcular_presupuesto_obra(obra_id)
-                st.warning(f"🗑️ {mat_seleccionado['nombre']} eliminado del inventario.")
                 st.rerun()
 else:
     st.info("🔎 No hay materiales registrados en esta obra todavía.")
