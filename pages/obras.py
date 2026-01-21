@@ -286,9 +286,11 @@ p_mano_act = p_mano_ini - g_mano_uso # <--- Esto debería ser 0 si p = g
 p_total_ini = float(obra_data.get("presupuesto_total", 0))
 # El total disponible es la suma de lo que queda en cada rubro
 p_total_act = p_caja_act + p_mats_act + p_mano_act
-
+# 5. Donaciones (Solo Informativo)
+total_don_monetaria = float(obra_data.get("total_donaciones_monetarias", 0))
 # --- DISEÑO DE MÉTRICAS (INICIAL ARRIBA / ACTUAL ABAJO) ---
-m1, m2, m3, m4 = st.columns(4)
+m1, m2, m3, m4,m5 = st.columns(5)
+
 
 with m1:
     st.metric("📦 Caja Chica (Inicial)", f"S/ {p_caja_ini:,.2f}")
@@ -310,7 +312,13 @@ with m4:
     st.metric("Total Disponible", f"S/ {p_total_act:,.2f}", 
               delta=f"{(p_total_act/p_total_ini*100) if p_total_ini > 0 else 0:.1f}%")
 
-
+with m5:
+    st.markdown("### 💝 Donaciones")
+    st.metric(
+        label="Recaudado (Aparte)", 
+        value=f"S/ {total_don_monetaria:,.2f}",
+        help="Este dinero proviene de donaciones y no afecta el presupuesto inicial de la obra."
+    )
 # Carga única de avances para usar en toda la página (Gráficos, Historial y Excel)
 avances_lista = cargar_avances(obra_id_sel)
 # ================= ANÁLISIS ECONÓMICO (REPARADO) =================
