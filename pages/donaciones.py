@@ -150,23 +150,6 @@ with tab2:
     
     st.info("💡 Los materiales donados se registrarán en el inventario de la obra con identificador 'DONACIÓN'")
     
-    # 🔥 CALCULADORA INTERACTIVA EN TIEMPO REAL (fuera del form)
-    st.markdown("#### 💰 Calculadora de Valor (Actualización automática)")
-    calc_col1, calc_col2, calc_col3 = st.columns(3)
-    
-    calc_cantidad = calc_col1.number_input("Cantidad", min_value=0.0, step=1.0, key="calc_cant", value=0.0)
-    calc_col2.write("") # Espacio
-    calc_precio = calc_col3.number_input("Precio unitario (S/)", min_value=0.0, step=1.0, key="calc_precio", value=0.0)
-    
-    calc_subtotal = calc_cantidad * calc_precio
-    
-    if calc_subtotal > 0:
-        st.success(f"📊 **Valor Total Estimado: S/ {calc_subtotal:,.2f}**")
-    else:
-        st.info("Ingresa cantidad y precio para calcular el valor automáticamente")
-    
-    st.divider()
-    
     # 🔥 FORMULARIO DE REGISTRO
     with st.form("form_donacion_materiales", clear_on_submit=True):
         col1, col2 = st.columns(2)
@@ -179,17 +162,21 @@ with tab2:
         nombre_mat = st.text_input("Nombre del material")
         
         col_m1, col_m2, col_m3 = st.columns(3)
-        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, value=calc_cantidad)
+        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, key="cantidad_donacion")
         unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"])
-        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=1.0, value=calc_precio)
+        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=1.0, key="precio_donacion")
         
-        # Calcular subtotal para el registro
+        # 🔥 CALCULAR Y MOSTRAR SUBTOTAL AUTOMÁTICAMENTE
         subtotal = cantidad * precio_unit
-        st.caption(f"💵 Subtotal a registrar: S/ {subtotal:,.2f}")
+        
+        if subtotal > 0:
+            st.success(f"📊 **Valor Total Estimado: S/ {subtotal:,.2f}**")
+        else:
+            st.info("💡 El valor total se calculará automáticamente")
         
         notas_mat = st.text_area("Notas adicionales (opcional)")
         
-        submit_mat = st.form_submit_button("💾 Registrar Donación de Material")
+        submit_mat = st.form_submit_button("💾 Registrar Donación de Material", type="primary")
         
         if submit_mat:
             if not donante_mat or not nombre_mat or cantidad <= 0:
@@ -229,7 +216,6 @@ with tab2:
                     
                     st.success(f"✅ Material '{nombre_mat}' donado por {donante_mat} registrado en inventario.")
                     st.rerun()
-
 # ================= TAB 3: HISTORIAL MONETARIAS =================
 with tab3:
     st.subheader("📋 Historial de Donaciones Monetarias")
