@@ -137,31 +137,56 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                     }
                     st.session_state.paso_creacion = 2
                     st.rerun()
-
-    # --- PASO 2: DISTRIBUCIÓN SEMANAL ---
+   # --- PASO 2: DISTRIBUCIÓN SEMANAL ---
     elif st.session_state.paso_creacion == 2:
         datos = st.session_state.temp_datos_obra
         st.info(f"📍 **Obra:** {datos['nombre']} | **Presupuesto Materiales a distribuir:** S/ {datos['p_mats_total']:,.2f}")
         
-        # Calcular semanas según fechas
-        duracion_dias = (datos['f_fin'] - datos['f_inicio']).days + 1
-        num_semanas = max(1, (duracion_dias + 6) // 7)
+        # 🔥 CALCULAR SEMANAS REALES (Lunes a Domingo)
+        lista_semanas_temp = []
+        fecha_cursor = datos['f_inicio']
+        
+        while fecha_cursor <= datos['f_fin']:
+            # Calcular el DOMINGO de la semana actual
+            dias_hasta_domingo = 6 - fecha_cursor.weekday()  # 0=Lun, 6=Dom
+            domingo_semana = fecha_cursor + pd.Timedelta(days=dias_hasta_domingo)
+            
+            # La semana termina el domingo O en la fecha fin (lo que ocurra primero)
+            sem_fin = min(domingo_semana, datos['f_fin'])
+            
+            lista_semanas_temp.append({
+                'inicio': fecha_cursor,
+                'fin': sem_fin
+            })
+            
+            # Saltar al LUNES siguiente
+            fecha_cursor = sem_fin + pd.Timedelta(days=1)
+        
+        num_semanas = len(lista_semanas_temp)
 
         with st.form("form_semanas_materiales"):
             st.subheader("🧱 Distribución Semanal de Materiales")
+            st.caption("📅 Cada semana termina en Domingo (o fin de obra)")
+            
             lista_semanas = []
-            fecha_cursor = datos['f_inicio']
             suma_ingresada = 0.0
-
-            for i in range(num_semanas):
-                sem_ini = fecha_cursor
-                sem_fin = min(fecha_cursor + pd.Timedelta(days=6), datos['f_fin'])
+            
+            for i, sem in enumerate(lista_semanas_temp):
+                sem_ini = sem['inicio']
+                sem_fin = sem['fin']
                 
-                # Sugerir monto equitativo para facilitar el llenado
+                # Sugerir monto equitativo
                 sugerido = round(datos['p_mats_total'] / num_semanas, 2)
                 
+                # Calcular días de trabajo en esta semana
+                dias_semana = (sem_fin - sem_ini).days + 1
+                
+                # Nombre del día de inicio
+                dias_nombres = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
+                dia_inicio_nombre = dias_nombres[sem_ini.weekday()]
+                
                 monto = st.number_input(
-                    f"Semana {i+1} ({sem_ini.strftime('%d/%m')} - {sem_fin.strftime('%d/%m')})",
+                    f"Semana {i+1}: {dia_inicio_nombre} {sem_ini.strftime('%d/%m')} - {sem_fin.strftime('%d/%m')} ({dias_semana} días)",
                     min_value=0.0, step=10.0, value=sugerido, key=f"sem_input_{i}"
                 )
                 suma_ingresada += monto
@@ -170,9 +195,9 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                     "semana": i + 1,
                     "fecha_inicio": datetime.combine(sem_ini, datetime.min.time()),
                     "fecha_fin": datetime.combine(sem_fin, datetime.min.time()),
-                    "presupuesto_materiales": monto
+                    "presupuesto_materiales": monto,
+                    "dias_laborables": dias_semana
                 })
-                fecha_cursor = sem_fin + pd.Timedelta(days=1)
 
             diferencia = round(datos['p_mats_total'] - suma_ingresada, 2)
             if diferencia == 0:
@@ -190,22 +215,21 @@ if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
                     oid = datos['nombre'].lower().strip().replace(" ", "_")
                     ahora = datetime.now(local_tz)
                     
-                    
                     db.collection("obras").document(oid).set({
-                    "nombre": datos['nombre'],
-                    "ubicacion": datos['ubicacion'],
-                    "estado": datos['estado'],
-                    "fecha_inicio": datetime.combine(datos['f_inicio'], datetime.min.time()),
-                    "fecha_fin_estimado": datetime.combine(datos['f_fin'], datetime.min.time()),
-                    "presupuesto_caja_chica": datos['p_caja'],
-                    "presupuesto_mano_obra": datos['p_mano'],
-                    "presupuesto_materiales": datos['p_mats_total'],
-                    "presupuesto_materiales_semanal": lista_semanas,
-                    "presupuesto_total": datos['p_caja'] + datos['p_mano'] + datos['p_mats_total'],
-                    "gasto_materiales": 0,      
-                    "gasto_caja_chica": 0,     
-                    "gasto_mano_obra": 0,       
-                    "creado_en": ahora
+                        "nombre": datos['nombre'],
+                        "ubicacion": datos['ubicacion'],
+                        "estado": datos['estado'],
+                        "fecha_inicio": datetime.combine(datos['f_inicio'], datetime.min.time()),
+                        "fecha_fin_estimado": datetime.combine(datos['f_fin'], datetime.min.time()),
+                        "presupuesto_caja_chica": datos['p_caja'],
+                        "presupuesto_mano_obra": datos['p_mano'],
+                        "presupuesto_materiales": datos['p_mats_total'],
+                        "presupuesto_materiales_semanal": lista_semanas,
+                        "presupuesto_total": datos['p_caja'] + datos['p_mano'] + datos['p_mats_total'],
+                        "gasto_materiales": 0,      
+                        "gasto_caja_chica": 0,     
+                        "gasto_mano_obra": 0,       
+                        "creado_en": ahora
                     })
                     
                     st.session_state.paso_creacion = 1
