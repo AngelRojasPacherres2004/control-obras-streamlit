@@ -326,8 +326,10 @@ else:
     registros = []
     for av in avances:
         fecha = datetime.fromisoformat(av["fecha"]) \
-            .replace(tzinfo=pytz.UTC) \
-            .astimezone(local_tz)
+    .replace(tzinfo=pytz.UTC) \
+    .astimezone(local_tz)
+
+        fecha = fecha.replace(tzinfo=pytz.UTC).astimezone(local_tz)
 
         registros.append({
             "fecha": fecha,
@@ -452,14 +454,15 @@ else:
             mats = av.get("materiales_usados")
             if mats:
                 st.write("**🧱 Materiales utilizados:**")
-                df_m = pd.DataFrame(mats)[["nombre", "cantidad", "unidad", "subtotal"]]
-                df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
+                df_m = pd.DataFrame(mats)
+
+                
+
+                df_m = df_m[["nombre", "cantidad", "unidad"]]
+                df_m.columns = ["Material", "Cant.", "Unidad"]
                 st.table(df_m)
+
             
-            # --- MÉTRICAS DEL DÍA ---
-            c_col1, c_col2 = st.columns(2)
-            c_col1.metric("Costo Materiales", f"S/ {av.get('costo_total_dia', 0):,.2f}")
-            c_col2.metric("Gasto Caja Chica", f"S/ {av.get('gasto_caja_chica', 0):,.2f}")
             
             # --- FOTOS ---
             fotos = av.get("fotos", [])
