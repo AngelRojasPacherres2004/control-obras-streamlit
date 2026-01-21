@@ -37,10 +37,16 @@ def recalcular_presupuesto_obra(obra_id):
     obra_ref = db.collection("obras").document(obra_id)
     obra_data = obra_ref.get().to_dict()
     
-    # 1. Calcular gasto total de materiales (Subcolección)
+    # 1. Calcular gasto total de materiales COMPRADOS (excluir donaciones)
     mats_docs = obra_ref.collection("materiales").stream()
     mats_lista = [d.to_dict() for d in mats_docs]
-    total_gastado = sum(float(m.get("subtotal", 0)) for m in mats_lista)
+    
+    # Solo contar materiales comprados (no donados)
+    total_gastado = sum(
+        float(m.get("subtotal", 0)) 
+        for m in mats_lista 
+        if m.get("tipo") != "DONACIÓN"
+    )
     
     # 2. Recalcular saldos semanales
     presupuesto_semanal_original = obra_data.get("presupuesto_materiales_semanal", [])
@@ -53,8 +59,13 @@ def recalcular_presupuesto_obra(obra_id):
 
     # Distribuir cada gasto de la subcolección en su semana correspondiente
     for m in mats_lista:
+        # Solo contar materiales comprados
+        if m.get("tipo") == "DONACIÓN":
+            continue
+            
         fecha_mat = m.get("fecha")
-        if hasattr(fecha_mat, "to_datetime"): fecha_mat = fecha_mat.to_datetime()
+        if hasattr(fecha_mat, "to_datetime"): 
+            fecha_mat = fecha_mat.to_datetime()
         
         num_sem = obtener_semana_actual_obra(obra_data, fecha_mat)
         
@@ -73,10 +84,11 @@ def recalcular_presupuesto_obra(obra_id):
     obra_ref.update({
         "presupuesto_materiales_actual": round(saldo_actual, 2),
         "gasto_materiales": round(total_gastado, 2),
-        "presupuesto_materiales_semanal": presupuesto_semanal_original, # Lista actualizada
+        "presupuesto_materiales_semanal": presupuesto_semanal_original,
         "presupuesto_actualizado": datetime.now()
     })
     return saldo_actual
+
 def cargar_materiales():
     return [{"id": d.id, **d.to_dict()}
             for d in db.collection("materiales").order_by("nombre").stream()]
@@ -97,6 +109,7 @@ def reset():
     st.session_state.mat_global = None
     st.session_state.mat_obra = None
     st.rerun()
+
 def obtener_semana_actual_obra(obra_data, fecha_consulta=None):
     """Retorna el número de semana (1, 2, 3...) según la fecha de inicio de la obra."""
     if not fecha_consulta:
@@ -118,6 +131,7 @@ def obtener_semana_actual_obra(obra_data, fecha_consulta=None):
     if dias_transcurridos < 0: return 1 # Aún no empieza
     
     return (dias_transcurridos // 7) + 1
+
 # ================= UI =================
 st.title("🧱 Materiales y Presupuesto")
 
@@ -165,6 +179,9 @@ if obra_ref_sidebar.exists:
     p_mats_quedan = float(obra_data_sidebar.get("presupuesto_materiales_actual", p_mats_total))
     p_mats_gastado = float(obra_data_sidebar.get("gasto_materiales", 0))
     
+    # Calcular total donado
+    total_donaciones = float(obra_data_sidebar.get("total_donaciones_monetarias", 0))
+    
     st.sidebar.divider()
     st.sidebar.subheader("📊 Resumen Materiales")
     
@@ -174,6 +191,12 @@ if obra_ref_sidebar.exists:
         delta=f"De un total de S/ {p_mats_total:,.2f}",
         delta_color="off"
     )
+    
+    if total_donaciones > 0:
+        st.sidebar.metric(
+            label="💝 Donaciones Recibidas",
+            value=f"S/ {total_donaciones:,.2f}"
+        )
     
     if p_mats_total > 0:
         progreso = max(0.0, min(1.0, p_mats_quedan / p_mats_total))
@@ -309,6 +332,7 @@ if obra_doc.exists:
                         "cantidad": cantidad,
                         "precio_unitario": mat_sel["precio_unitario"],
                         "subtotal": costo_total,
+                        "tipo": "COMPRADO",  # Marcado como comprado
                         "fecha": datetime.now()
                     })
                     
@@ -319,23 +343,69 @@ if obra_doc.exists:
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
+
 # ================== SECCIÓN C ==================
 st.divider()
 st.header("🧾 Materiales de la obra")
+
+# Agregar filtro
+filtro_tipo = st.radio(
+    "Filtrar por:",
+    ["Todos", "Solo Comprados", "Solo Donaciones"],
+    horizontal=True
+)
 
 mats_obra = cargar_materiales_obra(obra_id)
 
 if mats_obra:
     df_obra = pd.DataFrame(mats_obra)
-    sel = st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal"]],
-        hide_index=True,
-        use_container_width=True,
-        selection_mode="single-row",
-        on_select="rerun"
-    )
-    if sel and sel["selection"]["rows"]:
-        st.session_state.mat_obra = mats_obra[sel["selection"]["rows"][0]]
+    
+    # Agregar columna de tipo si no existe
+    if 'tipo' not in df_obra.columns:
+        df_obra['tipo'] = 'COMPRADO'
+    else:
+        df_obra['tipo'] = df_obra['tipo'].fillna('COMPRADO')
+    
+    # Aplicar filtro
+    if filtro_tipo == "Solo Comprados":
+        df_obra = df_obra[df_obra['tipo'] != 'DONACIÓN']
+    elif filtro_tipo == "Solo Donaciones":
+        df_obra = df_obra[df_obra['tipo'] == 'DONACIÓN']
+    
+    # Agregar columna de donante si existe
+    if 'donante' in df_obra.columns:
+        df_obra['info_donacion'] = df_obra.apply(
+            lambda x: f"💝 {x['donante']}" if x['tipo'] == 'DONACIÓN' and pd.notna(x.get('donante')) else '',
+            axis=1
+        )
+    else:
+        df_obra['info_donacion'] = ''
+    
+    if not df_obra.empty:
+        sel = st.dataframe(
+            df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "tipo", "info_donacion"]],
+            hide_index=True,
+            use_container_width=True,
+            selection_mode="single-row",
+            on_select="rerun",
+            column_config={
+                "nombre": "Material",
+                "unidad": "Unidad",
+                "cantidad": "Cantidad",
+                "precio_unitario": st.column_config.NumberColumn("P. Unit. (S/)", format="S/ %.2f"),
+                "subtotal": st.column_config.NumberColumn("Subtotal (S/)", format="S/ %.2f"),
+                "tipo": st.column_config.TextColumn("Tipo", help="COMPRADO o DONACIÓN"),
+                "info_donacion": "Donado por"
+            }
+        )
+        
+        if sel and sel["selection"]["rows"]:
+            idx_sel = df_obra.index[sel["selection"]["rows"][0]]
+            # Buscar en la lista original
+            st.session_state.mat_obra = next((m for m in mats_obra if m.get('nombre') == df_obra.loc[idx_sel, 'nombre'] and 
+                                               m.get('fecha') == df_obra.loc[idx_sel, 'fecha']), None)
+    else:
+        st.info("No hay materiales que coincidan con el filtro seleccionado")
 else:
     st.info("No hay materiales asignados")
 
@@ -343,6 +413,11 @@ else:
 mat_o = st.session_state.mat_obra
 if mat_o:
     st.subheader("✏️ Editar material en obra")
+    
+    # Mostrar si es donado
+    if mat_o.get("tipo") == "DONACIÓN":
+        st.info(f"💝 Este material fue donado por: {mat_o.get('donante', 'Desconocido')}")
+    
     nueva = st.number_input(
         "Cantidad",
         min_value=1.0,
@@ -398,11 +473,13 @@ if archivo:
                         "cantidad": float(r["cantidad"]),
                         "precio_unitario": float(r["precio_unitario"]),
                         "subtotal": round(float(r["cantidad"] * r["precio_unitario"]), 2),
+                        "tipo": "COMPRADO",
                         "fecha": datetime.now()
                     })
                 nuevo_saldo = recalcular_presupuesto_obra(obra_id)
                 st.success(f"✅ {len(df_excel)} materiales importados. Nuevo saldo: S/ {nuevo_saldo:,.2f}")
                 st.rerun()
+
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
 st.divider()
 st.header("💰 Estado del Presupuesto de Materiales")
@@ -430,8 +507,6 @@ if datos_sem_actual:
         st.progress(min(1.0, g_sem_real / p_sem_ini), text=f"Consumo semanal: {(g_sem_real/p_sem_ini)*100:.1f}%")
 else:
     st.warning("⚠️ No se encontró presupuesto configurado para esta semana.")
-
-# ... (Aquí continúan tus métricas generales de Presupuesto Total) ...
 
 # ================== SECCIÓN F - GESTIÓN DE RECIBOS ==================
 st.divider()
@@ -547,6 +622,8 @@ with tab2:
                     db.collection("obras").document(obra_id).collection("recibos").document(recibo["id"]).delete()
                     st.success("✅ Recibo eliminado")
                     st.rerun()
+
+
 
 # ================== SECCIÓN X ==================
 st.divider()
