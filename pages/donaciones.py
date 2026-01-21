@@ -198,12 +198,13 @@ with tab2:
                     # 2. Agregar al inventario de materiales con identificador de donación
                     db.collection("obras").document(obra_id_sel).collection("materiales").add({
                         "nombre": nombre_mat,
-                        "cantidad_disponible": cantidad,
+                        "cantidad": cantidad,             # ✅ CORRECTO: Ahora coincide con materiales.py
                         "unidad": unidad,
                         "precio_unitario": precio_unit,
-                        "tipo": "DONACIÓN",  # ← IDENTIFICADOR CLAVE
+                        "subtotal": 0.0,                  # ✅ IMPORTANTE: Las donaciones valen 0 en el gasto
+                        "tipo": "DONACIÓN",
                         "donante": donante_mat,
-                        "fecha_donacion": fecha_dt,
+                        "fecha": fecha_dt,                # ✅ USA 'fecha' en lugar de 'fecha_donacion' para ordenar
                         "notas": notas_mat,
                         "registrado_en": datetime.now(local_tz)
                     })
