@@ -343,102 +343,86 @@ if obra_doc.exists:
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
-# ================== SECCIÓN C: INVENTARIO TOTAL (CORREGIDA) ==================
+# ================== SECCIÓN C: INVENTARIO TOTAL (CONSOLIDADA) ==================
 st.divider()
 st.header("🧾 Inventario Total de la Obra")
+st.caption("Visualiza todos los materiales asignados: Catálogo, Importados y Donaciones.")
 
+# Cargar todos los materiales de la subcolección de la obra
 mats_obra = cargar_materiales_obra(obra_id)
 
 if mats_obra:
     df_obra = pd.DataFrame(mats_obra)
     
+    # Asegurar que existan las columnas necesarias para la visualización
     if 'tipo' not in df_obra.columns:
         df_obra['tipo'] = 'COMPRADO'
     
-    df_obra['Estado'] = df_obra['tipo'].apply(
+    # Crear columna de Estado visual
+    df_obra['Origen'] = df_obra['tipo'].apply(
         lambda x: "💝 DONACIÓN" if x == "DONACIÓN" else "🛒 COMPRADO"
     )
 
+    # Mostrar tabla principal
     st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Estado"]],
+        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Origen"]],
         hide_index=True,
         use_container_width=True,
         column_config={
             "precio_unitario": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
             "subtotal": st.column_config.NumberColumn("Total (S/)", format="S/ %.2f"),
+            "cantidad": st.column_config.NumberColumn("Cant.", format="%.2f"),
         }
     )
 
-    with st.expander("⚙️ Modificar materiales del inventario"):
+    # Bloque único de Edición y Eliminación
+    with st.expander("⚙️ Gestionar materiales del inventario (Editar / Eliminar)"):
         mat_seleccionado = st.selectbox(
-            "Seleccione material para editar/eliminar",
+            "Seleccione el material que desea modificar",
             options=mats_obra,
-            format_func=lambda x: f"{x.get('tipo', 'COMPRADO')} - {x['nombre']} ({x['cantidad']} {x['unidad']})"
+            format_func=lambda x: f"[{x.get('tipo', 'COMPRADO')}] {x['nombre']} - {x['cantidad']} {x['unidad']}"
         )
         
         if mat_seleccionado:
+            # Mostrar info si es donado
+            if mat_seleccionado.get("tipo") == "DONACIÓN":
+                st.info(f"ℹ️ Material donado por: **{mat_seleccionado.get('donante', 'Anónimo')}**")
+
             col_ed1, col_ed2 = st.columns(2)
             
-            if col_ed1.button("🗑️ Eliminar de la obra", use_container_width=True):
-                db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
-                recalcular_presupuesto_obra(obra_id)
-                st.rerun()
-            
-            # --- FIX DEL ERROR ---
-            # Usamos max(0.1, ...) para que si la cantidad en DB es 0, el widget no explote
-            valor_actual = float(mat_seleccionado.get('cantidad', 0.1))
-            
-            nueva_cant = col_ed2.number_input(
+            # Campo de nueva cantidad con validación anti-error de Streamlit
+            valor_db = float(mat_seleccionado.get('cantidad', 0))
+            nueva_cant = col_ed1.number_input(
                 "Nueva Cantidad", 
-                min_value=0.1, 
-                value=max(0.1, valor_actual), # Esto evita el error de Streamlit
-                step=1.0
+                min_value=0.0, 
+                value=max(0.0, valor_db),
+                step=1.0,
+                key=f"edit_cant_{mat_seleccionado['id']}"
             )
             
-            if col_ed2.button("💾 Actualizar Cantidad", use_container_width=True):
+            # Botones de acción
+            if col_ed1.button("💾 Guardar Cambios", use_container_width=True, type="primary"):
+                # Calculamos el nuevo subtotal (si es donación, el precio unitario suele ser 0 o informativo)
+                nuevo_subtotal = round(nueva_cant * mat_seleccionado.get('precio_unitario', 0), 2)
+                
                 db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).update({
                     "cantidad": nueva_cant,
-                    "subtotal": round(nueva_cant * mat_seleccionado['precio_unitario'], 2)
+                    "subtotal": nuevo_subtotal,
+                    "ultima_edicion": datetime.now()
                 })
+                
                 recalcular_presupuesto_obra(obra_id)
-                st.success("Cantidad actualizada")
+                st.success("✅ Inventario actualizado")
+                st.rerun()
+
+            if col_ed2.button("🗑️ Eliminar de la Obra", use_container_width=True):
+                db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
+                
+                recalcular_presupuesto_obra(obra_id)
+                st.warning(f"🗑️ {mat_seleccionado['nombre']} eliminado del inventario.")
                 st.rerun()
 else:
-    st.info("No hay materiales registrados.")
-# ----- EDITAR MATERIAL OBRA -----
-mat_o = st.session_state.mat_obra
-if mat_o:
-    st.subheader("✏️ Editar material en obra")
-    
-    # Mostrar si es donado
-    if mat_o.get("tipo") == "DONACIÓN":
-        st.info(f"💝 Este material fue donado por: {mat_o.get('donante', 'Desconocido')}")
-    
-    nueva = st.number_input(
-        "Cantidad",
-        min_value=1.0,
-        value=float(mat_o["cantidad"])
-    )
-
-    if st.button("Actualizar cantidad", type="primary"):
-        db.collection("obras").document(obra_id) \
-            .collection("materiales").document(mat_o["id"]).update({
-                "cantidad": nueva,
-                "subtotal": round(nueva * mat_o["precio_unitario"], 2),
-                "fecha": datetime.now()
-            })
-        # Actualización automática en Firebase
-        recalcular_presupuesto_obra(obra_id)
-        reset()
-
-    if st.button("Eliminar de la obra"):
-        db.collection("obras").document(obra_id) \
-            .collection("materiales").document(mat_o["id"]).delete()
-        # Actualización automática en Firebase
-        nuevo_saldo = recalcular_presupuesto_obra(obra_id)
-        st.success(f"✅ Material eliminado. Nuevo saldo: S/ {nuevo_saldo:,.2f}")
-        reset()
-
+    st.info("🔎 No hay materiales registrados en esta obra todavía.")
 # ================== SECCIÓN D ==================
 st.divider()
 st.header("📥 Importar materiales desde Excel")
