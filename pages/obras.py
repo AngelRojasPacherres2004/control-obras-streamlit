@@ -350,6 +350,13 @@ st.subheader("📊 Avance económico de la obra")
 
 obra = db.collection("obras").document(obra_id_sel).get().to_dict()
 avances = cargar_avances(obra_id_sel)
+# ================= PRECIOS DE MATERIALES =================
+materiales_ref = db.collection("obras").document(obra_id_sel).collection("materiales").stream()
+
+precios_materiales = {}
+for m in materiales_ref:
+    d = m.to_dict()
+    precios_materiales[d.get("nombre")] = float(d.get("precio_unitario", 0))
 
 if not avances:
     st.info("Aún no hay avances registrados")
@@ -363,13 +370,20 @@ else:
 
         fecha = fecha.replace(tzinfo=pytz.UTC).astimezone(local_tz)
 
+        # Calcular costo del día desde materiales usados
+        costo_dia = 0.0
+        for mat in av.get("materiales_usados", []):
+            precio = precios_materiales.get(mat.get("nombre"), 0)
+            costo_dia += float(mat.get("cantidad", 0)) * precio
+
         registros.append({
             "fecha": fecha,
             "semana": fecha.isocalendar()[1],
             "mes": fecha.month,
-            "costo": av.get("costo_total_dia", 0),
+            "costo": costo_dia,
             "avance": av
         })
+
 
 
     df = pd.DataFrame(registros)
@@ -420,12 +434,13 @@ else:
             dia_en = r["fecha"].strftime("%A")
 
             if dia_en in gastos_por_dia:
-                avance = r["avance"]
+               
 
-                gasto_materiales = avance.get("costo_total_dia", 0) or 0
-                gasto_caja = avance.get("gasto_caja_chica", 0) or 0
+                gasto_materiales = r["avance"].get("costo_total_dia", 0) or 0
+                gasto_caja = r["avance"].get("gasto_caja_chica", 0) or 0
 
-                gastos_por_dia[dia_en] += gasto_materiales + gasto_caja
+                gastos_por_dia[dia_en] += r["costo"]
+
 
         # DataFrame ORDENADO
         chart_df = pd.DataFrame({
