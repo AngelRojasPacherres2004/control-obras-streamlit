@@ -1,4 +1,3 @@
-"""avances_pasante.py"""
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -6,11 +5,10 @@ import cloudinary.uploader
 from firebase_admin import firestore
 import pytz
 
-# Zona horaria
-pais_tz = pytz.timezone("America/Lima")
 # ================= CONFIG =================
 st.set_page_config(page_title="Parte Diario", layout="centered")
 db = firestore.client()
+tz = pytz.timezone("America/Lima")
 
 # ================= SEGURIDAD =================
 if "auth" not in st.session_state:
@@ -18,7 +16,7 @@ if "auth" not in st.session_state:
     st.stop()
 
 auth = st.session_state["auth"]
-# ================= USUARIO Y OBRA =================
+
 if auth.get("role") != "pasante":
     st.warning("Acceso solo para pasantes")
     st.stop()
@@ -30,25 +28,7 @@ if not obra_id:
     st.error("No tienes una obra asignada")
     st.stop()
 
-
-# ================= SESSION STATE (INICIALIZACIÓN) =================
-if "gasto_extra_monto" not in st.session_state:
-    st.session_state.gasto_extra_monto = 0.0
-
-if "gasto_extra_problematica" not in st.session_state:
-    st.session_state.gasto_extra_problematica = ""
-
-if "gasto_extra_solucion" not in st.session_state:
-    st.session_state.gasto_extra_solucion = ""
-
-if "mostrar_gasto_extra" not in st.session_state:
-    st.session_state.mostrar_gasto_extra = False
-
-if "gasto_extra_foto" not in st.session_state:
-    st.session_state.gasto_extra_foto = None
-
-
-# ================= DATOS DE LA OBRA =================
+# ================= OBRA =================
 obra_ref = db.collection("obras").document(obra_id)
 obra_doc = obra_ref.get()
 
@@ -59,15 +39,28 @@ if not obra_doc.exists:
 obra = obra_doc.to_dict()
 
 
-# ================= FECHAS DE LA OBRA =================
-fecha_inicio = obra.get("fecha_inicio")
-fecha_fin = obra.get("fecha_fin_estimado")
 
-if fecha_inicio and hasattr(fecha_inicio, "date"):
-    fecha_inicio = fecha_inicio.date()
 
-if fecha_fin and hasattr(fecha_fin, "date"):
-    fecha_fin = fecha_fin.date()
+# ================= FIX AVANCES ANTIGUOS (SIN FECHA) =================
+avances_ref = obra_ref.collection("avances").stream()
+
+batch_fix = db.batch()
+fix_count = 0
+
+for av in avances_ref:
+    data = av.to_dict()
+
+    if "fecha" not in data and "timestamp" in data:
+        ts = data["timestamp"].astimezone(tz)
+        batch_fix.update(av.reference, {
+            "fecha": ts.isoformat()
+        })
+        fix_count += 1
+
+if fix_count > 0:
+    batch_fix.commit()
+
+
 
 # ================= SIDEBAR =================
 with st.sidebar:
@@ -79,108 +72,50 @@ with st.sidebar:
 
 # ================= MATERIALES ASIGNADOS =================
 materiales = []
-presupuesto_total = 0.0
 
 for m in obra_ref.collection("materiales").stream():
     d = m.to_dict()
     d["doc_id"] = m.id
     materiales.append(d)
-    presupuesto_total += float(d.get("subtotal", 0))
 
 if not materiales:
     st.warning("La obra no tiene materiales asignados")
     st.stop()
+# ================= CALCULAR MATERIAL GASTADO DESDE AVANCES =================
+gastado_por_material = {}
 
-# ================= MÉTRICAS (VERSUS: INICIAL VS DISPONIBLE) =================
-st.subheader("📊 Estado Financiero: Presupuesto vs. Disponible")
+avances_docs = obra_ref.collection("avances").stream()
 
-# 1. Extracción de valores desde el documento de la obra
-pres_total_obra = float(obra.get("presupuesto_total", 0))-float(obra.get("gasto_mano_obra", 0))
-pres_caja_inicial = float(obra.get("presupuesto_caja_chica", 0)) 
-pres_mats_inicial = float(obra.get("presupuesto_materiales", 0))
-pres_mo_inicial = float(obra.get("presupuesto_mano_obra", 0))
-
-gasto_mats_acum = float(obra.get("gasto_acumulado", 0))
-gasto_caja_acum = float(obra.get("gastos_adicionales", 0))
-gasto_mo_acum = float(obra.get("gasto_mano_obra", 0))
-
-# 2. Cálculos de Disponibles (Lo que queda)
-disponible_mats = pres_mats_inicial - gasto_mats_acum
-disponible_caja = pres_caja_inicial - gasto_caja_acum
-disponible_total = pres_total_obra - (gasto_mats_acum + gasto_caja_acum )
-
-# 3. Porcentaje de ejecución total
-porcentaje_ejecutado = ((pres_total_obra - disponible_total) / pres_total_obra * 100) if pres_total_obra > 0 else 0
-
-# --- FILA 1: VERSUS MATERIALES ---
-st.markdown("#### 🧱 Materiales")
-col1, col2 = st.columns(2)
-col1.metric("Presupuesto Inicial", f"S/ {pres_mats_inicial:,.2f}")
-col2.metric("Disponible Actual", f"S/ {disponible_mats:,.2f}", 
-            delta=f"-S/ {gasto_mats_acum:,.2f}", delta_color="inverse")
-
-# --- FILA 2: VERSUS CAJA CHICA ---
-st.markdown("#### 📦 Caja Chica")
-col3, col4 = st.columns(2)
-col3.metric("Presupuesto Inicial", f"S/ {pres_caja_inicial:,.2f}")
-col4.metric("Disponible Actual", f"S/ {disponible_caja:,.2f}", 
-            delta=f"-S/ {gasto_caja_acum:,.2f}", delta_color="inverse")
-
-st.divider()
-
-# --- FILA 3: TOTAL GENERAL ---
-st.markdown("#### 💰 Resumen de Obra")
-col5, col6 = st.columns(2)
-col5.metric("PRESUPUESTO TOTAL", f"S/ {pres_total_obra:,.2f}")
-col6.metric("TOTAL DISPONIBLE", f"S/ {disponible_total:,.2f}", 
-            delta=f"{porcentaje_ejecutado:.1f}% consumido")
-
-st.progress(min(porcentaje_ejecutado / 100, 1.0))
-st.divider()
-# ================= GASTOS ADICIONALES =================
-st.markdown("---")
-st.subheader("➕ Gastos adicionales (Caja chica)")
-
-if "mostrar_gasto_extra" not in st.session_state:
-    st.session_state.mostrar_gasto_extra = False
-
-if st.button("➕ Registrar gasto adicional"):
-    st.session_state.mostrar_gasto_extra = not st.session_state.mostrar_gasto_extra
-
-if st.session_state.mostrar_gasto_extra:
-    st.session_state.gasto_extra_problematica = st.text_area(
-        "🛑 Problemática",
-        value=st.session_state.gasto_extra_problematica
-    )
-
-    st.session_state.gasto_extra_solucion = st.text_area(
-        "✅ Solución",
-        value=st.session_state.gasto_extra_solucion
-    )
-
-    st.session_state.gasto_extra_monto = st.number_input(
-        "💸 Gasto a descontar de caja chica (S/)",
-        min_value=0.0,
-        step=1.0,
-        value=st.session_state.gasto_extra_monto
-    )
-
-    foto_gasto = st.file_uploader(
-    "📸 Foto del gasto (boleta / evidencia)",
-    type=["jpg", "png", "jpeg"],
-    accept_multiple_files=False
-    )
-
-    st.session_state.gasto_extra_foto = foto_gasto
+for av in avances_docs:
+    mats = av.to_dict().get("materiales_usados", [])
+    for m in mats:
+        mid = m.get("material_id")
+        cant = float(m.get("cantidad", 0))
+        gastado_por_material[mid] = gastado_por_material.get(mid, 0) + cant
 
 
-    st.info("ℹ️ Este gasto se guardará **junto con el avance diario**")
+st.subheader("📦 Resumen de materiales")
 
-if st.session_state.gasto_extra_monto > 0:
-    st.warning(
-        f"🟡 Gastos adicionales pendientes: "
-        f"S/ {st.session_state.gasto_extra_monto:,.2f}"
-    )
+resumen = []
+
+for mat in materiales:
+    disponible = float(mat.get("cantidad", 0))
+    gastado = gastado_por_material.get(mat["doc_id"], 0)
+
+    resumen.append({
+        "Material": mat.get("nombre"),
+        "Unidad": mat.get("unidad"),
+        "Gastado": gastado,
+        "Disponible": disponible
+    })
+
+df_resumen = pd.DataFrame(resumen)
+
+st.dataframe(
+    df_resumen,
+    use_container_width=True,
+    hide_index=True
+)
 
 
 # ================= FORMULARIO =================
@@ -193,32 +128,28 @@ with st.form("form_avance", clear_on_submit=True):
     st.subheader("🧱 Materiales usados hoy")
 
     materiales_usados = {}
-    costo_total_dia = 0.0
 
     for mat in materiales:
+        stock = float(mat.get("cantidad", 0))
+
         col1, col2 = st.columns([3, 1])
-        col1.write(f"**{mat['nombre']}** ({mat['unidad']})")
+        col1.write(f"**{mat['nombre']}** ({mat['unidad']}) — Disponible: {stock}")
 
         cantidad = col2.number_input(
             "Cant.",
             min_value=0.0,
+            max_value=stock,   # 🔒 LÍMITE MÁXIMO
             step=1.0,
             key=f"mat_{mat['doc_id']}"
         )
 
         if cantidad > 0:
-            subtotal = cantidad * mat["precio_unitario"]
-            costo_total_dia += subtotal
-
             materiales_usados[mat["doc_id"]] = {
+                "material_id": mat["doc_id"],
                 "nombre": mat["nombre"],
                 "unidad": mat["unidad"],
-                "cantidad": cantidad,
-                "precio_unitario": mat["precio_unitario"],
-                "subtotal": round(subtotal, 2)
+                "cantidad": cantidad
             }
-
-    st.info(f"💰 Costo del día: S/ {costo_total_dia:.2f}")
 
     fotos = st.file_uploader(
         "Subir fotos (mínimo 3)",
@@ -228,7 +159,7 @@ with st.form("form_avance", clear_on_submit=True):
 
     guardar = st.form_submit_button("Guardar avance")
 
-# ================= GUARDAR CON LÓGICA DE TRASVASE (SOLUCIÓN EMPTY FILE) =================
+# ================= GUARDAR =================
 if guardar:
     if not responsable.strip() or not descripcion.strip():
         st.error("Responsable y descripción son obligatorios")
@@ -237,197 +168,82 @@ if guardar:
     elif not fotos or len(fotos) < 3:
         st.error("Debes subir mínimo 3 fotos")
     else:
-        # --- LÓGICA DE PRESUPUESTO ---
-        disponible_mats_antes = pres_mats_inicial - gasto_mats_acum
-        disponible_caja_antes = pres_caja_inicial - gasto_caja_acum
-        
-        gasto_mats_hoy = costo_total_dia
-        gasto_caja_hoy = st.session_state.gasto_extra_monto
-        
-        exceso_materiales = 0.0
-        pago_desde_materiales = gasto_mats_hoy
-        
-        if gasto_mats_hoy > disponible_mats_antes:
-            pago_desde_materiales = max(0, disponible_mats_antes)
-            exceso_materiales = gasto_mats_hoy - pago_desde_materiales
-            
-        total_a_descontar_caja = gasto_caja_hoy + exceso_materiales
-        
-        if total_a_descontar_caja > disponible_caja_antes:
-            st.error(f"🚫 Fondo insuficiente en Caja Chica. Falta: S/ {total_a_descontar_caja - disponible_caja_antes:,.2f}")
-        else:
-            with st.spinner("Subiendo imágenes y guardando..."):
-                try:
-                    # 1. Subir fotos de la obra
-                    urls = []
-                    for f in fotos:
-                        f.seek(0) # Asegurar que el archivo se lea desde el inicio
-                        res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
-                        urls.append(res["secure_url"])
+        with st.spinner("Guardando avance..."):
+            try:
+                # Subir fotos
+                urls = []
+                for f in fotos:
+                    f.seek(0)
+                    res = cloudinary.uploader.upload(
+                        f,
+                        folder=f"obras/{obra_id}/avances"
+                    )
+                    urls.append(res["secure_url"])
 
-                    # 2. Subir foto de caja chica (CON FIX PARA EMPTY FILE)
-                    url_foto_gasto = ""
-                    foto_caja = st.session_state.get("gasto_extra_foto")
-                    
-                    if foto_caja is not None:
-                        # LEER BYTES PARA COMPROBAR SI ESTÁ VACÍO
-                        foto_caja.seek(0)
-                        contenido = foto_caja.read()
-                        if len(contenido) > 0:
-                            foto_caja.seek(0) # Regresar al inicio para el uploader
-                            res_caja = cloudinary.uploader.upload(foto_caja, folder=f"obras/{obra_id}/caja_chica")
-                            url_foto_gasto = res_caja["secure_url"]
-                        else:
-                            st.warning("⚠️ El archivo de la boleta estaba vacío y no se subió.")
+                batch = db.batch()
 
-                    # 3. Preparar Batch de Firestore
-                    batch = db.batch()
-                    ref_avance = obra_ref.collection("avances").document()
-                    
-                    batch.set(ref_avance, {
-                        "fecha": datetime.now().isoformat(),
-                        "timestamp": datetime.now(),
-                        "usuario": username,
-                        "responsable": responsable,
-                        "observaciones": descripcion,
-                        "costo_total_dia": round(gasto_mats_hoy, 2),
-                        "gasto_adicional": round(gasto_caja_hoy, 2),
-                        "exceso_mats_a_caja": round(exceso_materiales, 2),
-                        "problematica": st.session_state.gasto_extra_problematica if total_a_descontar_caja > 0 else "",
-                        "solucion": st.session_state.gasto_extra_solucion if total_a_descontar_caja > 0 else "",
-                        "foto_gasto_adicional": url_foto_gasto,
-                        "porcentaje_avance_financiero": round((gasto_mats_hoy/pres_mats_inicial*100), 2) if pres_mats_inicial > 0 else 0,
-                        "materiales_usados": list(materiales_usados.values()),
-                        "fotos": urls
+                ref_avance = obra_ref.collection("avances").document()
+                ahora = datetime.now(tz)
+
+                batch.set(ref_avance, {
+                    "fecha": ahora.isoformat(),   # 🔥 CLAVE PARA obras.py
+                    "timestamp": ahora,           # se mantiene para orden y zonas horarias
+                    "responsable": responsable,
+                    "usuario": username,
+                    "descripcion": descripcion,
+                    "materiales_usados": list(materiales_usados.values()),
+                    "fotos": urls
+                })
+
+                # Descontar stock
+                for mat_id, uso in materiales_usados.items():
+                    mat_ref = obra_ref.collection("materiales").document(mat_id)
+                    mat_doc = mat_ref.get()
+
+                    stock_actual = float(mat_doc.to_dict().get("cantidad", 0))
+
+                    batch.update(mat_ref, {
+                        "cantidad": stock_actual - uso["cantidad"]
                     })
 
-                    # 4. Actualizar totales de la obra
-                    nuevo_gasto_mats = gasto_mats_acum + pago_desde_materiales
-                    nuevo_gasto_caja = gasto_caja_acum + total_a_descontar_caja
-                    
-                    batch.update(obra_ref, {
-                        "gasto_acumulado": round(nuevo_gasto_mats, 2),
-                        "gastos_adicionales": round(nuevo_gasto_caja, 2),
-                        "ultima_actualizacion": firestore.SERVER_TIMESTAMP
-                    })
-                    
-                    batch.commit()
+                batch.commit()
 
-                    # 5. Limpiar y Reiniciar
-                    st.session_state.gasto_extra_monto = 0.0
-                    st.session_state.gasto_extra_foto = None
-                    st.session_state.gasto_extra_problematica = ""
-                    st.session_state.gasto_extra_solucion = ""
-                    st.session_state.mostrar_gasto_extra = False
-                    
-                    st.success("✅ Avance guardado correctamente.")
-                    st.rerun()
+                st.success("✅ Avance guardado correctamente")
+                st.rerun()
 
-                except Exception as e:
-                    st.error(f"❌ Error al procesar el envío: {str(e)}")
-# ================= HISTORIAL DE AVANCES ACTUALIZADO =================
+            except Exception as e:
+                st.error(f"❌ Error: {str(e)}")
+
+# ================= HISTORIAL =================
 st.divider()
 st.subheader("📂 Historial de avances")
 
-avances_todos = (
+avances = (
     obra_ref.collection("avances")
-    .order_by("timestamp", direction=firestore.Query.ASCENDING)
+    .order_by("timestamp", direction=firestore.Query.DESCENDING)
     .stream()
 )
 
-lista_avances = []
-acumulado_paso_a_paso = 0.0
+hay = False
 
-for av in avances_todos:
+for av in avances:
+    hay = True
     d = av.to_dict()
+    ts = d.get("timestamp").astimezone(tz)
 
-    ts = d.get("timestamp")
-    if ts and hasattr(ts, "astimezone"):
-        ts = ts.astimezone(pais_tz)
-        d["timestamp"] = ts
+    with st.expander(f"📅 {ts:%d/%m/%Y %H:%M} | {d.get('responsable')}"):
+        st.write(f"**Descripción:** {d.get('descripcion')}")
 
-    costo_dia = float(d.get("costo_total_dia", 0))
-    gasto_extra = float(d.get("gasto_adicional", 0))
-    
-    # Sumamos ambos al acumulado real de la obra
-    acumulado_paso_a_paso += costo_dia + gasto_extra
+        mats = d.get("materiales_usados", [])
+        if mats:
+            df = pd.DataFrame(mats)
+            st.table(df[["nombre", "cantidad", "unidad"]])
 
-    d["acumulado_al_momento"] = round(acumulado_paso_a_paso, 2)
-    # Comparamos contra el presupuesto total definido en la sección de métricas
-    d["excede_presupuesto"] = acumulado_paso_a_paso > pres_total_obra
-    # Detectamos si hubo trasvase (exceso de materiales pagado por caja chica)
-    d["hubo_trasvase"] = float(d.get("exceso_mats_a_caja", 0)) > 0
+        fotos = d.get("fotos", [])
+        if fotos:
+            cols = st.columns(3)
+            for i, url in enumerate(fotos):
+                cols[i % 3].image(url, use_container_width=True)
 
-    lista_avances.append(d)
-
-if not lista_avances:
+if not hay:
     st.info("Aún no hay avances registrados.")
-else:
-    # Mostramos del más reciente al más antiguo
-    for d in reversed(lista_avances):
-        ts = d.get("timestamp")
-        
-        # Lógica de semáforo
-        if d["excede_presupuesto"]:
-            alerta = "🔴"
-        elif d["hubo_trasvase"]:
-            alerta = "🟠"
-        else:
-            alerta = "🟢"
-            
-        prog = d.get("porcentaje_avance_financiero", 0)
-
-        with st.expander(f"{alerta} {ts:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"):
-            if d["excede_presupuesto"]:
-                st.error("⚠️ Este avance superó el presupuesto total de la obra.")
-            elif d["hubo_trasvase"]:
-                st.warning(f"ℹ️ Parte de los materiales (S/ {d['exceso_mats_a_caja']:.2f}) se cubrieron con Caja Chica por falta de presupuesto en materiales.")
-
-            st.write(f"**Descripción:** {d.get('observaciones')}")
-
-            # --- Tabla de Materiales ---
-            st.write("**🧱 Materiales usados:**")
-            mats = d.get("materiales_usados", [])
-            if mats:
-                df_m = pd.DataFrame(mats)[["nombre", "cantidad", "unidad", "subtotal"]]
-                df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
-                st.table(df_m)
-            else:
-                st.caption("Sin materiales registrados.")
-
-            # --- Métricas del día ---
-            c1, c2 = st.columns(2)
-            c1.metric("Materiales (Presupuesto)", f"S/ {d.get('costo_total_dia', 0):,.2f}")
-            c2.metric("Acumulado Histórico", f"S/ {d['acumulado_al_momento']:,.2f}")
-
-            # --- Gastos Adicionales y Evidencias ---
-            g_adic = d.get("gasto_adicional", 0)
-            if g_adic > 0:
-                st.info(f"💰 Gasto adicional directo de Caja Chica: S/ {g_adic:,.2f}")
-
-            # --- PROBLEMÁTICA / SOLUCIÓN (Tu código original preservado) ---
-            problematica = d.get("problematica", "").strip()
-            solucion = d.get("solucion", "").strip()
-            foto_gasto = d.get("foto_gasto_adicional", "")
-
-            if problematica or solucion or foto_gasto:
-                with st.expander("🛑 Ver problemática, solución y boletas"):
-                    if foto_gasto:
-                        st.markdown("#### 📸 Boleta / Comprobante")
-                        st.image(foto_gasto, use_container_width=True)
-
-                    col_p, col_s = st.columns(2)
-                    with col_p:
-                        st.markdown("#### 🛑 Problemática")
-                        st.write(problematica if problematica else "No registrada.")
-                    with col_s:
-                        st.markdown("#### ✅ Solución")
-                        st.write(solucion if solucion else "No registrada.")
-
-            # --- Fotos del Avance ---
-            fotos_list = d.get("fotos", [])
-            if fotos_list:
-                st.write("**🖼️ Fotos del trabajo:**")
-                cols = st.columns(3)
-                for i, url in enumerate(fotos_list):
-                    cols[i % 3].image(url, use_container_width=True)
