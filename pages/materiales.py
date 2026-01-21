@@ -343,104 +343,85 @@ if obra_doc.exists:
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
-# ================== SECCIÓN C: INVENTARIO TOTAL (TODOS LOS MATERIALES) ==================
+# ================== SECCIÓN C: INVENTARIO TOTAL (CONSOLIDADA) ==================
 st.divider()
 st.header("🧾 Inventario Total de la Obra")
-st.caption("Aquí aparecen Compras, Importaciones y Donaciones por igual.")
+st.caption("Visualiza todos los materiales: Catálogo, Importados y Donaciones.")
 
-# 1. Cargamos TODOS los materiales sin filtros previos
+# 1. Forzamos la carga de TODO lo que hay en la subcolección
 mats_obra = cargar_materiales_obra(obra_id)
 
-# 2. Obtenemos el consumo de los avances (para ver el gasto real en campo)
-consumo_por_material = {}
-avances_docs = db.collection("obras").document(obra_id).collection("avances").stream()
-for av in avances_docs:
-    usos = av.to_dict().get("materiales_usados", [])
-    for u in usos:
-        mid = u.get("material_id")
-        cant = float(u.get("cantidad", 0))
-        consumo_por_material[mid] = consumo_por_material.get(mid, 0) + cant
-
 if mats_obra:
-    resumen_visual = []
-    for m in mats_obra:
-        mid = m["id"]
-        tipo = m.get("tipo", "COMPRADO")
-        stock_actual = float(m.get("cantidad", 0))
-        gastado_campo = consumo_por_material.get(mid, 0)
-        
-        # Etiqueta visual para el origen
-        if tipo == "DONACIÓN":
-            origen_tag = "💝 DONACIÓN"
-        elif m.get("es_importado"): # Por si usas una marca de importación
-            origen_tag = "📥 IMPORTADO"
-        else:
-            origen_tag = "🛒 COMPRADO"
+    # Convertimos a DataFrame para manipular fácilmente
+    df_obra = pd.DataFrame(mats_obra)
+    
+    # --- NORMALIZACIÓN DE DATOS (Para que aparezca lo que falta) ---
+    # Si el pasante los ve y tú no, es probable que algunos no tengan el campo 'tipo' o 'subtotal'
+    if 'tipo' not in df_obra.columns:
+        df_obra['tipo'] = 'COMPRADO'
+    else:
+        df_obra['tipo'] = df_obra['tipo'].fillna('COMPRADO')
 
-        resumen_visual.append({
-            "Material": m.get("nombre"),
-            "Unidad": m.get("unidad"),
-            "Origen": origen_tag,
-            "Total Inicial": stock_actual + gastado_campo,
-            "Consumo (Campo)": gastado_campo,
-            "Disponible Hoy": stock_actual,
-            "Precio Unit.": m.get("precio_unitario", 0),
-            "Subtotal": m.get("subtotal", 0)
-        })
+    if 'subtotal' not in df_obra.columns:
+        df_obra['subtotal'] = 0.0
+    else:
+        df_obra['subtotal'] = df_obra['subtotal'].fillna(0.0)
 
-    df_resumen = pd.DataFrame(resumen_visual)
+    # Creamos la columna de origen visual
+    df_obra['Origen'] = df_obra['tipo'].apply(
+        lambda x: "💝 DONACIÓN" if x == "DONACIÓN" else "🛒 COMPRADO"
+    )
 
-    # Renderizado de la tabla completa
+    # --- TABLA PRINCIPAL ---
     st.dataframe(
-        df_resumen,
+        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Origen"]],
         hide_index=True,
         use_container_width=True,
         column_config={
-            "Precio Unit.": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
-            "Subtotal": st.column_config.NumberColumn("Inversión (S/)", format="S/ %.2f"),
-            "Disponible Hoy": st.column_config.NumberColumn("En Almacén", format="%.2f"),
-            "Consumo (Campo)": st.column_config.NumberColumn("Usado", format="%.2f"),
+            "nombre": "Descripción del Material",
+            "precio_unitario": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
+            "subtotal": st.column_config.NumberColumn("Inversión (S/)", format="S/ %.2f"),
+            "cantidad": st.column_config.NumberColumn("Stock Actual", format="%.2f"),
         }
     )
 
-    # --- Gestión Individual ---
-    with st.expander("⚙️ Modificar o Eliminar cualquier material"):
-        mat_seleccionado = st.selectbox(
-            "Seleccione el material (incluye donados)",
-            options=mats_obra,
-            format_func=lambda x: f"[{x.get('tipo', 'COMPRADO')}] {x['nombre']} - {x['cantidad']} {x['unidad']}"
+    # --- GESTOR DE EDICIÓN ---
+    with st.expander("⚙️ Modificar Stock o Eliminar (Cualquier origen)"):
+        # Selector que incluye donaciones
+        opciones_selector = {m['id']: f"[{m.get('tipo', 'COMPRADO')}] {m['nombre']}" for m in mats_obra}
+        id_sel = st.selectbox("Seleccione material", options=list(opciones_selector.keys()), format_func=lambda x: opciones_selector[x])
+        
+        # Obtener el objeto seleccionado
+        mat_seleccionado = next(m for m in mats_obra if m['id'] == id_sel)
+
+        col_ed1, col_ed2 = st.columns(2)
+        nueva_cant = col_ed1.number_input(
+            "Corregir Cantidad", 
+            value=float(mat_seleccionado.get('cantidad', 0)),
+            key=f"input_all_{id_sel}"
         )
         
-        if mat_seleccionado:
-            col_ed1, col_ed2 = st.columns(2)
-            
-            # Ajuste de cantidad
-            valor_db = float(mat_seleccionado.get('cantidad', 0))
-            nueva_cant = col_ed1.number_input(
-                "Nueva Cantidad Disponible", 
-                min_value=0.0, 
-                value=max(0.0, valor_db),
-                key=f"edit_all_{mat_seleccionado['id']}"
-            )
-            
-            if col_ed1.button("💾 Actualizar Material", use_container_width=True, type="primary"):
-                # Actualizar cantidad y subtotal (si es donación, el precio unitario es 0, así que subtotal será 0)
-                precio_u = float(mat_seleccionado.get('precio_unitario', 0))
-                db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).update({
-                    "cantidad": nueva_cant,
-                    "subtotal": round(nueva_cant * precio_u, 2)
-                })
-                
-                recalcular_presupuesto_obra(obra_id)
-                st.success(f"✅ {mat_seleccionado['nombre']} actualizado.")
-                st.rerun()
+        if col_ed1.button("💾 Guardar Cambios", use_container_width=True):
+            # Calculamos nuevo subtotal (si es donación es 0)
+            p_unit = float(mat_seleccionado.get('precio_unitario', 0))
+            is_donacion = mat_seleccionado.get('tipo') == "DONACIÓN"
+            nuevo_sub = 0.0 if is_donacion else round(nueva_cant * p_unit, 2)
 
-            if col_ed2.button("🗑️ Eliminar de la Obra", use_container_width=True):
-                db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
-                recalcular_presupuesto_obra(obra_id)
-                st.rerun()
+            db.collection("obras").document(obra_id).collection("materiales").document(id_sel).update({
+                "cantidad": nueva_cant,
+                "subtotal": nuevo_sub
+            })
+            
+            recalcular_presupuesto_obra(obra_id)
+            st.success("Inventario actualizado")
+            st.rerun()
+
+        if col_ed2.button("🗑️ Quitar de Inventario", use_container_width=True):
+            db.collection("obras").document(obra_id).collection("materiales").document(id_sel).delete()
+            recalcular_presupuesto_obra(obra_id)
+            st.rerun()
 else:
-    st.info("🔎 No hay ningún tipo de material registrado.")
+    st.warning("🔎 No se encontraron materiales en la base de datos de esta obra.")
 # ================== SECCIÓN D ==================
 st.divider()
 st.header("📥 Importar materiales desde Excel")
