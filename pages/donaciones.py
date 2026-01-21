@@ -144,23 +144,30 @@ with tab1:
                     st.success(f"✅ Donación de S/ {monto:,.2f} de {donante} registrada correctamente.")
                     st.rerun()
 
-## ================= TAB 2: DONACIÓN DE MATERIALES =================
+# ================= TAB 2: DONACIÓN DE MATERIALES =================
 with tab2:
     st.subheader("🧱 Nueva Donación de Materiales")
     
+    # --- FUNCIÓN PARA LIMPIAR CAMPOS ---
+    def limpiar_campos_donacion():
+        st.session_state["donante_val"] = ""
+        st.session_state["nombre_mat_val"] = ""
+        st.session_state["cant_val"] = 0.0
+        st.session_state["precio_val"] = 0.0
+
     st.info("💡 Los materiales donados se registrarán en el inventario de la obra con identificador 'DONACIÓN'")
     
-    # 1. CAMPOS DE ENTRADA (Fuera del form para que sean automáticos)
+    # 1. CAMPOS DE ENTRADA (Usando keys para poder borrarlos)
     col_reg1, col_reg2 = st.columns(2)
-    donante_mat = col_reg1.text_input("Nombre del Donante", key="donante_input")
+    donante_mat = col_reg1.text_input("Nombre del Donante", key="donante_val")
     fecha_mat = col_reg2.date_input("Fecha de donación", value=date.today())
 
-    nombre_mat = st.text_input("Nombre del material (ej. Cemento, Varillas)")
+    nombre_mat = st.text_input("Nombre del material", key="nombre_mat_val")
 
     col_m1, col_m2, col_m3 = st.columns(3)
-    cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, value=0.0)
-    unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"])
-    precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=0.10, value=0.0)
+    cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, key="cant_val")
+    unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"], key="uni_val")
+    precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=0.10, key="precio_val")
 
     # 2. CÁLCULO EN VIVO
     subtotal_estimado = cantidad * precio_unit
@@ -168,18 +175,17 @@ with tab2:
     if subtotal_estimado > 0:
         st.success(f"💰 **Valor Total de la Donación: S/ {subtotal_estimado:,.2f}**")
     
-    # 3. BOTÓN DE REGISTRO (Independiente)
+    # 3. BOTÓN DE REGISTRO
     if st.button("💾 Registrar Donación de Material", type="primary", use_container_width=True):
         if not donante_mat or not nombre_mat or cantidad <= 0:
-            st.error("⚠️ Por favor completa el donante, el material y una cantidad válida.")
+            st.error("⚠️ Por favor completa los campos obligatorios.")
         else:
-            with st.spinner("Registrando material donado..."):
-                # Preparar fechas
+            with st.spinner("Registrando..."):
                 fecha_dt = datetime.combine(fecha_mat, datetime.min.time())
                 fecha_dt = local_tz.localize(fecha_dt)
                 ahora = datetime.now(local_tz)
                 
-                # A. Guardar en historial de donaciones
+                # A. Registro en historial
                 db.collection("obras").document(obra_id_sel).collection("donaciones_materiales").add({
                     "donante": donante_mat,
                     "fecha": fecha_dt,
@@ -188,11 +194,10 @@ with tab2:
                     "unidad": unidad,
                     "precio_unitario": precio_unit,
                     "subtotal": subtotal_estimado,
-                    "notas": "", # Puedes agregar un text_input si lo necesitas
                     "registrado_en": ahora
                 })
                 
-                # B. Agregar al inventario de materiales (Para que aparezca en materiales.py)
+                # B. Registro en inventario
                 db.collection("obras").document(obra_id_sel).collection("materiales").add({
                     "nombre": nombre_mat,
                     "cantidad": cantidad,
@@ -205,8 +210,10 @@ with tab2:
                     "registrado_en": ahora
                 })
                 
-                st.success(f"✅ ¡Listo! '{nombre_mat}' agregado al inventario.")
-                st.rerun()
+                # --- AQUÍ SUCEDE LA MAGIA ---
+                st.success(f"✅ ¡Listo! Se registró la donación.")
+                limpiar_campos_donacion() # Llamamos a la función de limpieza
+                st.rerun() 
 # ================= TAB 3: HISTORIAL MONETARIAS =================
 with tab3:
     st.subheader("📋 Historial de Donaciones Monetarias")
