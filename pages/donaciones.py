@@ -150,29 +150,45 @@ with tab2:
     
     st.info("💡 Los materiales donados se registrarán en el inventario de la obra con identificador 'DONACIÓN'")
     
+    # 🔥 CALCULADORA EN TIEMPO REAL (fuera del formulario)
+    st.markdown("#### 💰 Calculadora de Valor")
+    calc_col1, calc_col2, calc_col3 = st.columns(3)
+    
+    calc_cantidad = calc_col1.number_input("Cantidad", min_value=0.0, step=1.0, key="calc_cant", value=0.0)
+    calc_col2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"], key="calc_unidad", disabled=True)
+    calc_precio = calc_col3.number_input("Precio unitario (S/)", min_value=0.0, step=1.0, key="calc_precio", value=0.0)
+    
+    # 🔥 MOSTRAR SUBTOTAL EN TIEMPO REAL DEBAJO
+    calc_subtotal = calc_cantidad * calc_precio
+    
+    if calc_subtotal > 0:
+        st.success(f"📊 **Valor Total Estimado: S/ {calc_subtotal:,.2f}**")
+    else:
+        st.info("💡 Ingresa cantidad y precio para ver el valor total")
+    
+    st.divider()
+    
     # 🔥 FORMULARIO DE REGISTRO
     with st.form("form_donacion_materiales", clear_on_submit=True):
+        st.markdown("#### 📝 Datos de Registro")
+        
         col1, col2 = st.columns(2)
         
         donante_mat = col1.text_input("Nombre del Donante")
         fecha_mat = col2.date_input("Fecha de donación", value=date.today())
         
-        st.markdown("#### 📦 Datos del Material")
+        st.markdown("#### 📦 Material a Donar")
         
         nombre_mat = st.text_input("Nombre del material")
         
         col_m1, col_m2, col_m3 = st.columns(3)
-        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, key="cantidad_donacion")
+        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, value=calc_cantidad, key="cantidad_form")
         unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"])
-        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=1.0, key="precio_donacion")
+        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=1.0, value=calc_precio, key="precio_form")
         
-        # 🔥 CALCULAR Y MOSTRAR SUBTOTAL AUTOMÁTICAMENTE
+        # Calcular subtotal para el registro
         subtotal = cantidad * precio_unit
-        
-        if subtotal > 0:
-            st.success(f"📊 **Valor Total Estimado: S/ {subtotal:,.2f}**")
-        else:
-            st.info("💡 El valor total se calculará automáticamente")
+        st.caption(f"💵 Valor a registrar: S/ {subtotal:,.2f}")
         
         notas_mat = st.text_area("Notas adicionales (opcional)")
         
