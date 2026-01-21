@@ -343,71 +343,72 @@ if obra_doc.exists:
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
-
-# ================== SECCIÓN C ==================
+# ================== SECCIÓN C: INVENTARIO TOTAL DE LA OBRA ==================
 st.divider()
-st.header("🧾 Materiales de la obra")
+st.header("🧾 Inventario Total de la Obra")
 
-# Agregar filtro
-filtro_tipo = st.radio(
-    "Filtrar por:",
-    ["Todos", "Solo Comprados", "Solo Donaciones"],
-    horizontal=True
-)
-
+# 1. Cargar todos los materiales de la subcolección
 mats_obra = cargar_materiales_obra(obra_id)
 
 if mats_obra:
     df_obra = pd.DataFrame(mats_obra)
     
-    # Agregar columna de tipo si no existe
+    # Asegurar que existan las columnas necesarias para la visualización
     if 'tipo' not in df_obra.columns:
         df_obra['tipo'] = 'COMPRADO'
-    else:
-        df_obra['tipo'] = df_obra['tipo'].fillna('COMPRADO')
     
-    # Aplicar filtro
-    if filtro_tipo == "Solo Comprados":
-        df_obra = df_obra[df_obra['tipo'] != 'DONACIÓN']
-    elif filtro_tipo == "Solo Donaciones":
-        df_obra = df_obra[df_obra['tipo'] == 'DONACIÓN']
+    # Crear una columna visual para distinguir Donaciones de Compras
+    df_obra['Estado'] = df_obra['tipo'].apply(
+        lambda x: "💝 DONACIÓN" if x == "DONACIÓN" else "🛒 COMPRADO"
+    )
+
+    # Mostrar la tabla con todos los materiales
+    st.dataframe(
+        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Estado"]],
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "nombre": "Material",
+            "unidad": "Und.",
+            "cantidad": "Cant.",
+            "precio_unitario": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
+            "subtotal": st.column_config.NumberColumn("Total (S/)", format="S/ %.2f"),
+            "Estado": st.column_config.TextColumn("Tipo de Ingreso")
+        }
+    )
+
+    # 2. Resumen rápido debajo de la tabla
+    col_res1, col_res2 = st.columns(2)
+    total_compras = df_obra[df_obra['tipo'] != 'DONACIÓN']['subtotal'].sum()
+    total_donado = df_obra[df_obra['tipo'] == 'DONACIÓN']['subtotal'].sum()
     
-    # Agregar columna de donante si existe
-    if 'donante' in df_obra.columns:
-        df_obra['info_donacion'] = df_obra.apply(
-            lambda x: f"💝 {x['donante']}" if x['tipo'] == 'DONACIÓN' and pd.notna(x.get('donante')) else '',
-            axis=1
-        )
-    else:
-        df_obra['info_donacion'] = ''
-    
-    if not df_obra.empty:
-        sel = st.dataframe(
-            df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "tipo", "info_donacion"]],
-            hide_index=True,
-            use_container_width=True,
-            selection_mode="single-row",
-            on_select="rerun",
-            column_config={
-                "nombre": "Material",
-                "unidad": "Unidad",
-                "cantidad": "Cantidad",
-                "precio_unitario": st.column_config.NumberColumn("P. Unit. (S/)", format="S/ %.2f"),
-                "subtotal": st.column_config.NumberColumn("Subtotal (S/)", format="S/ %.2f"),
-                "tipo": st.column_config.TextColumn("Tipo", help="COMPRADO o DONACIÓN"),
-                "info_donacion": "Donado por"
-            }
+    col_res1.info(f"**Total Compras:** S/ {total_compras:,.2f}")
+    col_res2.success(f"**Valor Donaciones:** S/ {total_donado:,.2f}")
+
+    # 3. Opción para editar o eliminar cualquier material
+    with st.expander("⚙️ Modificar materiales del inventario"):
+        mat_seleccionado = st.selectbox(
+            "Seleccione material para editar/eliminar",
+            options=mats_obra,
+            format_func=lambda x: f"{x.get('tipo', 'COMPRADO')} - {x['nombre']} ({x['cantidad']} {x['unidad']})"
         )
         
-        if sel and sel["selection"]["rows"]:
-            idx_sel = df_obra.index[sel["selection"]["rows"][0]]
-            # Buscar en la lista original
-            st.session_state.mat_obra = next((m for m in mats_obra if m.get('nombre') == df_obra.loc[idx_sel, 'nombre'] and 
-                                               m.get('fecha') == df_obra.loc[idx_sel, 'fecha']), None)
-    else:
-        st.info("No hay materiales que coincidan con el filtro seleccionado")
+        col_ed1, col_ed2 = st.columns(2)
+        if col_ed1.button("🗑️ Eliminar de la obra", use_container_width=True):
+            db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
+            recalcular_presupuesto_obra(obra_id)
+            st.rerun()
+            
+        nueva_cant = col_ed2.number_input("Nueva Cantidad", min_value=0.1, value=float(mat_seleccionado['cantidad']))
+        if col_ed2.button("💾 Actualizar Cantidad", use_container_width=True):
+            db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).update({
+                "cantidad": nueva_cant,
+                "subtotal": round(nueva_cant * mat_seleccionado['precio_unitario'], 2)
+            })
+            recalcular_presupuesto_obra(obra_id)
+            st.rerun()
 else:
-    st.info("No hay materiales asignados")
+    st.info("No hay materiales registrados (compras ni donaciones) en esta obra.")
 
 # ----- EDITAR MATERIAL OBRA -----
 mat_o = st.session_state.mat_obra
