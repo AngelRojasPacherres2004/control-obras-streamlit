@@ -343,49 +343,32 @@ if obra_doc.exists:
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
-# ================== SECCIÓN C: INVENTARIO TOTAL DE LA OBRA ==================
+# ================== SECCIÓN C: INVENTARIO TOTAL (CORREGIDA) ==================
 st.divider()
 st.header("🧾 Inventario Total de la Obra")
 
-# 1. Cargar todos los materiales de la subcolección
 mats_obra = cargar_materiales_obra(obra_id)
 
 if mats_obra:
     df_obra = pd.DataFrame(mats_obra)
     
-    # Asegurar que existan las columnas necesarias para la visualización
     if 'tipo' not in df_obra.columns:
         df_obra['tipo'] = 'COMPRADO'
     
-    # Crear una columna visual para distinguir Donaciones de Compras
     df_obra['Estado'] = df_obra['tipo'].apply(
         lambda x: "💝 DONACIÓN" if x == "DONACIÓN" else "🛒 COMPRADO"
     )
 
-    # Mostrar la tabla con todos los materiales
     st.dataframe(
         df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Estado"]],
         hide_index=True,
         use_container_width=True,
         column_config={
-            "nombre": "Material",
-            "unidad": "Und.",
-            "cantidad": "Cant.",
             "precio_unitario": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
             "subtotal": st.column_config.NumberColumn("Total (S/)", format="S/ %.2f"),
-            "Estado": st.column_config.TextColumn("Tipo de Ingreso")
         }
     )
 
-    # 2. Resumen rápido debajo de la tabla
-    col_res1, col_res2 = st.columns(2)
-    total_compras = df_obra[df_obra['tipo'] != 'DONACIÓN']['subtotal'].sum()
-    total_donado = df_obra[df_obra['tipo'] == 'DONACIÓN']['subtotal'].sum()
-    
-    col_res1.info(f"**Total Compras:** S/ {total_compras:,.2f}")
-    col_res2.success(f"**Valor Donaciones:** S/ {total_donado:,.2f}")
-
-    # 3. Opción para editar o eliminar cualquier material
     with st.expander("⚙️ Modificar materiales del inventario"):
         mat_seleccionado = st.selectbox(
             "Seleccione material para editar/eliminar",
@@ -393,23 +376,35 @@ if mats_obra:
             format_func=lambda x: f"{x.get('tipo', 'COMPRADO')} - {x['nombre']} ({x['cantidad']} {x['unidad']})"
         )
         
-        col_ed1, col_ed2 = st.columns(2)
-        if col_ed1.button("🗑️ Eliminar de la obra", use_container_width=True):
-            db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
-            recalcular_presupuesto_obra(obra_id)
-            st.rerun()
+        if mat_seleccionado:
+            col_ed1, col_ed2 = st.columns(2)
             
-        nueva_cant = col_ed2.number_input("Nueva Cantidad", min_value=0.1, value=float(mat_seleccionado['cantidad']))
-        if col_ed2.button("💾 Actualizar Cantidad", use_container_width=True):
-            db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).update({
-                "cantidad": nueva_cant,
-                "subtotal": round(nueva_cant * mat_seleccionado['precio_unitario'], 2)
-            })
-            recalcular_presupuesto_obra(obra_id)
-            st.rerun()
+            if col_ed1.button("🗑️ Eliminar de la obra", use_container_width=True):
+                db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).delete()
+                recalcular_presupuesto_obra(obra_id)
+                st.rerun()
+            
+            # --- FIX DEL ERROR ---
+            # Usamos max(0.1, ...) para que si la cantidad en DB es 0, el widget no explote
+            valor_actual = float(mat_seleccionado.get('cantidad', 0.1))
+            
+            nueva_cant = col_ed2.number_input(
+                "Nueva Cantidad", 
+                min_value=0.1, 
+                value=max(0.1, valor_actual), # Esto evita el error de Streamlit
+                step=1.0
+            )
+            
+            if col_ed2.button("💾 Actualizar Cantidad", use_container_width=True):
+                db.collection("obras").document(obra_id).collection("materiales").document(mat_seleccionado["id"]).update({
+                    "cantidad": nueva_cant,
+                    "subtotal": round(nueva_cant * mat_seleccionado['precio_unitario'], 2)
+                })
+                recalcular_presupuesto_obra(obra_id)
+                st.success("Cantidad actualizada")
+                st.rerun()
 else:
-    st.info("No hay materiales registrados (compras ni donaciones) en esta obra.")
-
+    st.info("No hay materiales registrados.")
 # ----- EDITAR MATERIAL OBRA -----
 mat_o = st.session_state.mat_obra
 if mat_o:
