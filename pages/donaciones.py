@@ -150,60 +150,40 @@ with tab2:
     
     st.info("💡 Los materiales donados se registrarán en el inventario de la obra con identificador 'DONACIÓN'")
     
-    # 🔥 CALCULADORA EN TIEMPO REAL (fuera del formulario)
-    st.markdown("#### 💰 Calculadora de Valor")
-    calc_col1, calc_col2, calc_col3 = st.columns(3)
-    
-    calc_cantidad = calc_col1.number_input("Cantidad", min_value=0.0, step=1.0, key="calc_cant", value=0.0)
-    calc_col2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"], key="calc_unidad", disabled=True)
-    calc_precio = calc_col3.number_input("Precio unitario (S/)", min_value=0.0, step=1.0, key="calc_precio", value=0.0)
-    
-    # 🔥 MOSTRAR SUBTOTAL EN TIEMPO REAL DEBAJO
-    calc_subtotal = calc_cantidad * calc_precio
-    
-    if calc_subtotal > 0:
-        st.success(f"📊 **Valor Total Estimado: S/ {calc_subtotal:,.2f}**")
-    else:
-        st.info("💡 Ingresa cantidad y precio para ver el valor total")
-    
-    st.divider()
-    
-    # 🔥 FORMULARIO DE REGISTRO
     with st.form("form_donacion_materiales", clear_on_submit=True):
-        st.markdown("#### 📝 Datos de Registro")
+        st.markdown("#### 📝 Datos del Registro")
         
         col1, col2 = st.columns(2)
-        
         donante_mat = col1.text_input("Nombre del Donante")
         fecha_mat = col2.date_input("Fecha de donación", value=date.today())
         
-        st.markdown("#### 📦 Material a Donar")
+        st.divider()
+        st.markdown("#### 📦 Detalle del Material")
         
-        nombre_mat = st.text_input("Nombre del material")
+        nombre_mat = st.text_input("Nombre del material (ej. Cemento, Varillas)")
         
         col_m1, col_m2, col_m3 = st.columns(3)
-        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, value=calc_cantidad, key="cantidad_form")
+        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, value=0.0)
         unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"])
-        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=1.0, value=calc_precio, key="precio_form")
+        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=0.10, value=0.0)
         
-        # Calcular subtotal para el registro
-        subtotal = cantidad * precio_unit
-        st.caption(f"💵 Valor a registrar: S/ {subtotal:,.2f}")
-        
+        # El subtotal se calcula internamente al procesar
         notas_mat = st.text_area("Notas adicionales (opcional)")
         
         submit_mat = st.form_submit_button("💾 Registrar Donación de Material", type="primary")
         
         if submit_mat:
             if not donante_mat or not nombre_mat or cantidad <= 0:
-                st.error("Por favor completa todos los campos obligatorios.")
+                st.error("⚠️ Por favor completa el donante, el material y una cantidad válida.")
             else:
                 with st.spinner("Registrando material donado..."):
-                    # Convertir fecha
+                    # 1. Preparar datos
+                    subtotal_estimado = cantidad * precio_unit
                     fecha_dt = datetime.combine(fecha_mat, datetime.min.time())
                     fecha_dt = local_tz.localize(fecha_dt)
+                    ahora = datetime.now(local_tz)
                     
-                    # 1. Guardar en subcolección de donaciones_materiales (historial)
+                    # 2. Guardar en historial de donaciones
                     db.collection("obras").document(obra_id_sel).collection("donaciones_materiales").add({
                         "donante": donante_mat,
                         "fecha": fecha_dt,
@@ -211,26 +191,26 @@ with tab2:
                         "cantidad": cantidad,
                         "unidad": unidad,
                         "precio_unitario": precio_unit,
-                        "subtotal": subtotal,
+                        "subtotal": subtotal_estimado,
                         "notas": notas_mat,
-                        "registrado_en": datetime.now(local_tz)
+                        "registrado_en": ahora
                     })
                     
-                    # 2. Agregar al inventario de materiales con identificador de donación
+                    # 3. Agregar al inventario de materiales (Para que aparezca en materiales.py)
                     db.collection("obras").document(obra_id_sel).collection("materiales").add({
                         "nombre": nombre_mat,
                         "cantidad": cantidad,
                         "unidad": unidad,
                         "precio_unitario": precio_unit,
-                        "subtotal": 0.0,  # Las donaciones valen 0 en el gasto
+                        "subtotal": 0.0,  # ✅ Importante: Gasto 0 para la obra
                         "tipo": "DONACIÓN",
                         "donante": donante_mat,
                         "fecha": fecha_dt,
                         "notas": notas_mat,
-                        "registrado_en": datetime.now(local_tz)
+                        "registrado_en": ahora
                     })
                     
-                    st.success(f"✅ Material '{nombre_mat}' donado por {donante_mat} registrado en inventario.")
+                    st.success(f"✅ Material '{nombre_mat}' registrado correctamente.")
                     st.rerun()
 # ================= TAB 3: HISTORIAL MONETARIAS =================
 with tab3:
