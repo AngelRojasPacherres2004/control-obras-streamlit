@@ -56,7 +56,7 @@ avances_page = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":
 trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
 informes_page = st.Page("pages/informes.py", title="Informes", icon=":material/assessment:")
 donaciones_page = st.Page("pages/donaciones.py", title="Donaciones", icon=":material/redeem:")
-partidas_page = st.Page("pages/partidas.py", title="Partidas", icon=":material/ballot:")  # 🔥 NUEVA
+secciones_page = st.Page("pages/secciones.py", title="Secciones", icon=":material/ballot:")  # 🔥 NUEVA
 solicitudes_pasante_page = st.Page("pages/solicitudes_pasante.py", title="Solicitudes", icon=":material/request_quote:")
 solicitudes_jefe_page = st.Page("pages/solicitudes_jefe.py", title="Recepción", icon=":material/inbox:")
 
@@ -66,7 +66,7 @@ if auth["role"] == "jefe":
         obras_page, 
         materiales_page, 
         trabajadores_page,  
-        partidas_page,        # 🔥 NUEVA PÁGINA
+        secciones_page,        # 🔥 NUEVA PÁGINA
         donaciones_page,
         informes_page,
         solicitudes_jefe_page,

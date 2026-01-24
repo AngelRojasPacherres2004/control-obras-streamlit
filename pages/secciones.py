@@ -37,26 +37,8 @@ def obtener_partidas_obra(obra_id):
     docs = db.collection("obras").document(obra_id).collection("partidas").order_by("codigo").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
-def calcular_subtotal_partida(partida_data):
-    """Calcula el subtotal de una partida sumando mano de obra, materiales y equipos"""
-    total = 0.0
-    
-    # Mano de obra
-    for mo in partida_data.get("mano_obra", []):
-        total += float(mo.get("subtotal", 0))
-    
-    # Materiales
-    for mat in partida_data.get("materiales", []):
-        total += float(mat.get("subtotal", 0))
-    
-    # Equipos
-    for eq in partida_data.get("equipos", []):
-        total += float(eq.get("subtotal", 0))
-    
-    return round(total, 2)
-
 # ================= UI =================
-st.title("📋 Gestión de Partidas de Obra")
+st.title("📋 Gestión de Secciones de Obra")
 
 # ================= SELECCIÓN DE OBRA SINCRONIZADA =================
 OBRAS = obtener_obras()
@@ -80,268 +62,238 @@ obra_id_sel = st.sidebar.selectbox(
 st.session_state["obra_id_global"] = obra_id_sel
 
 if not obra_id_sel:
-    st.info("💡 Por favor, selecciona una obra para gestionar sus partidas.")
+    st.info("💡 Por favor, selecciona una obra para gestionar sus secciones.")
     st.stop()
 
 nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
 st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
 
 # ================= PESTAÑAS PRINCIPALES =================
-tab1, tab2 = st.tabs(["➕ Crear/Editar Partida", "📋 Ver Partidas"])
+tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
 
-# ================= TAB 1: CREAR/EDITAR PARTIDA =================
+# ================= TAB 1: CREAR SECCIÓN =================
 with tab1:
-    st.subheader("➕ Crear Nueva Partida")
+    st.subheader("➕ Crear Nueva Sección")
     
-    # Inicializar estados
-    if "partida_editando" not in st.session_state:
-        st.session_state.partida_editando = None
+    # Inicializar estado
+    if "seccion_editando" not in st.session_state:
+        st.session_state.seccion_editando = None
     
-    # Datos básicos
-    with st.form("form_datos_partida", clear_on_submit=False):
-        st.markdown("#### 📝 Información General")
+    # PASO 1: Datos básicos de la sección
+    with st.form("form_datos_seccion", clear_on_submit=False):
+        st.markdown("#### 📝 Información de la Sección")
         
         col1, col2 = st.columns(2)
-        codigo = col1.text_input("Código de Partida", placeholder="05,05,01")
-        descripcion = col2.text_input("Descripción", placeholder="CONCRETO PREMEZCLADO...")
+        codigo = col1.text_input("Código de Sección", placeholder="05,05,01")
+        nombre = col2.text_input("Nombre de la Sección", placeholder="CONCRETO PREMEZCLADO F'C=210 KG/CM2")
         
-        col3, col4 = st.columns(2)
-        unidad = col3.selectbox("Unidad de Medida", ["M3", "M2", "ML", "KG", "UND", "GLB"])
-        rendimiento = col4.number_input("Rendimiento", min_value=0.0, step=1.0, help="Ej: 250.000 M3/DIA")
-        
-        submit_datos = st.form_submit_button("💾 Guardar Datos Básicos y Continuar")
+        submit_datos = st.form_submit_button("💾 Crear Sección", type="primary")
         
         if submit_datos:
-            if not codigo or not descripcion:
-                st.error("Por favor completa el código y la descripción.")
+            if not codigo or not nombre:
+                st.error("Por favor completa el código y el nombre.")
             else:
-                st.session_state.partida_editando = {
+                st.session_state.seccion_editando = {
                     "codigo": codigo,
-                    "descripcion": descripcion,
-                    "unidad": unidad,
-                    "rendimiento": rendimiento,
+                    "nombre": nombre,
                     "mano_obra": [],
                     "materiales": [],
                     "equipos": []
                 }
-                st.success("✅ Datos básicos guardados. Ahora agrega recursos.")
+                st.success("✅ Sección creada. Ahora asigna recursos.")
                 st.rerun()
     
-    # Si ya se guardaron los datos básicos, mostrar formularios de recursos
-    if st.session_state.partida_editando:
+    # PASO 2: Asignar recursos a la sección
+    if st.session_state.seccion_editando:
         st.divider()
-        partida = st.session_state.partida_editando
+        seccion = st.session_state.seccion_editando
         
-        st.info(f"📌 Partida: **{partida['codigo']}** - {partida['descripcion']}")
+        st.info(f"📌 **{seccion['codigo']}** - {seccion['nombre']}")
         
-        # ================= SECCIÓN: MANO DE OBRA =================
-        st.markdown("### 👷 Mano de Obra")
+        # ================= ASIGNAR MANO DE OBRA =================
+        st.markdown("### 👷 Asignar Mano de Obra")
         
         trabajadores_disponibles = obtener_trabajadores_obra(obra_id_sel)
         
         if trabajadores_disponibles:
-            with st.form("form_agregar_mano_obra", clear_on_submit=True):
+            # Filtrar trabajadores ya asignados
+            trabajadores_asignados_ids = [t["trabajador_id"] for t in seccion["mano_obra"]]
+            trabajadores_sin_asignar = [t for t in trabajadores_disponibles if t["id"] not in trabajadores_asignados_ids]
+            
+            if trabajadores_sin_asignar:
                 trab_sel = st.selectbox(
                     "Seleccionar Trabajador",
-                    options=trabajadores_disponibles,
-                    format_func=lambda x: f"{x['nombre']} - {x['rol']}"
+                    options=trabajadores_sin_asignar,
+                    format_func=lambda x: f"{x['nombre']} - {x['rol']}",
+                    key="select_trabajador"
                 )
                 
-                col_mo1, col_mo2, col_mo3 = st.columns(3)
-                cuadrilla = col_mo1.number_input("Cuadrilla", min_value=0.0, step=0.1, value=1.0)
-                cantidad = col_mo2.number_input("Cantidad (HH)", min_value=0.0, step=0.001, value=0.032)
-                precio_unitario = col_mo3.number_input("Precio (S/)", min_value=0.0, step=0.01, value=float(trab_sel.get("presupuesto", 25.0)))
-                
-                subtotal_mo = cuadrilla * cantidad * precio_unitario
-                st.caption(f"💵 Subtotal: S/ {subtotal_mo:,.2f}")
-                
-                if st.form_submit_button("➕ Agregar Mano de Obra"):
-                    partida["mano_obra"].append({
+                if st.button("➕ Agregar Trabajador", key="btn_add_trab"):
+                    seccion["mano_obra"].append({
                         "trabajador_id": trab_sel["id"],
                         "nombre": trab_sel["nombre"],
-                        "rol": trab_sel["rol"],
-                        "unidad": "HH",
-                        "cuadrilla": cuadrilla,
-                        "cantidad": cantidad,
-                        "precio": precio_unitario,
-                        "parcial": cuadrilla * cantidad,
-                        "subtotal": subtotal_mo
+                        "rol": trab_sel["rol"]
                     })
                     st.success(f"✅ {trab_sel['nombre']} agregado")
                     st.rerun()
+            else:
+                st.info("Todos los trabajadores disponibles ya están asignados a esta sección.")
         else:
-            st.warning("No hay trabajadores registrados en esta obra. Ve a la sección de Trabajadores.")
+            st.warning("No hay trabajadores registrados en esta obra.")
         
-        # Mostrar mano de obra agregada
-        if partida["mano_obra"]:
-            st.markdown("**Mano de Obra Agregada:**")
-            df_mo = pd.DataFrame(partida["mano_obra"])
-            st.dataframe(df_mo[["nombre", "rol", "cuadrilla", "cantidad", "precio", "subtotal"]], use_container_width=True)
-            total_mo = sum(m["subtotal"] for m in partida["mano_obra"])
-            st.success(f"**Total Mano de Obra:** S/ {total_mo:,.2f}")
+        # Mostrar trabajadores asignados
+        if seccion["mano_obra"]:
+            st.markdown("**👷 Trabajadores Asignados:**")
+            df_mo = pd.DataFrame(seccion["mano_obra"])
+            st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
+            
+            # Opción para eliminar
+            if st.checkbox("Mostrar opciones de eliminación (Mano de Obra)"):
+                for idx, trab in enumerate(seccion["mano_obra"]):
+                    if st.button(f"🗑️ Quitar {trab['nombre']}", key=f"del_trab_{idx}"):
+                        seccion["mano_obra"].pop(idx)
+                        st.rerun()
         
         st.divider()
         
-        # ================= SECCIÓN: MATERIALES =================
-        st.markdown("### 🧱 Materiales")
+        # ================= ASIGNAR MATERIALES =================
+        st.markdown("### 🧱 Asignar Materiales")
         
         materiales_disponibles = obtener_materiales_obra(obra_id_sel)
         
         if materiales_disponibles:
-            with st.form("form_agregar_material", clear_on_submit=True):
+            # Filtrar materiales ya asignados
+            materiales_asignados_ids = [m["material_id"] for m in seccion["materiales"]]
+            materiales_sin_asignar = [m for m in materiales_disponibles if m["id"] not in materiales_asignados_ids]
+            
+            if materiales_sin_asignar:
                 mat_sel = st.selectbox(
                     "Seleccionar Material",
-                    options=materiales_disponibles,
-                    format_func=lambda x: f"{x['nombre']} ({x['unidad']})"
+                    options=materiales_sin_asignar,
+                    format_func=lambda x: f"{x['nombre']} ({x['unidad']})",
+                    key="select_material"
                 )
                 
-                col_mat1, col_mat2 = st.columns(2)
-                cantidad_mat = col_mat1.number_input("Cantidad", min_value=0.0, step=0.01, value=0.022)
-                precio_mat = col_mat2.number_input("Precio Unitario (S/)", min_value=0.0, step=0.01, value=float(mat_sel.get("precio_unitario", 3.80)))
-                
-                subtotal_mat = cantidad_mat * precio_mat
-                st.caption(f"💵 Subtotal: S/ {subtotal_mat:,.2f}")
-                
-                if st.form_submit_button("➕ Agregar Material"):
-                    partida["materiales"].append({
+                if st.button("➕ Agregar Material", key="btn_add_mat"):
+                    seccion["materiales"].append({
                         "material_id": mat_sel["id"],
                         "nombre": mat_sel["nombre"],
-                        "unidad": mat_sel["unidad"],
-                        "cantidad": cantidad_mat,
-                        "precio": precio_mat,
-                        "subtotal": subtotal_mat
+                        "unidad": mat_sel["unidad"]
                     })
                     st.success(f"✅ {mat_sel['nombre']} agregado")
                     st.rerun()
+            else:
+                st.info("Todos los materiales disponibles ya están asignados a esta sección.")
         else:
-            st.warning("No hay materiales registrados en esta obra. Ve a la sección de Materiales.")
+            st.warning("No hay materiales registrados en esta obra.")
         
-        # Mostrar materiales agregados
-        if partida["materiales"]:
-            st.markdown("**Materiales Agregados:**")
-            df_mat = pd.DataFrame(partida["materiales"])
-            st.dataframe(df_mat[["nombre", "unidad", "cantidad", "precio", "subtotal"]], use_container_width=True)
-            total_mat = sum(m["subtotal"] for m in partida["materiales"])
-            st.success(f"**Total Materiales:** S/ {total_mat:,.2f}")
+        # Mostrar materiales asignados
+        if seccion["materiales"]:
+            st.markdown("**🧱 Materiales Asignados:**")
+            df_mat = pd.DataFrame(seccion["materiales"])
+            st.dataframe(df_mat[["nombre", "unidad"]], use_container_width=True, hide_index=True)
+            
+            # Opción para eliminar
+            if st.checkbox("Mostrar opciones de eliminación (Materiales)"):
+                for idx, mat in enumerate(seccion["materiales"]):
+                    if st.button(f"🗑️ Quitar {mat['nombre']}", key=f"del_mat_{idx}"):
+                        seccion["materiales"].pop(idx)
+                        st.rerun()
         
         st.divider()
         
-        # ================= SECCIÓN: EQUIPOS =================
-        st.markdown("### 🔧 Equipos")
+        # ================= ASIGNAR EQUIPOS =================
+        st.markdown("### 🔧 Asignar Equipos")
         
         with st.form("form_agregar_equipo", clear_on_submit=True):
             col_eq1, col_eq2 = st.columns(2)
             nombre_eq = col_eq1.text_input("Nombre del Equipo", placeholder="HERRAMIENTAS MANUALES")
-            unidad_eq = col_eq2.selectbox("Unidad", ["%MO", "HM", "M3", "UND"])
-            
-            col_eq3, col_eq4, col_eq5 = st.columns(3)
-            cuadrilla_eq = col_eq3.number_input("Cuadrilla", min_value=0.0, step=0.1, value=1.0, key="cuad_eq")
-            cantidad_eq = col_eq4.number_input("Cantidad", min_value=0.0, step=0.001, value=5.0, key="cant_eq")
-            precio_eq = col_eq5.number_input("Precio (S/)", min_value=0.0, step=0.01, value=1.47, key="precio_eq")
-            
-            subtotal_eq = cuadrilla_eq * cantidad_eq * precio_eq
-            st.caption(f"💵 Subtotal: S/ {subtotal_eq:,.2f}")
+            codigo_eq = col_eq2.text_input("Código del Equipo", placeholder="570101")
             
             if st.form_submit_button("➕ Agregar Equipo"):
-                if nombre_eq:
-                    partida["equipos"].append({
+                if nombre_eq and codigo_eq:
+                    seccion["equipos"].append({
                         "nombre": nombre_eq,
-                        "unidad": unidad_eq,
-                        "cuadrilla": cuadrilla_eq,
-                        "cantidad": cantidad_eq,
-                        "precio": precio_eq,
-                        "parcial": cuadrilla_eq * cantidad_eq,
-                        "subtotal": subtotal_eq
+                        "codigo": codigo_eq
                     })
                     st.success(f"✅ {nombre_eq} agregado")
                     st.rerun()
+                else:
+                    st.error("Por favor completa nombre y código del equipo.")
         
-        # Mostrar equipos agregados
-        if partida["equipos"]:
-            st.markdown("**Equipos Agregados:**")
-            df_eq = pd.DataFrame(partida["equipos"])
-            st.dataframe(df_eq[["nombre", "unidad", "cuadrilla", "cantidad", "precio", "subtotal"]], use_container_width=True)
-            total_eq = sum(e["subtotal"] for e in partida["equipos"])
-            st.success(f"**Total Equipos:** S/ {total_eq:,.2f}")
+        # Mostrar equipos asignados
+        if seccion["equipos"]:
+            st.markdown("**🔧 Equipos Asignados:**")
+            df_eq = pd.DataFrame(seccion["equipos"])
+            st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+            
+            # Opción para eliminar
+            if st.checkbox("Mostrar opciones de eliminación (Equipos)"):
+                for idx, eq in enumerate(seccion["equipos"]):
+                    if st.button(f"🗑️ Quitar {eq['nombre']}", key=f"del_eq_{idx}"):
+                        seccion["equipos"].pop(idx)
+                        st.rerun()
         
         st.divider()
         
-        # ================= GUARDAR PARTIDA COMPLETA =================
-        total_partida = sum(m["subtotal"] for m in partida["mano_obra"]) + \
-                       sum(m["subtotal"] for m in partida["materiales"]) + \
-                       sum(e["subtotal"] for e in partida["equipos"])
-        
-        st.markdown(f"### 💰 **TOTAL PARTIDA: S/ {total_partida:,.2f}**")
+        # ================= GUARDAR SECCIÓN COMPLETA =================
+        st.markdown("### 💾 Guardar Sección")
         
         col_final1, col_final2 = st.columns(2)
         
-        if col_final1.button("💾 GUARDAR PARTIDA COMPLETA", type="primary", use_container_width=True):
-            if not partida["mano_obra"] and not partida["materiales"] and not partida["equipos"]:
-                st.error("Debes agregar al menos un recurso (mano de obra, material o equipo)")
+        if col_final1.button("💾 GUARDAR SECCIÓN COMPLETA", type="primary", use_container_width=True):
+            if not seccion["mano_obra"] and not seccion["materiales"] and not seccion["equipos"]:
+                st.error("Debes asignar al menos un recurso (mano de obra, material o equipo)")
             else:
-                partida["total"] = total_partida
-                partida["fecha_creacion"] = datetime.now(local_tz)
+                seccion["fecha_creacion"] = datetime.now(local_tz)
                 
-                db.collection("obras").document(obra_id_sel).collection("partidas").add(partida)
+                db.collection("obras").document(obra_id_sel).collection("partidas").add(seccion)
                 
-                st.session_state.partida_editando = None
-                st.success("✅ Partida guardada exitosamente")
+                st.session_state.seccion_editando = None
+                st.success("✅ Sección guardada exitosamente")
                 st.rerun()
         
         if col_final2.button("❌ Cancelar y Limpiar", use_container_width=True):
-            st.session_state.partida_editando = None
+            st.session_state.seccion_editando = None
             st.rerun()
 
-# ================= TAB 2: VER PARTIDAS =================
+# ================= TAB 2: VER SECCIONES =================
 with tab2:
-    st.subheader("📋 Partidas de la Obra")
+    st.subheader("📋 Secciones de la Obra")
     
     partidas = obtener_partidas_obra(obra_id_sel)
     
     if not partidas:
-        st.info("No hay partidas registradas. Crea una en la pestaña anterior.")
+        st.info("No hay secciones registradas. Crea una en la pestaña anterior.")
     else:
-        # Resumen general
-        total_general = sum(p.get("total", 0) for p in partidas)
-        st.metric("💰 Presupuesto Total de Partidas", f"S/ {total_general:,.2f}")
+        st.success(f"**Total de Secciones:** {len(partidas)}")
         
         st.divider()
         
-        # Mostrar cada partida
+        # Mostrar cada sección
         for partida in partidas:
-            with st.expander(f"**{partida.get('codigo')}** - {partida.get('descripcion')} | S/ {partida.get('total', 0):,.2f}", expanded=False):
-                
-                col_info1, col_info2, col_info3 = st.columns(3)
-                col_info1.write(f"**Unidad:** {partida.get('unidad')}")
-                col_info2.write(f"**Rendimiento:** {partida.get('rendimiento')}")
-                col_info3.write(f"**Total:** S/ {partida.get('total', 0):,.2f}")
+            with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
                 
                 # Mano de Obra
                 if partida.get("mano_obra"):
-                    st.markdown("**👷 Mano de Obra:**")
+                    st.markdown("**👷 Mano de Obra Asignada:**")
                     df_mo = pd.DataFrame(partida["mano_obra"])
-                    st.dataframe(df_mo, use_container_width=True, hide_index=True)
+                    st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
                 
                 # Materiales
                 if partida.get("materiales"):
-                    st.markdown("**🧱 Materiales:**")
+                    st.markdown("**🧱 Materiales Asignados:**")
                     df_mat = pd.DataFrame(partida["materiales"])
-                    st.dataframe(df_mat, use_container_width=True, hide_index=True)
+                    st.dataframe(df_mat[["nombre", "unidad"]], use_container_width=True, hide_index=True)
                 
                 # Equipos
                 if partida.get("equipos"):
-                    st.markdown("**🔧 Equipos:**")
+                    st.markdown("**🔧 Equipos Asignados:**")
                     df_eq = pd.DataFrame(partida["equipos"])
-                    st.dataframe(df_eq, use_container_width=True, hide_index=True)
+                    st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
                 
                 # Botón eliminar
-                if st.button(f"🗑️ Eliminar Partida", key=f"del_{partida['id']}"):
+                if st.button(f"🗑️ Eliminar Sección", key=f"del_{partida['id']}"):
                     db.collection("obras").document(obra_id_sel).collection("partidas").document(partida["id"]).delete()
-                    st.success("Partida eliminada")
+                    st.success("Sección eliminada")
                     st.rerun()
-        
-        # Exportar a Excel
-        st.divider()
-        if st.button("📥 Exportar Partidas a Excel"):
-            # Aquí puedes agregar lógica de exportación
-            st.info("Funcionalidad de exportación en desarrollo")
