@@ -148,70 +148,72 @@ with tab1:
 with tab2:
     st.subheader("🧱 Nueva Donación de Materiales")
     
+    # 1. Creamos un disparador de reinicio en el session_state si no existe
+    if "reset_donacion" not in st.session_state:
+        st.session_state.reset_donacion = 0
+
     st.info("💡 Los materiales donados se registrarán en el inventario de la obra con identificador 'DONACIÓN'")
     
-    with st.form("form_donacion_materiales", clear_on_submit=True):
-        col1, col2 = st.columns(2)
-        
-        donante_mat = col1.text_input("Nombre del Donante")
-        fecha_mat = col2.date_input("Fecha de donación", value=date.today())
-        
-        st.markdown("#### 📦 Datos del Material")
-        
-        nombre_mat = st.text_input("Nombre del material")
-        
-        col_m1, col_m2, col_m3 = st.columns(3)
-        cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0)
-        unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"])
-        precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=1.0)
-        
-        # Calcular subtotal automáticamente
-        subtotal = cantidad * precio_unit
-        st.metric("Valor total estimado", f"S/ {subtotal:,.2f}")
-        
-        notas_mat = st.text_area("Notas adicionales (opcional)")
-        
-        submit_mat = st.form_submit_button("💾 Registrar Donación de Material")
-        
-        if submit_mat:
-            if not donante_mat or not nombre_mat or cantidad <= 0:
-                st.error("Por favor completa todos los campos obligatorios.")
-            else:
-                with st.spinner("Registrando material donado..."):
-                    # Convertir fecha
-                    fecha_dt = datetime.combine(fecha_mat, datetime.min.time())
-                    fecha_dt = local_tz.localize(fecha_dt)
-                    
-                    # 1. Guardar en subcolección de donaciones_materiales (historial)
-                    db.collection("obras").document(obra_id_sel).collection("donaciones_materiales").add({
-                        "donante": donante_mat,
-                        "fecha": fecha_dt,
-                        "nombre": nombre_mat,
-                        "cantidad": cantidad,
-                        "unidad": unidad,
-                        "precio_unitario": precio_unit,
-                        "subtotal": subtotal,
-                        "notas": notas_mat,
-                        "registrado_en": datetime.now(local_tz)
-                    })
-                    
-                    # 2. Agregar al inventario de materiales con identificador de donación
-                    db.collection("obras").document(obra_id_sel).collection("materiales").add({
-                        "nombre": nombre_mat,
-                        "cantidad": cantidad,             # ✅ CORRECTO: Ahora coincide con materiales.py
-                        "unidad": unidad,
-                        "precio_unitario": precio_unit,
-                        "subtotal": 0.0,                  # ✅ IMPORTANTE: Las donaciones valen 0 en el gasto
-                        "tipo": "DONACIÓN",
-                        "donante": donante_mat,
-                        "fecha": fecha_dt,                # ✅ USA 'fecha' en lugar de 'fecha_donacion' para ordenar
-                        "notas": notas_mat,
-                        "registrado_en": datetime.now(local_tz)
-                    })
-                    
-                    st.success(f"✅ Material '{nombre_mat}' donado por {donante_mat} registrado en inventario.")
-                    st.rerun()
+    # 2. CAMPOS DE ENTRADA
+    # Usamos una clave dinámica: al cambiar st.session_state.reset_donacion, los widgets se limpian
+    c_key = st.session_state.reset_donacion
 
+    col_reg1, col_reg2 = st.columns(2)
+    donante_mat = col_reg1.text_input("Nombre del Donante", key=f"donante_{c_key}")
+    fecha_mat = col_reg2.date_input("Fecha de donación", value=date.today(), key=f"fecha_{c_key}")
+
+    nombre_mat = st.text_input("Nombre del material", key=f"nombre_{c_key}")
+
+    col_m1, col_m2, col_m3 = st.columns(3)
+    cantidad = col_m1.number_input("Cantidad", min_value=0.0, step=1.0, key=f"cant_{c_key}")
+    unidad = col_m2.selectbox("Unidad", ["kg", "unidad", "m", "m²", "m³", "bolsa", "lata", "galón", "caja"], key=f"uni_{c_key}")
+    precio_unit = col_m3.number_input("Precio unitario estimado (S/)", min_value=0.0, step=0.10, key=f"precio_{c_key}")
+
+    # 3. CÁLCULO EN VIVO
+    subtotal_estimado = cantidad * precio_unit
+    if subtotal_estimado > 0:
+        st.success(f"💰 **Valor Total de la Donación: S/ {subtotal_estimado:,.2f}**")
+    
+    # 4. BOTÓN DE REGISTRO
+    if st.button("💾 Registrar Donación de Material", type="primary", use_container_width=True):
+        if not donante_mat or not nombre_mat or cantidad <= 0:
+            st.error("⚠️ Por favor completa los campos obligatorios.")
+        else:
+            with st.spinner("Registrando..."):
+                fecha_dt = datetime.combine(fecha_mat, datetime.min.time())
+                fecha_dt = local_tz.localize(fecha_dt)
+                
+                # Registro en Firebase (Historial)
+                db.collection("obras").document(obra_id_sel).collection("donaciones_materiales").add({
+                    "donante": donante_mat,
+                    "fecha": fecha_dt,
+                    "nombre": nombre_mat,
+                    "cantidad": cantidad,
+                    "unidad": unidad,
+                    "precio_unitario": precio_unit,
+                    "subtotal": subtotal_estimado,
+                    "registrado_en": datetime.now(local_tz)
+                })
+                
+                # Registro en Firebase (Inventario)
+                db.collection("obras").document(obra_id_sel).collection("materiales").add({
+                    "nombre": nombre_mat,
+                    "cantidad": cantidad,
+                    "unidad": unidad,
+                    "precio_unitario": precio_unit,
+                    "subtotal": 0.0, 
+                    "tipo": "DONACIÓN",
+                    "donante": donante_mat,
+                    "fecha": fecha_dt,
+                    "registrado_en": datetime.now(local_tz)
+                })
+                
+                # --- AQUÍ LIMPIAMOS SIN ERROR ---
+                # Incrementamos el contador: esto cambia las llaves (keys) de los widgets
+                # y Streamlit los trata como widgets nuevos y vacíos.
+                st.session_state.reset_donacion += 1
+                st.success("✅ ¡Registrado con éxito!")
+                st.rerun()
 # ================= TAB 3: HISTORIAL MONETARIAS =================
 with tab3:
     st.subheader("📋 Historial de Donaciones Monetarias")
