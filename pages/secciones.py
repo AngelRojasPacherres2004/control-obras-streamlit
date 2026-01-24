@@ -1,0 +1,299 @@
+# partidas.py
+import streamlit as st
+import pandas as pd
+from datetime import datetime
+import pytz
+from firebase_admin import firestore
+
+# ================= CONFIGURACIÓN DE ZONA HORARIA =================
+local_tz = pytz.timezone('America/Lima')
+
+# ================= DB =================
+db = firestore.client()
+
+# ================= SEGURIDAD =================
+if "auth" not in st.session_state:
+    st.error("Por favor, inicia sesión.")
+    st.stop()
+
+auth = st.session_state["auth"]
+if auth["role"] != "jefe":
+    st.warning("No tienes permisos para gestionar partidas.")
+    st.stop()
+
+# ================= FUNCIONES =================
+def obtener_obras():
+    return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
+
+def obtener_trabajadores_obra(obra_id):
+    docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
+
+def obtener_materiales_obra(obra_id):
+    docs = db.collection("obras").document(obra_id).collection("materiales").stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
+
+def obtener_partidas_obra(obra_id):
+    docs = db.collection("obras").document(obra_id).collection("partidas").order_by("codigo").stream()
+    return [{"id": d.id, **d.to_dict()} for d in docs]
+
+# ================= UI =================
+st.title("📋 Gestión de Secciones de Obra")
+
+# ================= SELECCIÓN DE OBRA SINCRONIZADA =================
+OBRAS = obtener_obras()
+lista_ids = list(OBRAS.keys())
+
+if "obra_id_global" not in st.session_state and lista_ids:
+    st.session_state["obra_id_global"] = lista_ids[0]
+
+indice_actual = 0
+if st.session_state.get("obra_id_global") in lista_ids:
+    indice_actual = lista_ids.index(st.session_state["obra_id_global"])
+
+obra_id_sel = st.sidebar.selectbox(
+    "Seleccionar Obra",
+    options=lista_ids,
+    format_func=lambda x: OBRAS.get(x, x),
+    index=indice_actual,
+    key="selector_partidas_global"
+)
+
+st.session_state["obra_id_global"] = obra_id_sel
+
+if not obra_id_sel:
+    st.info("💡 Por favor, selecciona una obra para gestionar sus secciones.")
+    st.stop()
+
+nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
+st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
+
+# ================= PESTAÑAS PRINCIPALES =================
+tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
+
+# ================= TAB 1: CREAR SECCIÓN =================
+with tab1:
+    st.subheader("➕ Crear Nueva Sección")
+    
+    # Inicializar estado
+    if "seccion_editando" not in st.session_state:
+        st.session_state.seccion_editando = None
+    
+    # PASO 1: Datos básicos de la sección
+    with st.form("form_datos_seccion", clear_on_submit=False):
+        st.markdown("#### 📝 Información de la Sección")
+        
+        col1, col2 = st.columns(2)
+        codigo = col1.text_input("Código de Sección", placeholder="05,05,01")
+        nombre = col2.text_input("Nombre de la Sección", placeholder="CONCRETO PREMEZCLADO F'C=210 KG/CM2")
+        
+        submit_datos = st.form_submit_button("💾 Crear Sección", type="primary")
+        
+        if submit_datos:
+            if not codigo or not nombre:
+                st.error("Por favor completa el código y el nombre.")
+            else:
+                st.session_state.seccion_editando = {
+                    "codigo": codigo,
+                    "nombre": nombre,
+                    "mano_obra": [],
+                    "materiales": [],
+                    "equipos": []
+                }
+                st.success("✅ Sección creada. Ahora asigna recursos.")
+                st.rerun()
+    
+    # PASO 2: Asignar recursos a la sección
+    if st.session_state.seccion_editando:
+        st.divider()
+        seccion = st.session_state.seccion_editando
+        
+        st.info(f"📌 **{seccion['codigo']}** - {seccion['nombre']}")
+        
+        # ================= ASIGNAR MANO DE OBRA =================
+        st.markdown("### 👷 Asignar Mano de Obra")
+        
+        trabajadores_disponibles = obtener_trabajadores_obra(obra_id_sel)
+        
+        if trabajadores_disponibles:
+            # Filtrar trabajadores ya asignados
+            trabajadores_asignados_ids = [t["trabajador_id"] for t in seccion["mano_obra"]]
+            trabajadores_sin_asignar = [t for t in trabajadores_disponibles if t["id"] not in trabajadores_asignados_ids]
+            
+            if trabajadores_sin_asignar:
+                trab_sel = st.selectbox(
+                    "Seleccionar Trabajador",
+                    options=trabajadores_sin_asignar,
+                    format_func=lambda x: f"{x['nombre']} - {x['rol']}",
+                    key="select_trabajador"
+                )
+                
+                if st.button("➕ Agregar Trabajador", key="btn_add_trab"):
+                    seccion["mano_obra"].append({
+                        "trabajador_id": trab_sel["id"],
+                        "nombre": trab_sel["nombre"],
+                        "rol": trab_sel["rol"]
+                    })
+                    st.success(f"✅ {trab_sel['nombre']} agregado")
+                    st.rerun()
+            else:
+                st.info("Todos los trabajadores disponibles ya están asignados a esta sección.")
+        else:
+            st.warning("No hay trabajadores registrados en esta obra.")
+        
+        # Mostrar trabajadores asignados
+        if seccion["mano_obra"]:
+            st.markdown("**👷 Trabajadores Asignados:**")
+            df_mo = pd.DataFrame(seccion["mano_obra"])
+            st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
+            
+            # Opción para eliminar
+            if st.checkbox("Mostrar opciones de eliminación (Mano de Obra)"):
+                for idx, trab in enumerate(seccion["mano_obra"]):
+                    if st.button(f"🗑️ Quitar {trab['nombre']}", key=f"del_trab_{idx}"):
+                        seccion["mano_obra"].pop(idx)
+                        st.rerun()
+        
+        st.divider()
+        
+        # ================= ASIGNAR MATERIALES =================
+        st.markdown("### 🧱 Asignar Materiales")
+        
+        materiales_disponibles = obtener_materiales_obra(obra_id_sel)
+        
+        if materiales_disponibles:
+            # Filtrar materiales ya asignados
+            materiales_asignados_ids = [m["material_id"] for m in seccion["materiales"]]
+            materiales_sin_asignar = [m for m in materiales_disponibles if m["id"] not in materiales_asignados_ids]
+            
+            if materiales_sin_asignar:
+                mat_sel = st.selectbox(
+                    "Seleccionar Material",
+                    options=materiales_sin_asignar,
+                    format_func=lambda x: f"{x['nombre']} ({x['unidad']})",
+                    key="select_material"
+                )
+                
+                if st.button("➕ Agregar Material", key="btn_add_mat"):
+                    seccion["materiales"].append({
+                        "material_id": mat_sel["id"],
+                        "nombre": mat_sel["nombre"],
+                        "unidad": mat_sel["unidad"]
+                    })
+                    st.success(f"✅ {mat_sel['nombre']} agregado")
+                    st.rerun()
+            else:
+                st.info("Todos los materiales disponibles ya están asignados a esta sección.")
+        else:
+            st.warning("No hay materiales registrados en esta obra.")
+        
+        # Mostrar materiales asignados
+        if seccion["materiales"]:
+            st.markdown("**🧱 Materiales Asignados:**")
+            df_mat = pd.DataFrame(seccion["materiales"])
+            st.dataframe(df_mat[["nombre", "unidad"]], use_container_width=True, hide_index=True)
+            
+            # Opción para eliminar
+            if st.checkbox("Mostrar opciones de eliminación (Materiales)"):
+                for idx, mat in enumerate(seccion["materiales"]):
+                    if st.button(f"🗑️ Quitar {mat['nombre']}", key=f"del_mat_{idx}"):
+                        seccion["materiales"].pop(idx)
+                        st.rerun()
+        
+        st.divider()
+        
+        # ================= ASIGNAR EQUIPOS =================
+        st.markdown("### 🔧 Asignar Equipos")
+        
+        with st.form("form_agregar_equipo", clear_on_submit=True):
+            col_eq1, col_eq2 = st.columns(2)
+            nombre_eq = col_eq1.text_input("Nombre del Equipo", placeholder="HERRAMIENTAS MANUALES")
+            codigo_eq = col_eq2.text_input("Código del Equipo", placeholder="570101")
+            
+            if st.form_submit_button("➕ Agregar Equipo"):
+                if nombre_eq and codigo_eq:
+                    seccion["equipos"].append({
+                        "nombre": nombre_eq,
+                        "codigo": codigo_eq
+                    })
+                    st.success(f"✅ {nombre_eq} agregado")
+                    st.rerun()
+                else:
+                    st.error("Por favor completa nombre y código del equipo.")
+        
+        # Mostrar equipos asignados
+        if seccion["equipos"]:
+            st.markdown("**🔧 Equipos Asignados:**")
+            df_eq = pd.DataFrame(seccion["equipos"])
+            st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+            
+            # Opción para eliminar
+            if st.checkbox("Mostrar opciones de eliminación (Equipos)"):
+                for idx, eq in enumerate(seccion["equipos"]):
+                    if st.button(f"🗑️ Quitar {eq['nombre']}", key=f"del_eq_{idx}"):
+                        seccion["equipos"].pop(idx)
+                        st.rerun()
+        
+        st.divider()
+        
+        # ================= GUARDAR SECCIÓN COMPLETA =================
+        st.markdown("### 💾 Guardar Sección")
+        
+        col_final1, col_final2 = st.columns(2)
+        
+        if col_final1.button("💾 GUARDAR SECCIÓN COMPLETA", type="primary", use_container_width=True):
+            if not seccion["mano_obra"] and not seccion["materiales"] and not seccion["equipos"]:
+                st.error("Debes asignar al menos un recurso (mano de obra, material o equipo)")
+            else:
+                seccion["fecha_creacion"] = datetime.now(local_tz)
+                
+                db.collection("obras").document(obra_id_sel).collection("partidas").add(seccion)
+                
+                st.session_state.seccion_editando = None
+                st.success("✅ Sección guardada exitosamente")
+                st.rerun()
+        
+        if col_final2.button("❌ Cancelar y Limpiar", use_container_width=True):
+            st.session_state.seccion_editando = None
+            st.rerun()
+
+# ================= TAB 2: VER SECCIONES =================
+with tab2:
+    st.subheader("📋 Secciones de la Obra")
+    
+    partidas = obtener_partidas_obra(obra_id_sel)
+    
+    if not partidas:
+        st.info("No hay secciones registradas. Crea una en la pestaña anterior.")
+    else:
+        st.success(f"**Total de Secciones:** {len(partidas)}")
+        
+        st.divider()
+        
+        # Mostrar cada sección
+        for partida in partidas:
+            with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
+                
+                # Mano de Obra
+                if partida.get("mano_obra"):
+                    st.markdown("**👷 Mano de Obra Asignada:**")
+                    df_mo = pd.DataFrame(partida["mano_obra"])
+                    st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
+                
+                # Materiales
+                if partida.get("materiales"):
+                    st.markdown("**🧱 Materiales Asignados:**")
+                    df_mat = pd.DataFrame(partida["materiales"])
+                    st.dataframe(df_mat[["nombre", "unidad"]], use_container_width=True, hide_index=True)
+                
+                # Equipos
+                if partida.get("equipos"):
+                    st.markdown("**🔧 Equipos Asignados:**")
+                    df_eq = pd.DataFrame(partida["equipos"])
+                    st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+                
+                # Botón eliminar
+                if st.button(f"🗑️ Eliminar Sección", key=f"del_{partida['id']}"):
+                    db.collection("obras").document(obra_id_sel).collection("partidas").document(partida["id"]).delete()
+                    st.success("Sección eliminada")
+                    st.rerun()
