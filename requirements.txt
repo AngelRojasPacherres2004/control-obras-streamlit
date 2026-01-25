@@ -5,5 +5,8 @@ xlsxwriter
 streamlit-cookies-manager
 streamlit-authenticator
 python-docx
-streamlit-quill
 
+
+
+streamlit==1.53.0
+protobuf>=4.25.0
