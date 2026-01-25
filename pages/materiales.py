@@ -288,7 +288,7 @@ if st.session_state["vista_materiales_globales"]:
     # ⛔ IMPORTANTE: corta aquí
     st.stop()
 
-# ================== SECCIÓN B (CORREGIDA) ==================
+# ================== SECCIÓN B (CORREGIDA E INDENTADA) ==================
 st.divider()
 st.header("➕ Asignar material a la obra")
 
@@ -308,34 +308,37 @@ if obra_doc.exists:
                 format_func=lambda x: f"{x['nombre']} ({x['unidad']}) - S/ {x['precio_unitario']}"
             )
             cantidad = st.number_input("Cantidad", min_value=0.1, step=1.0, value=1.0)
+            
             btn_asignar = st.form_submit_button("Asignar a obra", type="primary")
 
-            # TODO LO SIGUIENTE DEBE ESTAR DENTRO DEL IF DEL BOTÓN
+            # TODO LO QUE SIGUE DEBE ESTAR DENTRO DE ESTE 'IF'
             if btn_asignar:
                 costo_total = round(cantidad * mat_sel["precio_unitario"], 2)
                 obra_ref = db.collection("obras").document(obra_id)
-                
-                # Consultamos el saldo más reciente de la DB
-                saldo_fresco = float(obra_ref.get().to_dict().get("presupuesto_materiales_actual", p_total))
-                
+                # Obtenemos el saldo más reciente directamente de la DB
+                datos_obra = obra_ref.get().to_dict()
+                saldo_fresco = float(datos_obra.get("presupuesto_materiales_actual", p_total))
+    
                 if costo_total > saldo_fresco:
-                    st.error(f"❌ Presupuesto insuficiente. Costo: S/ {costo_total} > Disponible: S/ {saldo_fresco}")
+                    st.error(f"❌ Presupuesto insuficiente. Requiere S/ {costo_total} y solo hay S/ {saldo_fresco}")
                 else:
+                    # 1. Agregar a la subcolección con campos de STOCK
                     obra_ref.collection("materiales").add({
                         "material_id": mat_sel["id"],
                         "nombre": mat_sel["nombre"],
                         "unidad": mat_sel["unidad"],
-                        "cantidad": cantidad,
-                        "stock_inicial": cantidad,
-                        "stock_actual": cantidad,
+                        "cantidad": cantidad,        
+                        "stock_inicial": cantidad,   
+                        "stock_actual": cantidad,    
                         "precio_unitario": mat_sel["precio_unitario"],
                         "subtotal": costo_total,
                         "tipo": "COMPRADO",
                         "fecha": datetime.now()
                     })
                     
+                    # 2. Recalcular y refrescar
                     recalcular_presupuesto_obra(obra_id)
-                    st.success(f"✅ {mat_sel['nombre']} asignado correctamente.")
+                    st.success(f"✅ {mat_sel['nombre']} asignado con stock.")
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
@@ -375,8 +378,8 @@ if mats_obra:
     use_container_width=True,
     column_config={
         "nombre": "Material",
-        "stock_inicial": st.column_config.NumberColumn("Entrada", format="%.2f"),
-        "stock_actual": st.column_config.NumberColumn("En Obra", format="%.2f"),
+        "stock_inicial": st.column_config.NumberColumn("Stock inicial", format="%.2f"),
+        "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.2f"),
         "subtotal": st.column_config.NumberColumn("Inversión", format="S/ %.2f"),
     }
 )
