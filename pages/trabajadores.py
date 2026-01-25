@@ -180,7 +180,8 @@ with tab1:
         rol_t = col1.selectbox("Rol / Especialidad", ROLES_CONSTRUCCION)
         grupo_t = col2.text_input("Grupo / Cuadrilla")
         
-        presupuesto_t = st.number_input("Sueldo asignado (S/)", min_value=0.0, step=50.0)
+        sueldo_diario = st.number_input("Sueldo diario (S/)", min_value=0.0, step=10.0)
+
         foto_contrato = st.file_uploader("Subir Foto/Contrato", type=["jpg", "png", "jpeg"])
         
         submit = st.form_submit_button("CONTRATAR Y DESCONTAR DEL PRESUPUESTO")
@@ -189,28 +190,29 @@ with tab1:
             if not nombre_t or not dni_t or not foto_contrato:
                 st.error("Faltan datos obligatorios o la foto.")
             # VALIDACIÓN CLAVE: Comparar contra el saldo ACTUAL
-            elif presupuesto_t > saldo_mo_actual:
-                st.error(f"❌ No puedes asignar S/ {presupuesto_t:,.2f}. El saldo disponible es solo S/ {saldo_mo_actual:,.2f}")
             else:
                 with st.spinner("Procesando contratación..."):
-                    # 1. Subir Foto
-                    res = cloudinary.uploader.upload(foto_contrato, folder=f"obras/{obra_id_sel}/personal")
-                    
-                    # 2. Registrar Trabajador
-                    db.collection("obras").document(obra_id_sel).collection("trabajadores").add({
+                    res = cloudinary.uploader.upload(
+                        foto_contrato,
+                        folder=f"obras/{obra_id_sel}/personal"
+                    )
+
+                    db.collection("obras").document(obra_id_sel)\
+                    .collection("trabajadores").add({
                         "nombre": nombre_t,
                         "dni": dni_t,
                         "email": email_t,
                         "telefono": telefono_t,
                         "rol": rol_t,
                         "grupo": grupo_t,
-                        "presupuesto": presupuesto_t,
+                        "sueldo_diario": sueldo_diario,
                         "url_foto": res["secure_url"],
                         "fecha_registro": datetime.now()
                     })
-                    
-                    # 3. Recalcular y actualizar campos en Firebase
-                    recalcular_mano_obra(obra_id_sel)
+
+                    st.success(f"✅ {nombre_t} registrado correctamente.")
+                    st.rerun()
+
                     
                     st.success(f"✅ {nombre_t} contratado. Saldo actualizado correctamente.")
                     st.rerun()
@@ -223,8 +225,16 @@ with tab2:
     else:
         # --- TABLA RESUMEN ---
         df_t = pd.DataFrame(trabajadores)
+
+        # Compatibilidad con trabajadores antiguos
+        if "sueldo_diario" not in df_t.columns:
+            if "presupuesto" in df_t.columns:
+                df_t["sueldo_diario"] = df_t["presupuesto"]
+            else:
+                df_t["sueldo_diario"] = 0.0
+
         st.dataframe(
-            df_t[["nombre", "rol", "telefono", "email", "grupo", "presupuesto"]],
+            df_t[["nombre", "rol", "telefono", "email", "grupo", "sueldo_diario"]],
             use_container_width=True,
             hide_index=True
         )
@@ -262,9 +272,13 @@ with tab2:
                 
                 nuevo_rol = c1.selectbox("Rol", ROLES_CONSTRUCCION, index=ROLES_CONSTRUCCION.index(trabajador_sel["rol"]))
                 nuevo_grupo = c2.text_input("Grupo", value=trabajador_sel.get("grupo", ""))
-                
-                nuevo_presupuesto = st.number_input("Presupuesto (S/)", value=float(trabajador_sel.get("presupuesto", 0)))
-                
+                nuevo_sueldo = st.number_input(
+    "Sueldo diario (S/)",
+    value=float(trabajador_sel.get("sueldo_diario", 0)),
+    step=10.0
+)
+
+               
                 col_b1, col_b2 = st.columns(2)
                 btn_update = col_b1.form_submit_button("💾 Actualizar Datos")
                 btn_delete = col_b2.form_submit_button("🗑️ Eliminar Trabajador")
@@ -277,9 +291,10 @@ with tab2:
                         "telefono": nuevo_telefono,
                         "rol": nuevo_rol,
                         "grupo": nuevo_grupo,
-                        "presupuesto": nuevo_presupuesto
+                        "sueldo_diario": nuevo_sueldo
+
                     })
-                    recalcular_mano_obra(obra_id_sel)
+                   
                     st.success("Datos actualizados correctamente")
                     st.rerun()
                     
@@ -288,13 +303,13 @@ with tab2:
                 if btn_delete:
                     db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).delete()
                     # Esta llamada es la que sincroniza con obras.py
-                    recalcular_mano_obra(obra_id_sel) 
+                   
                     st.warning("Trabajador eliminado y presupuesto liberado")
                     st.rerun()
 # ================= EXPORTAR =================
 if trabajadores:
     st.divider()
-    buffer = pd.DataFrame(trabajadores)[["nombre", "dni", "email", "telefono", "rol", "grupo", "presupuesto"]]
+    buffer = pd.DataFrame(trabajadores)[["nombre", "dni", "email", "telefono", "rol", "grupo", "sueldo_diario"]]
     st.download_button(
         label="📥 Descargar Planilla de Trabajadores",
         data=buffer.to_csv(index=False).encode('utf-8'),

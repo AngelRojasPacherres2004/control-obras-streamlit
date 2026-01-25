@@ -288,22 +288,19 @@ if st.session_state["vista_materiales_globales"]:
     # ⛔ IMPORTANTE: corta aquí
     st.stop()
 
-# ================== SECCIÓN B (CORREGIDA) ==================
+# ================== SECCIÓN B (CORREGIDA E INDENTADA) ==================
 st.divider()
 st.header("➕ Asignar material a la obra")
 
-# Obtener datos de la obra con validación de existencia de campos
 obra_doc = db.collection("obras").document(obra_id).get()
 if obra_doc.exists:
     obra_info = obra_doc.to_dict()
-    # Si el campo 'actual' no existe, usamos el presupuesto total como inicial
     p_total = float(obra_info.get("presupuesto_materiales", 0))
     p_actual = float(obra_info.get("presupuesto_materiales_actual", p_total))
     
     st.info(f"💰 Saldo disponible: S/ {p_actual:,.2f}")
 
     if materiales:
-        # Usamos un formulario para evitar ejecuciones parciales
         with st.form("form_asignar_material"):
             mat_sel = st.selectbox(
                 "Seleccionar Material",
@@ -314,32 +311,34 @@ if obra_doc.exists:
             
             btn_asignar = st.form_submit_button("Asignar a obra", type="primary")
 
+            # TODO LO QUE SIGUE DEBE ESTAR DENTRO DE ESTE 'IF'
             if btn_asignar:
                 costo_total = round(cantidad * mat_sel["precio_unitario"], 2)
-                
-                # Volvemos a consultar el saldo más reciente antes de guardar
                 obra_ref = db.collection("obras").document(obra_id)
-                saldo_fresco = float(obra_ref.get().to_dict().get("presupuesto_materiales_actual", p_total))
-                
+                # Obtenemos el saldo más reciente directamente de la DB
+                datos_obra = obra_ref.get().to_dict()
+                saldo_fresco = float(datos_obra.get("presupuesto_materiales_actual", p_total))
+    
                 if costo_total > saldo_fresco:
-                    st.error(f"❌ Presupuesto insuficiente. Costo: S/ {costo_total:,.2f} | Disponible: S/ {saldo_fresco:,.2f}")
+                    st.error(f"❌ Presupuesto insuficiente. Requiere S/ {costo_total} y solo hay S/ {saldo_fresco}")
                 else:
-                    # 1. Agregar a la subcolección
+                    # 1. Agregar a la subcolección con campos de STOCK
                     obra_ref.collection("materiales").add({
                         "material_id": mat_sel["id"],
                         "nombre": mat_sel["nombre"],
                         "unidad": mat_sel["unidad"],
-                        "cantidad": cantidad,
+                        "cantidad": cantidad,        
+                        "stock_inicial": cantidad,   
+                        "stock_actual": cantidad,    
                         "precio_unitario": mat_sel["precio_unitario"],
                         "subtotal": costo_total,
-                        "tipo": "COMPRADO",  # Marcado como comprado
+                        "tipo": "COMPRADO",
                         "fecha": datetime.now()
                     })
                     
-                    # 2. Actualizar saldos en el documento padre (Obra)
+                    # 2. Recalcular y refrescar
                     recalcular_presupuesto_obra(obra_id)
-                    
-                    st.success(f"✅ {mat_sel['nombre']} asignado correctamente.")
+                    st.success(f"✅ {mat_sel['nombre']} asignado con stock.")
                     st.rerun()
 else:
     st.error("No se encontró la información de la obra.")
@@ -374,17 +373,16 @@ if mats_obra:
 
     # --- TABLA PRINCIPAL ---
     st.dataframe(
-        df_obra[["nombre", "unidad", "cantidad", "precio_unitario", "subtotal", "Origen"]],
-        hide_index=True,
-        use_container_width=True,
-        column_config={
-            "nombre": "Descripción del Material",
-            "precio_unitario": st.column_config.NumberColumn("Precio (S/)", format="S/ %.2f"),
-            "subtotal": st.column_config.NumberColumn("Inversión (S/)", format="S/ %.2f"),
-            "cantidad": st.column_config.NumberColumn("Stock Actual", format="%.2f"),
-        }
-    )
-
+    df_obra[["nombre", "unidad", "stock_inicial", "stock_actual", "precio_unitario", "subtotal", "Origen"]],
+    hide_index=True,
+    use_container_width=True,
+    column_config={
+        "nombre": "Material",
+        "stock_inicial": st.column_config.NumberColumn("Stock inicial", format="%.2f"),
+        "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.2f"),
+        "subtotal": st.column_config.NumberColumn("Inversión", format="S/ %.2f"),
+    }
+)
     # --- GESTOR DE EDICIÓN ---
     with st.expander("⚙️ Modificar Stock o Eliminar (Cualquier origen)"):
         # Selector que incluye donaciones
@@ -402,13 +400,14 @@ if mats_obra:
         )
         
         if col_ed1.button("💾 Guardar Cambios", use_container_width=True):
-            # Calculamos nuevo subtotal (si es donación es 0)
             p_unit = float(mat_seleccionado.get('precio_unitario', 0))
             is_donacion = mat_seleccionado.get('tipo') == "DONACIÓN"
             nuevo_sub = 0.0 if is_donacion else round(nueva_cant * p_unit, 2)
 
             db.collection("obras").document(obra_id).collection("materiales").document(id_sel).update({
-                "cantidad": nueva_cant,
+                "cantidad": nueva_cant,      # Por compatibilidad
+                "stock_inicial": nueva_cant, # Se actualiza porque es una "corrección" de entrada
+                "stock_actual": nueva_cant,  # Se resetea al nuevo valor
                 "subtotal": nuevo_sub
             })
             
@@ -446,17 +445,19 @@ if archivo:
                 st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
             else:
                 for _, r in df_excel.iterrows():
+                    cant_val = float(r["cantidad"])
                     db.collection("obras").document(obra_id).collection("materiales").add({
                         "nombre": r["nombre"],
                         "unidad": r["unidad"],
-                        "cantidad": float(r["cantidad"]),
+                        "cantidad": cant_val,
+                        "stock_inicial": cant_val,  # <-- NUEVO
+                        "stock_actual": cant_val,   # <-- NUEVO
                         "precio_unitario": float(r["precio_unitario"]),
-                        "subtotal": round(float(r["cantidad"] * r["precio_unitario"]), 2),
+                        "subtotal": round(float(cant_val * r["precio_unitario"]), 2),
                         "tipo": "COMPRADO",
                         "fecha": datetime.now()
                     })
-                nuevo_saldo = recalcular_presupuesto_obra(obra_id)
-                st.success(f"✅ {len(df_excel)} materiales importados. Nuevo saldo: S/ {nuevo_saldo:,.2f}")
+                recalcular_presupuesto_obra(obra_id)
                 st.rerun()
 
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
@@ -611,7 +612,10 @@ st.header("📤 Exportar materiales y recibos a Excel")
 # Preparar datos de materiales
 if mats_obra:
     df_export_mats = pd.DataFrame(mats_obra)
-    df_export_mats = df_export_mats[["nombre", "unidad", "precio_unitario", "cantidad", "subtotal"]]
+    # Incluimos stock_inicial y stock_actual en la exportación
+    columnas_export = ["nombre", "unidad", "precio_unitario", "stock_inicial", "stock_actual", "subtotal"]
+    # Filtramos solo las que existan para evitar errores
+    df_export_mats = df_export_mats[[c for c in columnas_export if c in df_export_mats.columns]]
 else:
     df_export_mats = pd.DataFrame()
 
