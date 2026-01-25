@@ -162,44 +162,68 @@ with tab1:
         materiales_disponibles = obtener_materiales_obra(obra_id_sel)
         
         if materiales_disponibles:
-            # Filtrar materiales ya asignados
+            # Filtrar materiales ya asignados en esta sesión de edición
             materiales_asignados_ids = [m["material_id"] for m in seccion["materiales"]]
             materiales_sin_asignar = [m for m in materiales_disponibles if m["id"] not in materiales_asignados_ids]
             
             if materiales_sin_asignar:
+                # 1. Selector de material
                 mat_sel = st.selectbox(
                     "Seleccionar Material",
                     options=materiales_sin_asignar,
-                    format_func=lambda x: f"{x['nombre']} ({x['unidad']})",
+                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0)} {x['unidad']})",
                     key="select_material"
                 )
                 
-                if st.button("➕ Agregar Material", key="btn_add_mat"):
-                    seccion["materiales"].append({
-                        "material_id": mat_sel["id"],
-                        "nombre": mat_sel["nombre"],
-                        "unidad": mat_sel["unidad"]
-                    })
-                    st.success(f"✅ {mat_sel['nombre']} agregado")
-                    st.rerun()
+                # 2. Input de cantidad con límite de stock
+                stock_disponible = float(mat_sel.get('stock_actual', 0))
+                
+                col_c1, col_c2 = st.columns([2, 1])
+                cant_sel = col_c1.number_input(
+                    f"Cantidad a usar ({mat_sel['unidad']})", 
+                    min_value=0.1, 
+                    max_value=stock_disponible if stock_disponible > 0 else 0.1,
+                    step=0.1,
+                    help=f"El stock actual en obra es de {stock_disponible}"
+                )
+                
+                # 3. Botón agregar con validación
+                if col_c2.button("➕ Agregar Material", key="btn_add_mat", use_container_width=True):
+                    if stock_disponible <= 0:
+                        st.error("No hay stock disponible de este material.")
+                    elif cant_sel > stock_disponible:
+                        st.error(f"No puedes asignar más de {stock_disponible}")
+                    else:
+                        seccion["materiales"].append({
+                            "material_id": mat_sel["id"],
+                            "nombre": mat_sel["nombre"],
+                            "unidad": mat_sel["unidad"],
+                            "cantidad_asignada": cant_sel, # <--- Nuevo campo
+                            "stock_al_asignar": stock_disponible # Referencia
+                        })
+                        st.success(f"✅ {mat_sel['nombre']} ({cant_sel}) agregado")
+                        st.rerun()
             else:
                 st.info("Todos los materiales disponibles ya están asignados a esta sección.")
         else:
             st.warning("No hay materiales registrados en esta obra.")
         
-        # Mostrar materiales asignados
+        # Mostrar materiales asignados con la nueva columna de cantidad
         if seccion["materiales"]:
             st.markdown("**🧱 Materiales Asignados:**")
             df_mat = pd.DataFrame(seccion["materiales"])
-            st.dataframe(df_mat[["nombre", "unidad"]], use_container_width=True, hide_index=True)
+            # Ajustamos las columnas a mostrar
+            st.dataframe(
+                df_mat[["nombre", "cantidad_asignada", "unidad"]], 
+                use_container_width=True, 
+                hide_index=True
+            )
             
-            # Opción para eliminar
             if st.checkbox("Mostrar opciones de eliminación (Materiales)"):
                 for idx, mat in enumerate(seccion["materiales"]):
                     if st.button(f"🗑️ Quitar {mat['nombre']}", key=f"del_mat_{idx}"):
                         seccion["materiales"].pop(idx)
                         st.rerun()
-        
         st.divider()
         
         # ================= ASIGNAR EQUIPOS =================

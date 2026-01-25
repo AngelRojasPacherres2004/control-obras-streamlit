@@ -321,12 +321,13 @@ with m5:
     )
 # Carga única de avances para usar en toda la página (Gráficos, Historial y Excel)
 avances_lista = cargar_avances(obra_id_sel)
+
 # ================= ANÁLISIS ECONÓMICO (REPARADO) =================
 st.divider()
 st.subheader("📊 Resumen de Gastos")
 
 g_mats = float(obra_data.get("gasto_materiales", 0))
-g_caja = float(obra_data.get("gastos_caja_chica", 0))
+g_caja = float(obra_data.get("gasto_caja_chica", 0))
 g_mano = float(obra_data.get("gasto_mano_obra", 0))
 p_total_ini = float(obra_data.get("presupuesto_total", 0))
 
@@ -344,12 +345,7 @@ if p_total_ini > 0:
     c3.caption(f"👷 Mano Obra: S/ {g_mano:,.2f}")
 else:
     st.info("Presupuesto no configurado.")
-# ================= DASHBOARD DE AVANCES =================
-st.divider()
-st.subheader("📊 Avance económico de la obra")
 
-obra = db.collection("obras").document(obra_id_sel).get().to_dict()
-avances = cargar_avances(obra_id_sel)
 # ================= PRECIOS DE MATERIALES =================
 materiales_ref = db.collection("obras").document(obra_id_sel).collection("materiales").stream()
 
@@ -358,6 +354,12 @@ for m in materiales_ref:
     d = m.to_dict()
     precios_materiales[d.get("nombre")] = float(d.get("precio_unitario", 0))
 
+
+# ================= DASHBOARD DE AVANCES =================
+st.divider()
+st.subheader("📊 Avance económico de la obra")
+
+avances = avances_lista
 if not avances:
     st.info("Aún no hay avances registrados")
 else:
@@ -368,7 +370,7 @@ else:
     .replace(tzinfo=pytz.UTC) \
     .astimezone(local_tz)
 
-        fecha = fecha.replace(tzinfo=pytz.UTC).astimezone(local_tz)
+        
 
         # Calcular costo del día desde materiales usados
         costo_dia = 0.0
@@ -434,12 +436,16 @@ else:
             dia_en = r["fecha"].strftime("%A")
 
             if dia_en in gastos_por_dia:
-               
-
-                gasto_materiales = r["avance"].get("costo_total_dia", 0) or 0
+                # Calcular costo del día desde materiales
+                costo_materiales = 0.0
+                for mat in r["avance"].get("materiales_usados", []):
+                    precio = precios_materiales.get(mat.get("nombre"), 0)
+                    costo_materiales += float(mat.get("cantidad", 0)) * precio
+    
                 gasto_caja = r["avance"].get("gasto_caja_chica", 0) or 0
-
-                gastos_por_dia[dia_en] += r["costo"]
+                gasto_total = costo_materiales + gasto_caja
+    
+                gastos_por_dia[dia_en] += gasto_total
 
 
         # DataFrame ORDENADO
@@ -489,8 +495,14 @@ else:
     for av in avances_mostrar:
         try:
             dt = av.get("timestamp")
-            f_txt = dt.astimezone(local_tz).strftime("%d/%m/%Y %H:%M") if dt else "Fecha N/D"
-        except: f_txt = "Fecha N/D"
+            if dt:
+                if not dt.tzinfo:
+                    dt = dt.replace(tzinfo=pytz.UTC)
+                f_txt = dt.astimezone(local_tz).strftime("%d/%m/%Y %H:%M")
+            else:
+                f_txt = "Fecha N/D"
+        except Exception as e:
+            f_txt = "Fecha N/D"
 
         with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')}"):
             st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
@@ -574,7 +586,7 @@ def exportar_obra_excel(obra_id: str):
         "Presupuesto Mano de Obra (S/)": obra.get("presupuesto_mano_obra", 0),
         "Presupuesto Total (S/)": obra.get("presupuesto_total", 0),
         "Gasto Materiales (S/)": obra.get("gasto_materiales", 0),
-        "Gasto Caja Chica (S/)": obra.get("gastos_caja_chica", 0),
+        "Gasto Caja Chica (S/)": obra.get("gasto_caja_chica", 0),
         "Gasto Mano de Obra (S/)": obra.get("gasto_mano_obra", 0),
     }])
 

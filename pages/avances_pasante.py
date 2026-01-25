@@ -46,51 +46,36 @@ st.session_state.setdefault("partida_abierta", None)
 # ================= LISTA DE SECCIONES =====================
 # =========================================================
 if st.session_state.partida_abierta is None:
-    # =========================================================
-    # 📦 RESUMEN DE MATERIALES (GASTADO VS DISPONIBLE)
-    # =========================================================
+
+    # 📦 RESUMEN DE MATERIALES (CON STOCK_INICIAL Y STOCK_ACTUAL)
+
     st.subheader("📦 Resumen de materiales")
 
-    # ---- 1. Stock desde inventario de la obra ----
+    # ---- 1. Obtener datos reales desde Firebase ----
     materiales_obra = list(obra_ref.collection("materiales").stream())
 
-    stock_materiales = {}
-    unidad_materiales = {}
-
+    datos_db = {} 
     for m in materiales_obra:
         d = m.to_dict()
         nombre = d.get("nombre")
-        stock_materiales[nombre] = float(d.get("stock", 0))
-        unidad_materiales[nombre] = d.get("unidad", "und")
+        datos_db[nombre] = {
+            "stock_inicial": float(d.get("stock_inicial", 0)),
+            "stock_actual": float(d.get("stock_actual", 0)),
+            "unidad": d.get("unidad", "und")
+        }
 
-    # ---- 2. Calcular lo gastado desde avances ----
-    gastado_materiales = {}
-
-    partidas = obra_ref.collection("partidas").stream()
-    for p in partidas:
-        avances = obra_ref.collection("partidas").document(p.id) \
-            .collection("avances").stream()
-
-        for av in avances:
-            detalle = av.to_dict().get("detalle", [])
-            for item in detalle:
-                if item.get("Tipo") == "Material":
-                    nombre = item.get("Descripción")
-                    cantidad = float(item.get("Cantidad", 0))
-                    gastado_materiales[nombre] = gastado_materiales.get(nombre, 0) + cantidad
-
-    # ---- 3. Construir tabla resumen ----
+    # ---- 2. Calcular lo gastado (stock_inicial - stock_actual) ----
     filas_resumen = []
-
-    for nombre, stock in stock_materiales.items():
-        gastado = gastado_materiales.get(nombre, 0)
-        disponible = stock - gastado
-
+    for nombre, info in datos_db.items():
+        # ✅ El gasto es la diferencia entre inicial y actual
+        gastado = info["stock_inicial"] - info["stock_actual"]
+    
         filas_resumen.append({
             "Material": nombre,
-            "Unidad": unidad_materiales.get(nombre, "und"),
+            "Unidad": info["unidad"],
+            "Stock Inicial": round(info["stock_inicial"], 2),
             "Gastado": round(gastado, 2),
-            "Disponible": round(disponible, 2)
+            "Stock Actual": round(info["stock_actual"], 2)
         })
 
     df_resumen = pd.DataFrame(filas_resumen)
@@ -100,7 +85,11 @@ if st.session_state.partida_abierta is None:
         use_container_width=True,
         hide_index=True
     )
+    
 
+    # =========================================================
+    # 📋 SECCIONES DE LA OBRA
+    # =========================================================
     st.title("📋 Secciones de la Obra")
 
     partidas = list(
@@ -113,17 +102,15 @@ if st.session_state.partida_abierta is None:
         st.info("No hay secciones creadas")
         st.stop()
 
-    # -------- SECCIONES --------
+    # -------- SECCIONES (BOTONES) --------
     for p in partidas:
         d = p.to_dict()
-
         col1, col2 = st.columns([5, 1])
-        col1.markdown(f"""
-### 🧱 {d.get('codigo')} - {d.get('nombre')}
-{len(d.get('materiales', []))} materiales • {len(d.get('mano_obra', []))} trabajadores
-""")
+        with col1:
+            st.markdown(f"### 🧱 {d.get('codigo')} - {d.get('nombre')}")
+            st.caption(f"{len(d.get('materiales', []))} materiales • {len(d.get('mano_obra', []))} personal")
 
-        if col2.button("📂 Abrir", key=p.id):
+        if col2.button("📂 Abrir", key=p.id, use_container_width=True):
             st.session_state.partida_abierta = {"id": p.id, **d}
             st.rerun()
 
@@ -236,7 +223,7 @@ else:
     col1, col2 = st.columns(2)
 
     # =====================================================
-    # 💾 GUARDAR
+    # 💾 GUARDAR AVANCE Y ACTUALIZAR STOCK REAL
     # =====================================================
     if col1.button("💾 Guardar Avance", type="primary"):
         if not descripcion.strip():
@@ -244,32 +231,54 @@ else:
         elif not fotos or len(fotos) < 3:
             st.error("Mínimo 3 fotos")
         else:
-            urls = []
-            for f in fotos:
-                res = cloudinary.uploader.upload(
-                    f,
-                    folder=f"obras/{obra_id}/avances"
-                )
-                urls.append(res["secure_url"])
+            with st.spinner("Guardando avance y actualizando inventario..."):
+                try:
+                    # 1. Subir fotos
+                    urls = []
+                    for f in fotos:
+                        res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
+                        urls.append(res["secure_url"])
 
-            detalle = pd.concat([df_mo_edit, df_mat_edit]).to_dict("records")
+                    # 2. Preparar detalle
+                    df_final = pd.concat([df_mo_edit, df_mat_edit])
+                    detalle = df_final.to_dict("records")
 
-            avance = {
-                "fecha": datetime.now(tz),
-                "usuario": usuario,
-                "descripcion": descripcion,
-                "detalle": detalle,
-                "fotos": urls
-            }
+                    # 3. ACTUALIZAR STOCK EN FIREBASE (Lo que faltaba)
+                    for item in detalle:
+                        if item.get("Tipo") == "Material" and item.get("Cantidad") > 0:
+                            nombre_mat = item.get("Descripción")
+                            cant_gastada = float(item.get("Cantidad"))
 
-            obra_ref.collection("partidas") \
-                .document(partida["id"]) \
-                .collection("avances") \
-                .add(avance)
+                            # Buscar el documento del material en la obra por su nombre
+                            mats_query = obra_ref.collection("materiales").where("nombre", "==", nombre_mat).limit(1).stream()
+                            
+                            for doc in mats_query:
+                                mat_ref = obra_ref.collection("materiales").document(doc.id)
+                                # Usar incremento negativo para restar
+                                mat_ref.update({
+                                    "stock_actual": firestore.Increment(-cant_gastada)
+                                })
 
-            st.success("✅ Avance guardado correctamente")
-            st.session_state.partida_abierta = None
-            st.rerun()
+                    # 4. Guardar el documento de avance
+                    avance = {
+                        "fecha": datetime.now(tz),
+                        "usuario": usuario,
+                        "descripcion": descripcion,
+                        "detalle": detalle,
+                        "fotos": urls
+                    }
+
+                    obra_ref.collection("partidas") \
+                        .document(partida["id"]) \
+                        .collection("avances") \
+                        .add(avance)
+
+                    st.success("✅ Avance guardado y stock actualizado correctamente")
+                    st.session_state.partida_abierta = None
+                    st.rerun()
+                
+                except Exception as e:
+                    st.error(f"Error al guardar: {e}")
 
     if col2.button("⬅️ Volver"):
         st.session_state.partida_abierta = None
