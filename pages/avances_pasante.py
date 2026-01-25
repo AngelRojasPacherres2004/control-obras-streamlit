@@ -1,13 +1,12 @@
-# avances_pasante.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
-import cloudinary.uploader
 from firebase_admin import firestore
+import cloudinary.uploader
 import pytz
 
 # ================= CONFIG =================
-st.set_page_config(page_title="Parte Diario", layout="centered")
+st.set_page_config(page_title="Avances por Sección", layout="wide")
 db = firestore.client()
 tz = pytz.timezone("America/Lima")
 
@@ -23,45 +22,14 @@ if auth.get("role") != "pasante":
     st.stop()
 
 obra_id = auth.get("obra")
-username = auth.get("username", "desconocido")
+usuario = auth.get("username", "pasante")
 
 if not obra_id:
-    st.error("No tienes una obra asignada")
+    st.error("No tienes obra asignada")
     st.stop()
 
-# ================= OBRA =================
 obra_ref = db.collection("obras").document(obra_id)
-obra_doc = obra_ref.get()
-
-if not obra_doc.exists:
-    st.error("La obra asignada no existe")
-    st.stop()
-
-obra = obra_doc.to_dict()
-
-
-
-
-# ================= FIX AVANCES ANTIGUOS (SIN FECHA) =================
-avances_ref = obra_ref.collection("avances").stream()
-
-batch_fix = db.batch()
-fix_count = 0
-
-for av in avances_ref:
-    data = av.to_dict()
-
-    if "fecha" not in data and "timestamp" in data:
-        ts = data["timestamp"].astimezone(tz)
-        batch_fix.update(av.reference, {
-            "fecha": ts.isoformat()
-        })
-        fix_count += 1
-
-if fix_count > 0:
-    batch_fix.commit()
-
-
+obra = obra_ref.get().to_dict()
 
 # ================= SIDEBAR =================
 with st.sidebar:
@@ -71,180 +39,238 @@ with st.sidebar:
     st.write(f"📅 Inicio: {obra.get('fecha_inicio').date()}")
     st.write(f"🏁 Fin estimado: {obra.get('fecha_fin_estimado').date()}")
 
-# ================= MATERIALES ASIGNADOS =================
-materiales = []
+# ================= ESTADO =================
+st.session_state.setdefault("partida_abierta", None)
 
-for m in obra_ref.collection("materiales").stream():
-    d = m.to_dict()
-    d["doc_id"] = m.id
-    materiales.append(d)
+# =========================================================
+# ================= LISTA DE SECCIONES =====================
+# =========================================================
+if st.session_state.partida_abierta is None:
+    # =========================================================
+    # 📦 RESUMEN DE MATERIALES (GASTADO VS DISPONIBLE)
+    # =========================================================
+    st.subheader("📦 Resumen de materiales")
 
-if not materiales:
-    st.warning("La obra no tiene materiales asignados")
-    st.stop()
-# ================= CALCULAR MATERIAL GASTADO DESDE AVANCES =================
-gastado_por_material = {}
+    # ---- 1. Stock desde inventario de la obra ----
+    materiales_obra = list(obra_ref.collection("materiales").stream())
 
-avances_docs = obra_ref.collection("avances").stream()
+    stock_materiales = {}
+    unidad_materiales = {}
 
-for av in avances_docs:
-    mats = av.to_dict().get("materiales_usados", [])
-    for m in mats:
-        mid = m.get("material_id")
-        cant = float(m.get("cantidad", 0))
-        gastado_por_material[mid] = gastado_por_material.get(mid, 0) + cant
+    for m in materiales_obra:
+        d = m.to_dict()
+        nombre = d.get("nombre")
+        stock_materiales[nombre] = float(d.get("stock", 0))
+        unidad_materiales[nombre] = d.get("unidad", "und")
 
+    # ---- 2. Calcular lo gastado desde avances ----
+    gastado_materiales = {}
 
-st.subheader("📦 Resumen de materiales")
+    partidas = obra_ref.collection("partidas").stream()
+    for p in partidas:
+        avances = obra_ref.collection("partidas").document(p.id) \
+            .collection("avances").stream()
 
-resumen = []
+        for av in avances:
+            detalle = av.to_dict().get("detalle", [])
+            for item in detalle:
+                if item.get("Tipo") == "Material":
+                    nombre = item.get("Descripción")
+                    cantidad = float(item.get("Cantidad", 0))
+                    gastado_materiales[nombre] = gastado_materiales.get(nombre, 0) + cantidad
 
-for mat in materiales:
-    disponible = float(mat.get("cantidad", 0))
-    gastado = gastado_por_material.get(mat["doc_id"], 0)
+    # ---- 3. Construir tabla resumen ----
+    filas_resumen = []
 
-    resumen.append({
-        "Material": mat.get("nombre"),
-        "Unidad": mat.get("unidad"),
-        "Gastado": gastado,
-        "Disponible": disponible
-    })
+    for nombre, stock in stock_materiales.items():
+        gastado = gastado_materiales.get(nombre, 0)
+        disponible = stock - gastado
 
-df_resumen = pd.DataFrame(resumen)
+        filas_resumen.append({
+            "Material": nombre,
+            "Unidad": unidad_materiales.get(nombre, "und"),
+            "Gastado": round(gastado, 2),
+            "Disponible": round(disponible, 2)
+        })
 
-st.dataframe(
-    df_resumen,
-    use_container_width=True,
-    hide_index=True
-)
+    df_resumen = pd.DataFrame(filas_resumen)
 
+    st.dataframe(
+        df_resumen,
+        use_container_width=True,
+        hide_index=True
+    )
 
-# ================= FORMULARIO =================
-st.title("📝 Registrar avance diario")
+    st.title("📋 Secciones de la Obra")
 
-with st.form("form_avance", clear_on_submit=True):
-    responsable = st.text_input("Responsable", value=username)
-    descripcion = st.text_area("Descripción del trabajo", height=100)
+    partidas = list(
+        obra_ref.collection("partidas")
+        .order_by("codigo")
+        .stream()
+    )
 
-    st.subheader("🧱 Materiales usados hoy")
+    if not partidas:
+        st.info("No hay secciones creadas")
+        st.stop()
 
-    materiales_usados = {}
+    # -------- SECCIONES --------
+    for p in partidas:
+        d = p.to_dict()
 
-    for mat in materiales:
-        stock = float(mat.get("cantidad", 0))
+        col1, col2 = st.columns([5, 1])
+        col1.markdown(f"""
+### 🧱 {d.get('codigo')} - {d.get('nombre')}
+{len(d.get('materiales', []))} materiales • {len(d.get('mano_obra', []))} trabajadores
+""")
 
-        col1, col2 = st.columns([3, 1])
-        col1.write(f"**{mat['nombre']}** ({mat['unidad']}) — Disponible: {stock}")
+        if col2.button("📂 Abrir", key=p.id):
+            st.session_state.partida_abierta = {"id": p.id, **d}
+            st.rerun()
 
-        cantidad = col2.number_input(
-            "Cant.",
-            min_value=0.0,
-            max_value=stock,   # 🔒 LÍMITE MÁXIMO
-            step=1.0,
-            key=f"mat_{mat['doc_id']}"
-        )
+    # =====================================================
+    # 📚 HISTORIAL DE AVANCES (AL FINAL)
+    # =====================================================
+    st.divider()
+    st.title("📚 Historial de Avances")
 
-        if cantidad > 0:
-            materiales_usados[mat["doc_id"]] = {
-                "material_id": mat["doc_id"],
-                "nombre": mat["nombre"],
-                "unidad": mat["unidad"],
-                "cantidad": cantidad
-            }
+    for p in partidas:
+        avances = obra_ref.collection("partidas").document(p.id) \
+            .collection("avances") \
+            .order_by("fecha", direction=firestore.Query.DESCENDING) \
+            .stream()
+
+        avances = [a.to_dict() for a in avances]
+
+        if avances:
+            d = p.to_dict()
+            st.subheader(f"🧱 {d.get('codigo')} - {d.get('nombre')}")
+
+            for av in avances:
+                fecha = av.get("fecha")
+                fecha_txt = fecha.astimezone(tz).strftime("%d/%m/%Y %H:%M") if fecha else "N/D"
+
+                with st.expander(f"📅 {fecha_txt} — {av.get('usuario')}"):
+                    st.write(av.get("descripcion", ""))
+                    if av.get("detalle"):
+                        st.table(pd.DataFrame(av["detalle"]))
+
+# =========================================================
+# ================= VISTA DE AVANCE ========================
+# =========================================================
+else:
+    partida = st.session_state.partida_abierta
+    st.title(f"🧱 {partida['codigo']} - {partida['nombre']}")
+
+    # =====================================================
+    # 🔹 PRECIOS DE MATERIALES DESDE FIREBASE (OBRA)
+    # =====================================================
+    materiales_obra = obra_ref.collection("materiales").stream()
+    precios_materiales = {
+        m.to_dict().get("nombre"): float(m.to_dict().get("precio_unitario", 0))
+        for m in materiales_obra
+    }
+
+    # =====================================================
+    # 🔹 MANO DE OBRA
+    # =====================================================
+    st.subheader("👷 Mano de Obra")
+
+    filas_mo = []
+    for t in partida.get("mano_obra", []):
+        filas_mo.append({
+            "Tipo": "Mano de obra",
+            "Descripción": t["nombre"],
+            "Rendimiento": 0.0,
+            "Precio": 0.0,
+            "Cantidad": 0.0,
+            "Parcial": 0.0
+        })
+
+    df_mo = pd.DataFrame(filas_mo)
+
+    df_mo_edit = st.data_editor(
+        df_mo,
+        use_container_width=True,
+        column_config={
+            "Cantidad": st.column_config.NumberColumn(disabled=True)
+        }
+    )
+
+    # =====================================================
+    # 🔹 MATERIALES (SIN RENDIMIENTO)
+    # =====================================================
+    st.subheader("🧱 Materiales")
+
+    filas_mat = []
+    for m in partida.get("materiales", []):
+        precio = precios_materiales.get(m["nombre"], 0.0)
+        filas_mat.append({
+            "Tipo": "Material",
+            "Descripción": m["nombre"],
+            "Cantidad": 0.0,
+            "Precio": precio,
+            "Parcial": 0.0
+        })
+
+    df_mat = pd.DataFrame(filas_mat)
+
+    df_mat_edit = st.data_editor(
+        df_mat,
+        use_container_width=True,
+        column_config={
+            "Precio": st.column_config.NumberColumn(disabled=True)
+        }
+    )
+
+    # =====================================================
+    # 🔹 DESCRIPCIÓN Y FOTOS
+    # =====================================================
+    descripcion = st.text_area("📝 Descripción del trabajo realizado")
 
     fotos = st.file_uploader(
-        "Subir fotos (mínimo 3)",
+        "📸 Subir fotos del avance (mínimo 3)",
         accept_multiple_files=True,
         type=["jpg", "png", "jpeg"]
     )
 
-    guardar = st.form_submit_button("Guardar avance")
+    col1, col2 = st.columns(2)
 
-# ================= GUARDAR =================
-if guardar:
-    if not responsable.strip() or not descripcion.strip():
-        st.error("Responsable y descripción son obligatorios")
-    elif not materiales_usados:
-        st.error("Debes usar al menos un material")
-    elif not fotos or len(fotos) < 3:
-        st.error("Debes subir mínimo 3 fotos")
-    else:
-        with st.spinner("Guardando avance..."):
-            try:
-                # Subir fotos
-                urls = []
-                for f in fotos:
-                    f.seek(0)
-                    res = cloudinary.uploader.upload(
-                        f,
-                        folder=f"obras/{obra_id}/avances"
-                    )
-                    urls.append(res["secure_url"])
+    # =====================================================
+    # 💾 GUARDAR
+    # =====================================================
+    if col1.button("💾 Guardar Avance", type="primary"):
+        if not descripcion.strip():
+            st.error("Falta descripción")
+        elif not fotos or len(fotos) < 3:
+            st.error("Mínimo 3 fotos")
+        else:
+            urls = []
+            for f in fotos:
+                res = cloudinary.uploader.upload(
+                    f,
+                    folder=f"obras/{obra_id}/avances"
+                )
+                urls.append(res["secure_url"])
 
-                batch = db.batch()
+            detalle = pd.concat([df_mo_edit, df_mat_edit]).to_dict("records")
 
-                ref_avance = obra_ref.collection("avances").document()
-                ahora = datetime.now(tz)
+            avance = {
+                "fecha": datetime.now(tz),
+                "usuario": usuario,
+                "descripcion": descripcion,
+                "detalle": detalle,
+                "fotos": urls
+            }
 
-                batch.set(ref_avance, {
-                    "fecha": ahora.isoformat(),   # 🔥 CLAVE PARA obras.py
-                    "timestamp": ahora,           # se mantiene para orden y zonas horarias
-                    "responsable": responsable,
-                    "usuario": username,
-                    "descripcion": descripcion,
-                    "materiales_usados": list(materiales_usados.values()),
-                    "fotos": urls
-                })
+            obra_ref.collection("partidas") \
+                .document(partida["id"]) \
+                .collection("avances") \
+                .add(avance)
 
-                # Descontar stock
-                for mat_id, uso in materiales_usados.items():
-                    mat_ref = obra_ref.collection("materiales").document(mat_id)
-                    mat_doc = mat_ref.get()
+            st.success("✅ Avance guardado correctamente")
+            st.session_state.partida_abierta = None
+            st.rerun()
 
-                    stock_actual = float(mat_doc.to_dict().get("cantidad", 0))
-
-                    batch.update(mat_ref, {
-                        "cantidad": stock_actual - uso["cantidad"]
-                    })
-
-                batch.commit()
-
-                st.success("✅ Avance guardado correctamente")
-                st.rerun()
-
-            except Exception as e:
-                st.error(f"❌ Error: {str(e)}")
-
-# ================= HISTORIAL =================
-st.divider()
-st.subheader("📂 Historial de avances")
-
-avances = (
-    obra_ref.collection("avances")
-    .order_by("timestamp", direction=firestore.Query.DESCENDING)
-    .stream()
-)
-
-hay = False
-
-for av in avances:
-    hay = True
-    d = av.to_dict()
-    ts = d.get("timestamp").astimezone(tz)
-
-    with st.expander(f"📅 {ts:%d/%m/%Y %H:%M} | {d.get('responsable')}"):
-        st.write(f"**Descripción:** {d.get('descripcion')}")
-
-        mats = d.get("materiales_usados", [])
-        if mats:
-            df = pd.DataFrame(mats)
-            st.table(df[["nombre", "cantidad", "unidad"]])
-
-        fotos = d.get("fotos", [])
-        if fotos:
-            cols = st.columns(3)
-            for i, url in enumerate(fotos):
-                cols[i % 3].image(url, use_container_width=True)
-
-if not hay:
-    st.info("Aún no hay avances registrados.")
+    if col2.button("⬅️ Volver"):
+        st.session_state.partida_abierta = None
+        st.rerun()
