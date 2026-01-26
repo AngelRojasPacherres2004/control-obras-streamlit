@@ -1,3 +1,4 @@
+# avances_pasante.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -51,32 +52,24 @@ if st.session_state.partida_abierta is None:
 
     st.subheader("📦 Resumen de materiales")
 
-    # ---- 1. Obtener datos reales desde Firebase ----
-    materiales_obra = list(obra_ref.collection("materiales").stream())
+    materiales_obra = obra_ref.collection("materiales").stream()
+    filas_resumen = []
 
-    datos_db = {} 
     for m in materiales_obra:
         d = m.to_dict()
-        nombre = d.get("nombre")
-        datos_db[nombre] = {
-            "stock_inicial": float(d.get("stock_inicial", 0)),
-            "stock_actual": float(d.get("stock_actual", 0)),
-            "unidad": d.get("unidad", "und")
-        }
 
-    # ---- 2. Calcular lo gastado (stock_inicial - stock_actual) ----
-    filas_resumen = []
-    for nombre, info in datos_db.items():
-        # ✅ El gasto es la diferencia entre inicial y actual
-        gastado = info["stock_inicial"] - info["stock_actual"]
-    
+        stock_inicial = float(d.get("stock_inicial", 0))
+        stock_actual = float(d.get("stock_actual", 0))
+        gastado = stock_inicial - stock_actual  # ✅ AHORA sí es real
+
         filas_resumen.append({
-            "Material": nombre,
-            "Unidad": info["unidad"],
-            "Stock Inicial": round(info["stock_inicial"], 2),
+            "Material": d.get("nombre"),
+            "Unidad": d.get("unidad", "und"),
+            "Stock Inicial": round(stock_inicial, 2),
             "Gastado": round(gastado, 2),
-            "Stock Actual": round(info["stock_actual"], 2)
+            "Stock Actual": round(stock_actual, 2)
         })
+
 
     df_resumen = pd.DataFrame(filas_resumen)
 
@@ -85,7 +78,7 @@ if st.session_state.partida_abierta is None:
         use_container_width=True,
         hide_index=True
     )
-    
+
 
     # =========================================================
     # 📋 SECCIONES DE LA OBRA
@@ -147,6 +140,41 @@ if st.session_state.partida_abierta is None:
 else:
     partida = st.session_state.partida_abierta
     st.title(f"🧱 {partida['codigo']} - {partida['nombre']}")
+        # =====================================================
+    st.subheader("📦 Materiales asignados a esta sección")
+
+    partida_ref = obra_ref.collection("partidas").document(partida["id"])
+    partida_actual = partida_ref.get().to_dict()
+
+    filas_seccion = []
+
+    for mat in partida_actual.get("materiales", []):
+        nombre = mat.get("nombre")
+        unidad = mat.get("unidad", "und")
+
+        stock_inicial_asignado = float(mat.get("cantidad_asignada", 0))
+        gastado = float(mat.get("gastado", 0))
+        stock_actual_asignado = stock_inicial_asignado - gastado
+
+        filas_seccion.append({
+            "Material": nombre,
+            "Unidad": unidad,
+            "Stock inicial asignado": round(stock_inicial_asignado, 2),
+            "Gastado": round(gastado, 2),
+            "Stock actual asignado": round(stock_actual_asignado, 2)
+        })
+
+    if filas_seccion:
+        st.dataframe(
+            pd.DataFrame(filas_seccion),
+            use_container_width=True,
+            hide_index=True
+        )
+    else:
+        st.info("Esta sección no tiene materiales asignados")
+
+
+      
 
     # =====================================================
     # 🔹 PRECIOS DE MATERIALES DESDE FIREBASE (OBRA)
@@ -243,21 +271,51 @@ else:
                     df_final = pd.concat([df_mo_edit, df_mat_edit])
                     detalle = df_final.to_dict("records")
 
-                    # 3. ACTUALIZAR STOCK EN FIREBASE (Lo que faltaba)
-                    for item in detalle:
-                        if item.get("Tipo") == "Material" and item.get("Cantidad") > 0:
-                            nombre_mat = item.get("Descripción")
-                            cant_gastada = float(item.get("Cantidad"))
+                   # 3. ACTUALIZAR STOCK EN FIREBASE
+                    partida_snapshot = partida_ref.get()
+                    partida_data = partida_snapshot.to_dict()
+                    materiales_partida = partida_data.get("materiales", [])
 
-                            # Buscar el documento del material en la obra por su nombre
-                            mats_query = obra_ref.collection("materiales").where("nombre", "==", nombre_mat).limit(1).stream()
-                            
-                            for doc in mats_query:
-                                mat_ref = obra_ref.collection("materiales").document(doc.id)
-                                # Usar incremento negativo para restar
-                                mat_ref.update({
-                                    "stock_actual": firestore.Increment(-cant_gastada)
-                                })
+                    for item in detalle:
+                        if item.get("Tipo") != "Material" or item.get("Cantidad", 0) <= 0:
+                            continue
+
+                        nombre_mat = item["Descripción"]
+                        cant_gastada = float(item["Cantidad"])
+
+                        # 🔒 VALIDAR contra stock asignado a la sección
+                        for m in materiales_partida:
+                            if m.get("nombre") == nombre_mat:
+                                stock_disponible = float(m.get("cantidad_asignada", 0)) - float(m.get("gastado", 0))
+
+                                if cant_gastada > stock_disponible:
+                                    st.error(
+                                        f"No puedes gastar {cant_gastada} de {nombre_mat}. "
+                                        f"Solo quedan {stock_disponible} en esta sección."
+                                    )
+                                    st.stop()
+
+                        # 🔹 1. Descontar stock GENERAL de la obra
+                        mats_query = obra_ref.collection("materiales") \
+                            .where("nombre", "==", nombre_mat) \
+                            .limit(1) \
+                            .stream()
+
+                        for doc in mats_query:
+                            obra_ref.collection("materiales").document(doc.id).update({
+                                "stock_actual": firestore.Increment(-cant_gastada)
+                            })
+
+                        # 🔹 2. Sumar gastado SOLO en la sección
+                        for m in materiales_partida:
+                            if m.get("nombre") == nombre_mat:
+                                m["gastado"] = float(m.get("gastado", 0)) + cant_gastada
+
+                    # Guardar materiales actualizados en la sección
+                    partida_ref.update({
+                        "materiales": materiales_partida
+                    })
+
 
                     # 4. Guardar el documento de avance
                     avance = {

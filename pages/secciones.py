@@ -67,6 +67,56 @@ if not obra_id_sel:
 
 nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
 st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
+obra_ref = db.collection("obras").document(obra_id_sel)
+
+st.subheader("📦 Stock de Materiales por Secciones")
+
+materiales_docs = obra_ref.collection("materiales").stream()
+filas_stock = []
+
+for m in materiales_docs:
+    d = m.to_dict()
+
+    stock_inicial = float(d.get("stock_inicial", d.get("stock", 0)))
+    stock_actual = float(d.get("stock_actual", d.get("stock", 0)))
+    # 🔹 Calcular stock asignado REAL (sumando partidas)
+    partidas_docs = obra_ref.collection("partidas").stream()
+
+    stock_asignado = 0.0
+    for p in partidas_docs:
+        pdata = p.to_dict()
+        for mat in pdata.get("materiales", []):
+            if mat.get("nombre") == d.get("nombre"):
+                stock_asignado += float(mat.get("cantidad_asignada", 0))
+
+    stock_disponible = stock_inicial - stock_asignado
+    if stock_disponible < 0:
+        stock_disponible = 0
+
+    filas_stock.append({
+        "Material": d.get("nombre", ""),
+        "Unidad": d.get("unidad", ""),
+        "Stock inicial": round(stock_inicial, 2),
+        "Stock asignado": round(stock_asignado, 2),
+        "Stock disponible": round(stock_actual, 2),
+        "Precio unitario": round(float(d.get("precio_unitario", 0)), 2)
+    })
+
+df_stock = pd.DataFrame(filas_stock)
+
+st.dataframe(
+    df_stock,
+    use_container_width=True,
+    hide_index=True,
+    column_config={
+        "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.2f"),
+        "Stock inicial": st.column_config.NumberColumn(format="%.2f"),
+        "Stock asignado": st.column_config.NumberColumn(format="%.2f"),
+        "Stock disponible": st.column_config.NumberColumn(format="%.2f"),
+    }
+)
+
+
 
 # ================= PESTAÑAS PRINCIPALES =================
 tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
@@ -176,21 +226,27 @@ with tab1:
                 )
                 
                 # 2. Input de cantidad con límite de stock
-                stock_disponible = float(mat_sel.get('stock_actual', 0))
-                
+                # 2. Input de cantidad con límite de stock
+                stock_disponible = float(mat_sel.get("stock_actual", 0))
+
                 col_c1, col_c2 = st.columns([2, 1])
+
                 cant_sel = col_c1.number_input(
-                    f"Cantidad a usar ({mat_sel['unidad']})", 
-                    min_value=0.1, 
-                    max_value=stock_disponible if stock_disponible > 0 else 0.1,
-                    step=0.1,
-                    help=f"El stock actual en obra es de {stock_disponible}"
+                    f"Cantidad a usar ({mat_sel['unidad']})",
+                    min_value=0.0,
+                    max_value=stock_disponible,
+                    step=1.0,                  # ⬅️ + y - de 1.00
+                    format="%.2f",              # ⬅️ muestra 1.00
+                    disabled=stock_disponible <= 0,
+                    help=f"Stock disponible: {stock_disponible} {mat_sel['unidad']}"
                 )
-                
+
                 # 3. Botón agregar con validación
                 if col_c2.button("➕ Agregar Material", key="btn_add_mat", use_container_width=True):
                     if stock_disponible <= 0:
                         st.error("No hay stock disponible de este material.")
+                    elif cant_sel <= 0:
+                        st.error("La cantidad debe ser mayor a 0.")
                     elif cant_sel > stock_disponible:
                         st.error(f"No puedes asignar más de {stock_disponible}")
                     else:
@@ -198,11 +254,14 @@ with tab1:
                             "material_id": mat_sel["id"],
                             "nombre": mat_sel["nombre"],
                             "unidad": mat_sel["unidad"],
-                            "cantidad_asignada": cant_sel, # <--- Nuevo campo
-                            "stock_al_asignar": stock_disponible # Referencia
+                            "cantidad_asignada": cant_sel,
+                            "gastado": 0.0,
+                            "stock_al_asignar": stock_disponible
                         })
                         st.success(f"✅ {mat_sel['nombre']} ({cant_sel}) agregado")
                         st.rerun()
+
+
             else:
                 st.info("Todos los materiales disponibles ya están asignados a esta sección.")
         else:
@@ -260,26 +319,50 @@ with tab1:
         
         st.divider()
         
+        # ================= GUARDAR SECCIÓN COMPLETA ================
+
         # ================= GUARDAR SECCIÓN COMPLETA =================
         st.markdown("### 💾 Guardar Sección")
-        
+
         col_final1, col_final2 = st.columns(2)
-        
-        if col_final1.button("💾 GUARDAR SECCIÓN COMPLETA", type="primary", use_container_width=True):
-            if not seccion["mano_obra"] and not seccion["materiales"] and not seccion["equipos"]:
-                st.error("Debes asignar al menos un recurso (mano de obra, material o equipo)")
+
+        if col_final1.button(
+            "💾 GUARDAR SECCIÓN COMPLETA",
+            type="primary",
+            use_container_width=True
+        ):
+            if (
+                not seccion["mano_obra"]
+                and not seccion["materiales"]
+                and not seccion["equipos"]
+            ):
+                st.error(
+                    "Debes asignar al menos un recurso "
+                    "(mano de obra, material o equipo)"
+                )
             else:
                 seccion["fecha_creacion"] = datetime.now(local_tz)
-                
-                db.collection("obras").document(obra_id_sel).collection("partidas").add(seccion)
-                
+
+               
+
+                # 🔹 GUARDAR SECCIÓN
+                db.collection("obras") \
+                    .document(obra_id_sel) \
+                    .collection("partidas") \
+                    .add(seccion)
+
                 st.session_state.seccion_editando = None
-                st.success("✅ Sección guardada exitosamente")
+                st.success("✅ Sección guardada y stock actualizado")
                 st.rerun()
-        
-        if col_final2.button("❌ Cancelar y Limpiar", use_container_width=True):
+
+        if col_final2.button(
+            "❌ Cancelar y Limpiar",
+            use_container_width=True
+        ):
             st.session_state.seccion_editando = None
             st.rerun()
+
+
 
 # ================= TAB 2: VER SECCIONES =================
 with tab2:
@@ -305,11 +388,29 @@ with tab2:
                     st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
                 
                 # Materiales
+                # Materiales
+                # Materiales
                 if partida.get("materiales"):
                     st.markdown("**🧱 Materiales Asignados:**")
                     df_mat = pd.DataFrame(partida["materiales"])
-                    st.dataframe(df_mat[["nombre", "unidad"]], use_container_width=True, hide_index=True)
-                
+
+                    # 🔹 SOLUCIÓN: asegurar columna cantidad_asignada
+                    if "cantidad_asignada" not in df_mat.columns:
+                        df_mat["cantidad_asignada"] = 0.0
+
+                    st.dataframe(
+                        df_mat[["nombre", "cantidad_asignada", "unidad"]],
+                        use_container_width=True,
+                        hide_index=True,
+                        column_config={
+                            "cantidad_asignada": st.column_config.NumberColumn(
+                                "Cantidad",
+                                format="%.2f"
+                            )
+                        }
+                    )
+
+
                 # Equipos
                 if partida.get("equipos"):
                     st.markdown("**🔧 Equipos Asignados:**")
