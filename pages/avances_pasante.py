@@ -157,12 +157,14 @@ else:
         stock_actual_asignado = stock_inicial_asignado - gastado
 
         filas_seccion.append({
-            "Material": nombre,
-            "Unidad": unidad,
-            "Stock inicial asignado": round(stock_inicial_asignado, 2),
-            "Gastado": round(gastado, 2),
-            "Stock actual asignado": round(stock_actual_asignado, 2)
+        "Material": nombre,
+        "Unidad": unidad,
+        "Stock inicial asignado": round(stock_inicial_asignado, 2),
+        "Gastado": round(gastado, 2),
+        "Stock actual asignado": round(stock_actual_asignado, 2),
+        "_max": round(stock_actual_asignado, 2)  # 👈 límite por fila
         })
+
 
     if filas_seccion:
         st.dataframe(
@@ -233,9 +235,32 @@ else:
         df_mat,
         use_container_width=True,
         column_config={
+            "Cantidad": st.column_config.NumberColumn(
+                "Cantidad",
+                min_value=0,
+                
+                format="%d"        # muestra número entero
+            ),
             "Precio": st.column_config.NumberColumn(disabled=True)
         }
     )
+
+    # 🔒 VALIDAR contra stock actual asignado
+for i, row in df_mat_edit.iterrows():
+    nombre = row["Descripción"]
+    cantidad = float(row["Cantidad"])
+
+    for m in partida_actual.get("materiales", []):
+        if m["nombre"] == nombre:
+            max_permitido = float(m.get("cantidad_asignada", 0)) - float(m.get("gastado", 0))
+
+            if cantidad > max_permitido:
+                st.error(
+                    f"❌ {nombre}: no puedes usar {cantidad}. "
+                    f"Máximo disponible: {max_permitido}"
+                )
+                st.stop()
+
 
     # =====================================================
     # 🔹 DESCRIPCIÓN Y FOTOS

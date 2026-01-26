@@ -89,18 +89,20 @@ for m in materiales_docs:
             if mat.get("nombre") == d.get("nombre"):
                 stock_asignado += float(mat.get("cantidad_asignada", 0))
 
-    stock_disponible = stock_inicial - stock_asignado
-    if stock_disponible < 0:
-        stock_disponible = 0
+    stock_sin_asignar = stock_inicial - stock_asignado
+    if stock_sin_asignar < 0:
+        stock_sin_asignar = 0
+
 
     filas_stock.append({
-        "Material": d.get("nombre", ""),
-        "Unidad": d.get("unidad", ""),
-        "Stock inicial": round(stock_inicial, 2),
-        "Stock asignado": round(stock_asignado, 2),
-        "Stock disponible": round(stock_actual, 2),
-        "Precio unitario": round(float(d.get("precio_unitario", 0)), 2)
+    "Material": d.get("nombre", ""),
+    "Unidad": d.get("unidad", ""),
+    "Stock inicial": round(stock_inicial, 2),
+    "Stock asignado": round(stock_asignado, 2),
+    "Stock sin asignar": round(stock_sin_asignar, 2),  # 👈 NUEVA COLUMNA
+    "Precio unitario": round(float(d.get("precio_unitario", 0)), 2)
     })
+
 
 df_stock = pd.DataFrame(filas_stock)
 
@@ -112,7 +114,7 @@ st.dataframe(
         "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.2f"),
         "Stock inicial": st.column_config.NumberColumn(format="%.2f"),
         "Stock asignado": st.column_config.NumberColumn(format="%.2f"),
-        "Stock disponible": st.column_config.NumberColumn(format="%.2f"),
+        "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
     }
 )
 
