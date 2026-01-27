@@ -131,8 +131,20 @@ if st.session_state.partida_abierta is None:
 
                 with st.expander(f"📅 {fecha_txt} — {av.get('usuario')}"):
                     st.write(av.get("descripcion", ""))
+
+                    # 📋 Detalle del avance
                     if av.get("detalle"):
                         st.table(pd.DataFrame(av["detalle"]))
+
+                    # 📸 Mostrar fotos del avance
+                    fotos = av.get("fotos", [])
+                    if fotos:
+                        st.markdown("📸 **Fotos del avance**")
+                        cols = st.columns(min(3, len(fotos)))  # máximo 3 por fila
+
+                        for i, url in enumerate(fotos):
+                            with cols[i % 3]:
+                                st.image(url, use_container_width=True)
 
 # =========================================================
 # ================= VISTA DE AVANCE ========================
