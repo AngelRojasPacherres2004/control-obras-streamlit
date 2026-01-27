@@ -390,8 +390,7 @@ with tab2:
                     st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
                 
                 # Materiales
-                # Materiales
-                # Materiales
+            
                 if partida.get("materiales"):
                     st.markdown("**🧱 Materiales Asignados:**")
                     df_mat = pd.DataFrame(partida["materiales"])
