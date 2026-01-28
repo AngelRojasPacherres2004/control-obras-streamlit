@@ -156,12 +156,12 @@ def verificar_autenticacion(db):
         /* ====== RESPONSIVE MÓVIL ====== */
         @media (max-width: 768px) {
             .block-container {
-                padding-top: 7vh !important;
+                padding-top: 10vh !important;
             }
 
             .login-box {
                 max-width: 90% !important;
-                padding: 15px !important;
+                padding: 20px !important;
             }
 
             .stTextInput input {
