@@ -1,20 +1,19 @@
-"auth.py"
 """
 Módulo de autenticación y pantalla inicial
 """
 
 import json
 import streamlit as st
-from util import set_background
+from util import set_background_responsive
 from cookies_manager import cookies
 
 
 # ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
-    # Fondo
-    set_background("Empresalogo.jpg")
+    # Fondo responsive
+    set_background_responsive("Empresalogo_pc.jpg", "Empresalogo_movil.jpg")
 
-    # Estilos (diseño del código A)
+    # Estilos
     st.markdown("""
         <style>
         /* Ocultar elementos Streamlit */
@@ -37,12 +36,14 @@ def mostrar_pantalla_inicial():
         div[data-testid="stButton"] {
             width: 350px !important;
             max-width: 70% !important;
+            margin: 0 auto !important;  /* 🔥 CENTRADO ADICIONAL */
         }
 
-        /* BOTÓN */
+        /* BOTÓN - CENTRADO */
         .stButton {
             display: flex !important;
-            justify-content: flex-start !important; /* desktop */
+            justify-content: center !important;
+            width: 100% !important;  /* 🔥 ASEGURA ANCHO COMPLETO */
         }
 
         .stButton button {
@@ -57,7 +58,6 @@ def mostrar_pantalla_inicial():
 
         /* ====== CELULAR ====== */
         @media (max-width: 768px) {
-
             .block-container {
                 padding-top: 32vh !important;
             }
@@ -66,14 +66,12 @@ def mostrar_pantalla_inicial():
                 max-width: 90% !important;
             }
 
-            /* 🔥 AQUÍ SE CENTRA TODO EN CELULAR */
             .stButton {
                 justify-content: center !important;
             }
         }
         </style>
         """, unsafe_allow_html=True)
-
 
     if st.button("Iniciar Sesión", use_container_width=True, key="btn_pantalla_inicial"):
         st.session_state.show_login = True
@@ -83,11 +81,27 @@ def mostrar_pantalla_inicial():
 # ====== LOGIN ======
 def verificar_autenticacion(db):
     if "auth" not in st.session_state:
-        set_background("Empresalogo.jpg")
+        # Fondo responsive
+        set_background_responsive("Empresalogo_pc.jpg", "Empresalogo_movil.jpg")
 
-        # Overlay oscuro + estilos del código A
         st.markdown("""
         <style>
+        /* Ocultar elementos Streamlit */
+        #MainMenu, footer, header {visibility: hidden;}
+
+        /* Reset */
+        .main {
+            padding: 0 !important;
+        }
+
+        /* CONTENEDOR PRINCIPAL */
+        .block-container {
+            padding-top: 25vh !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+        }
+
         /* CONTENEDOR DE INPUTS */
         .login-box {
             background: rgba(255, 255, 255, 0.15);
@@ -100,11 +114,11 @@ def verificar_autenticacion(db):
         }
 
         /* INPUTS */
-        .login-box input {
-            background-color: #ffffff !important;
-            color: #000000 !important;
+        .stTextInput input {
+            background-color: #000000 !important;
+            color: #ffffff !important;
             border-radius: 10px !important;
-            border: 2px solid #000 !important;
+            border: 2px solid #ffffff !important;
             padding: 14px 16px !important;
             font-size: 16px !important;
         }
@@ -112,18 +126,54 @@ def verificar_autenticacion(db):
         /* LABELS */
         label, 
         div[data-testid="stTextInput"] label {
-            color: #000000 !important;
+            color: #ffffff !important;
             font-weight: 600;
+            font-size: 15px !important;
         }
 
-        /* ICONOS */
-        .login-icon {
-            font-size: 18px;
-            margin-right: 6px;
+        /* BOTÓN INGRESAR - CENTRADO */
+        .stButton {
+            display: flex !important;
+            justify-content: center !important;  /* 🔥 CENTRADO */
+            width: 100% !important;
+        }
+
+        .stButton button {
+            background-color: rgba(0, 0, 0, 0.9) !important;
+            color: white !important;
+            border: 2px solid white !important;
+            font-size: 18px !important;
+            padding: 12px 24px !important;
+            border-radius: 8px !important;
+            width: 100% !important;
+            margin-top: 10px !important;
+        }
+
+        .stButton button:hover {
+            background-color: rgba(255, 255, 255, 0.2) !important;
+        }
+
+        /* ====== RESPONSIVE MÓVIL ====== */
+        @media (max-width: 768px) {
+            .block-container {
+                padding-top: 10vh !important;
+            }
+
+            .login-box {
+                max-width: 90% !important;
+                padding: 20px !important;
+            }
+
+            .stTextInput input {
+                font-size: 18px !important;
+            }
+
+            label {
+                font-size: 16px !important;
+            }
         }
         </style>
         """, unsafe_allow_html=True)
-
 
         st.markdown("<br><br>", unsafe_allow_html=True)
         st.title("")
