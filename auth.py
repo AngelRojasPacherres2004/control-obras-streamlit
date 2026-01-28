@@ -96,7 +96,7 @@ def verificar_autenticacion(db):
 
         /* CONTENEDOR PRINCIPAL */
         .block-container {
-            padding-top: 25vh !important;
+            padding-top: 10vh !important;
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
