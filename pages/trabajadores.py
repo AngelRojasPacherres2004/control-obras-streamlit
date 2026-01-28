@@ -189,14 +189,14 @@ with tab1:
         if submit:
             if not nombre_t or not dni_t or not foto_contrato:
                 st.error("Faltan datos obligatorios o la foto.")
-            # VALIDACIÓN CLAVE: Comparar contra el saldo ACTUAL
             else:
                 with st.spinner("Procesando contratación..."):
                     res = cloudinary.uploader.upload(
-                        foto_contrato,
-                        folder=f"obras/{obra_id_sel}/personal"
-                    )
+                    foto_contrato,
+                    folder=f"obras/{obra_id_sel}/personal"
+            )
 
+                # AGREGA "dias_asistidos": 0 AQUÍ ABAJO
                     db.collection("obras").document(obra_id_sel)\
                     .collection("trabajadores").add({
                         "nombre": nombre_t,
@@ -207,10 +207,11 @@ with tab1:
                         "grupo": grupo_t,
                         "sueldo_diario": sueldo_diario,
                         "url_foto": res["secure_url"],
-                        "fecha_registro": datetime.now()
+                        "fecha_registro": datetime.now(),
+                        "dias_asistidos": 0  # <--- ESTA ES LA LÍNEA NUEVA
                     })
 
-                    st.success(f"✅ {nombre_t} registrado correctamente.")
+                    st.success(f"✅ {nombre_t} registrado correctamente con 0 asistencias.")
                     st.rerun()
 
                     
