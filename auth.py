@@ -100,7 +100,7 @@ def verificar_autenticacion(db):
             display: flex !important;
             flex-direction: column !important;
             align-items: center !important;
-            gap: -1rem !important;
+        
         }
 
         /* CONTENEDOR DE INPUTS */
