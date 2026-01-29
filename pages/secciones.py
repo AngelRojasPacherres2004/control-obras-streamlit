@@ -20,6 +20,39 @@ auth = st.session_state["auth"]
 if auth["role"] != "jefe":
     st.warning("No tienes permisos para gestionar partidas.")
     st.stop()
+def recalcular_stock_sin_asignar(obra_id):
+    obra_ref = db.collection("obras").document(obra_id)
+
+    # 1️⃣ Obtener materiales
+    materiales = {
+        m.id: m.to_dict()
+        for m in obra_ref.collection("materiales").stream()
+    }
+
+    # 2️⃣ Inicializar asignados en 0
+    asignados = {mid: 0.0 for mid in materiales.keys()}
+
+    # 3️⃣ Sumar lo asignado en TODAS las secciones
+    partidas = obra_ref.collection("partidas").stream()
+    for p in partidas:
+        for mat in p.to_dict().get("materiales", []):
+            mid = mat.get("material_id")
+            if mid in asignados:
+                asignados[mid] += float(mat.get("cantidad_asignada", 0))
+
+    # 4️⃣ Guardar stock_sin_asignar en Firebase
+    batch = db.batch()
+    for mid, mat in materiales.items():
+        stock_inicial = float(mat.get("stock_inicial", mat.get("stock", 0)))
+
+        sin_asignar = max(stock_inicial - asignados[mid], 0)
+
+        mat_ref = obra_ref.collection("materiales").document(mid)
+        batch.update(mat_ref, {
+            "stock_sin_asignar": round(sin_asignar, 2)
+        })
+
+    batch.commit()
 
 # ================= FUNCIONES =================
 def obtener_obras():
@@ -78,30 +111,23 @@ for m in materiales_docs:
     d = m.to_dict()
 
     stock_inicial = float(d.get("stock_inicial", d.get("stock", 0)))
-    stock_actual = float(d.get("stock_actual", d.get("stock", 0)))
-    # 🔹 Calcular stock asignado REAL (sumando partidas)
-    partidas_docs = obra_ref.collection("partidas").stream()
+    stock_sin_asignar = float(d.get("stock_sin_asignar", 0))
 
-    stock_asignado = 0.0
-    for p in partidas_docs:
-        pdata = p.to_dict()
-        for mat in pdata.get("materiales", []):
-            if mat.get("nombre") == d.get("nombre"):
-                stock_asignado += float(mat.get("cantidad_asignada", 0))
-
-    stock_sin_asignar = stock_inicial - stock_asignado
     if stock_sin_asignar < 0:
         stock_sin_asignar = 0
 
+    # ✅ CÁLCULO CORRECTO (NO DESDE PARTIDAS)
+    stock_asignado = stock_inicial - stock_sin_asignar
 
     filas_stock.append({
-    "Material": d.get("nombre", ""),
-    "Unidad": d.get("unidad", ""),
-    "Stock inicial": round(stock_inicial, 2),
-    "Stock asignado": round(stock_asignado, 2),
-    "Stock sin asignar": round(stock_sin_asignar, 2),  # 👈 NUEVA COLUMNA
-    "Precio unitario": round(float(d.get("precio_unitario", 0)), 2)
+        "Material": d.get("nombre", ""),
+        "Unidad": d.get("unidad", ""),
+        "Stock inicial": round(stock_inicial, 2),
+        "Stock asignado": round(stock_asignado, 2),
+        "Stock sin asignar": round(stock_sin_asignar, 2),
+        "Precio unitario": round(float(d.get("precio_unitario", 0)), 2)
     })
+
 
 
 df_stock = pd.DataFrame(filas_stock)
@@ -222,11 +248,13 @@ with tab1:
                 mat_sel = st.selectbox(
                     "Seleccionar Material",
                     options=materiales_sin_asignar,
-                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0)} {x['unidad']})",
+                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_sin_asignar', 0)} {x['unidad']})",
+
                     key="select_material"
                 )
                 # 2. Input de cantidad con límite de stock
-                stock_disponible = float(mat_sel.get("stock_actual", 0))
+                stock_disponible = float(mat_sel.get("stock_sin_asignar", 0))
+
 
                 col_c1, col_c2 = st.columns([2, 1])
 
@@ -346,7 +374,8 @@ with tab1:
                     .document(obra_id_sel) \
                     .collection("partidas") \
                     .add(seccion)
-
+                # 🔹 RECALCULAR STOCK SIN ASIGNAR
+                recalcular_stock_sin_asignar(obra_id_sel)
                 st.session_state.seccion_editando = None
                 st.success("✅ Sección guardada y stock actualizado")
                 st.rerun()
@@ -416,18 +445,30 @@ with tab2:
             st.markdown("### 🧱 Materiales")
             
             materiales_disponibles = obtener_materiales_obra(obra_id_sel)
+
+            # 🔧 DEVOLVER STOCK DE ESTA SECCIÓN
+            for m in materiales_disponibles:
+                for mat_sec in sec_edit["materiales"]:
+                    if m["id"] == mat_sec["material_id"]:
+                        m["stock_sin_asignar"] = float(m.get("stock_sin_asignar", 0)) + float(mat_sec.get("cantidad_asignada", 0))
+
             materiales_asignados_ids = [m["material_id"] for m in sec_edit["materiales"]]
-            materiales_sin_asignar = [m for m in materiales_disponibles if m["id"] not in materiales_asignados_ids]
-            
+            materiales_sin_asignar = [
+                m for m in materiales_disponibles
+                if m["id"] not in materiales_asignados_ids
+            ]
+       
             if materiales_sin_asignar:
                 mat_sel = st.selectbox(
                     "Agregar Material",
                     options=materiales_sin_asignar,
-                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0)} {x['unidad']})",
+                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_sin_asignar', 0)} {x['unidad']})",
+
                     key="edit_select_material"
                 )
                 
-                stock_disponible = float(mat_sel.get("stock_actual", 0))
+                stock_disponible = float(mat_sel.get("stock_sin_asignar", 0))
+
                 
                 col_c1, col_c2 = st.columns([2, 1])
                 
@@ -516,6 +557,7 @@ with tab2:
                     "equipos": sec_edit["equipos"],
                     "fecha_modificacion": datetime.now(local_tz)
                 })
+                recalcular_stock_sin_asignar(obra_id_sel)
                 st.session_state.seccion_en_edicion = None
                 st.success("✅ Cambios guardados")
                 st.rerun()
@@ -570,5 +612,6 @@ with tab2:
                     
                     if col_btn2.button("🗑️ Eliminar", key=f"del_{partida['id']}", use_container_width=True):
                         db.collection("obras").document(obra_id_sel).collection("partidas").document(partida["id"]).delete()
+                        recalcular_stock_sin_asignar(obra_id_sel)
                         st.success("Sección eliminada")
                         st.rerun()
