@@ -295,22 +295,30 @@ with tab1:
             nombre_eq = col_eq1.text_input("Nombre del Equipo", placeholder="HERRAMIENTAS MANUALES")
             codigo_eq = col_eq2.text_input("Código del Equipo", placeholder="570101")
             
+            col_eq3, col_eq4, col_eq5 = st.columns(3)
+            cuadrilla_eq = col_eq3.number_input("Cuadrilla", min_value=0.0, value=0.0, step=0.001, format="%.3f")
+            cantidad_eq = col_eq4.number_input("Cantidad", min_value=0.0, value=0.0, step=0.0001, format="%.4f")
+            precio_eq = col_eq5.number_input("Precio", min_value=0.0, value=0.0, step=0.01, format="%.2f")
+            
             if st.form_submit_button("➕ Agregar Equipo"):
                 if nombre_eq and codigo_eq:
                     seccion["equipos"].append({
                         "nombre": nombre_eq,
-                        "codigo": codigo_eq
+                        "codigo": codigo_eq,
+                        "cuadrilla": cuadrilla_eq,
+                        "cantidad": cantidad_eq,
+                        "precio": precio_eq
                     })
                     st.success(f"✅ {nombre_eq} agregado")
                     st.rerun()
                 else:
                     st.error("Por favor completa nombre y código del equipo.")
-        
+
         # Mostrar equipos asignados
         if seccion["equipos"]:
             st.markdown("**🔧 Equipos Asignados:**")
             df_eq = pd.DataFrame(seccion["equipos"])
-            st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+            st.dataframe(df_eq[["codigo", "nombre", "cuadrilla", "cantidad", "precio"]], use_container_width=True, hide_index=True)
             
             # Opción para eliminar
             if st.checkbox("Mostrar opciones de eliminación (Equipos)"):
@@ -318,7 +326,7 @@ with tab1:
                     if st.button(f"🗑️ Quitar {eq['nombre']}", key=f"del_eq_{idx}"):
                         seccion["equipos"].pop(idx)
                         st.rerun()
-        
+
         st.divider()
         
         # ================= GUARDAR SECCIÓN COMPLETA ================
