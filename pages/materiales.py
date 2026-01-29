@@ -445,6 +445,14 @@ if archivo:
     if not columnas.issubset(df_excel.columns):
         st.error("El Excel debe tener: nombre, unidad, cantidad, precio_unitario")
     else:
+        # Unificar materiales con mismo nombre y precio
+        df_excel["cantidad"] = pd.to_numeric(df_excel["cantidad"], errors='coerce')
+        df_excel["precio_unitario"] = pd.to_numeric(df_excel["precio_unitario"], errors='coerce')
+        
+        df_excel = df_excel.groupby(["nombre", "unidad", "precio_unitario"], as_index=False).agg({
+            "cantidad": "sum"
+        })
+        
         df_excel["subtotal"] = df_excel["cantidad"] * df_excel["precio_unitario"]
         st.dataframe(df_excel, use_container_width=True)
 
