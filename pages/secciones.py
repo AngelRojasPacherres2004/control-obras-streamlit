@@ -117,12 +117,11 @@ st.dataframe(
         "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
     }
 )
-
-
-
 # ================= PESTAÑAS PRINCIPALES =================
 tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
-
+# ================= INICIALIZAR ESTADO DE EDICIÓN =================
+if "seccion_en_edicion" not in st.session_state:
+    st.session_state.seccion_en_edicion = None
 # ================= TAB 1: CREAR SECCIÓN =================
 with tab1:
     st.subheader("➕ Crear Nueva Sección")
@@ -226,8 +225,6 @@ with tab1:
                     format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0)} {x['unidad']})",
                     key="select_material"
                 )
-                
-                # 2. Input de cantidad con límite de stock
                 # 2. Input de cantidad con límite de stock
                 stock_disponible = float(mat_sel.get("stock_actual", 0))
 
@@ -320,8 +317,6 @@ with tab1:
                         st.rerun()
         
         st.divider()
-        
-        # ================= GUARDAR SECCIÓN COMPLETA ================
 
         # ================= GUARDAR SECCIÓN COMPLETA =================
         st.markdown("### 💾 Guardar Sección")
@@ -345,7 +340,6 @@ with tab1:
             else:
                 seccion["fecha_creacion"] = datetime.now(local_tz)
 
-               
 
                 # 🔹 GUARDAR SECCIÓN
                 db.collection("obras") \
@@ -364,9 +358,7 @@ with tab1:
             st.session_state.seccion_editando = None
             st.rerun()
 
-
-
-# ================= TAB 2: VER SECCIONES =================
+# ================= TAB 2: VER / EDITAR SECCIONES =================
 with tab2:
     st.subheader("📋 Secciones de la Obra")
     
@@ -376,50 +368,207 @@ with tab2:
         st.info("No hay secciones registradas. Crea una en la pestaña anterior.")
     else:
         st.success(f"**Total de Secciones:** {len(partidas)}")
-        
         st.divider()
         
-        # Mostrar cada sección
-        for partida in partidas:
-            with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
-                
-                # Mano de Obra
-                if partida.get("mano_obra"):
-                    st.markdown("**👷 Mano de Obra Asignada:**")
-                    df_mo = pd.DataFrame(partida["mano_obra"])
-                    st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
-                
-                # Materiales
+        # 🔥 MODO EDICIÓN ACTIVO
+        if st.session_state.seccion_en_edicion:
+            sec_edit = st.session_state.seccion_en_edicion
             
-                if partida.get("materiales"):
-                    st.markdown("**🧱 Materiales Asignados:**")
-                    df_mat = pd.DataFrame(partida["materiales"])
-
-                    # 🔹 SOLUCIÓN: asegurar columna cantidad_asignada
-                    if "cantidad_asignada" not in df_mat.columns:
-                        df_mat["cantidad_asignada"] = 0.0
-
-                    st.dataframe(
-                        df_mat[["nombre", "cantidad_asignada", "unidad"]],
-                        use_container_width=True,
-                        hide_index=True,
-                        column_config={
-                            "cantidad_asignada": st.column_config.NumberColumn(
-                                "Cantidad",
-                                format="%.2f"
-                            )
-                        }
-                    )
-
-
-                # Equipos
-                if partida.get("equipos"):
-                    st.markdown("**🔧 Equipos Asignados:**")
-                    df_eq = pd.DataFrame(partida["equipos"])
-                    st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+            st.warning(f"✏️ **EDITANDO:** {sec_edit['codigo']} - {sec_edit['nombre']}")
+            
+            # ================= EDITAR MANO DE OBRA =================
+            st.markdown("### 👷 Mano de Obra")
+            
+            trabajadores_disponibles = obtener_trabajadores_obra(obra_id_sel)
+            trabajadores_asignados_ids = [t["trabajador_id"] for t in sec_edit["mano_obra"]]
+            trabajadores_sin_asignar = [t for t in trabajadores_disponibles if t["id"] not in trabajadores_asignados_ids]
+            
+            if trabajadores_sin_asignar:
+                trab_sel = st.selectbox(
+                    "Agregar Trabajador",
+                    options=trabajadores_sin_asignar,
+                    format_func=lambda x: f"{x['nombre']} - {x['rol']}",
+                    key="edit_select_trabajador"
+                )
                 
-                # Botón eliminar
-                if st.button(f"🗑️ Eliminar Sección", key=f"del_{partida['id']}"):
-                    db.collection("obras").document(obra_id_sel).collection("partidas").document(partida["id"]).delete()
-                    st.success("Sección eliminada")
+                if st.button("➕ Agregar Trabajador", key="edit_btn_add_trab"):
+                    sec_edit["mano_obra"].append({
+                        "trabajador_id": trab_sel["id"],
+                        "nombre": trab_sel["nombre"],
+                        "rol": trab_sel["rol"]
+                    })
                     st.rerun()
+            
+            # Mostrar y eliminar trabajadores
+            if sec_edit["mano_obra"]:
+                df_mo = pd.DataFrame(sec_edit["mano_obra"])
+                st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
+                
+                if st.checkbox("Mostrar opciones de eliminación (Mano de Obra)", key="edit_check_mo"):
+                    for idx, trab in enumerate(sec_edit["mano_obra"]):
+                        if st.button(f"🗑️ Quitar {trab['nombre']}", key=f"edit_del_trab_{idx}"):
+                            sec_edit["mano_obra"].pop(idx)
+                            st.rerun()
+            
+            st.divider()
+            
+            # ================= EDITAR MATERIALES =================
+            st.markdown("### 🧱 Materiales")
+            
+            materiales_disponibles = obtener_materiales_obra(obra_id_sel)
+            materiales_asignados_ids = [m["material_id"] for m in sec_edit["materiales"]]
+            materiales_sin_asignar = [m for m in materiales_disponibles if m["id"] not in materiales_asignados_ids]
+            
+            if materiales_sin_asignar:
+                mat_sel = st.selectbox(
+                    "Agregar Material",
+                    options=materiales_sin_asignar,
+                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0)} {x['unidad']})",
+                    key="edit_select_material"
+                )
+                
+                stock_disponible = float(mat_sel.get("stock_actual", 0))
+                
+                col_c1, col_c2 = st.columns([2, 1])
+                
+                cant_sel = col_c1.number_input(
+                    f"Cantidad ({mat_sel['unidad']})",
+                    min_value=0.0,
+                    max_value=stock_disponible,
+                    step=1.0,
+                    format="%.2f",
+                    disabled=stock_disponible <= 0,
+                    key="edit_cant_material"
+                )
+                
+                if col_c2.button("➕ Agregar", key="edit_btn_add_mat", use_container_width=True):
+                    if cant_sel > 0 and cant_sel <= stock_disponible:
+                        sec_edit["materiales"].append({
+                            "material_id": mat_sel["id"],
+                            "nombre": mat_sel["nombre"],
+                            "unidad": mat_sel["unidad"],
+                            "cantidad_asignada": cant_sel,
+                            "gastado": 0.0
+                        })
+                        st.success(f"✅ {mat_sel['nombre']} agregado")
+                        st.rerun()
+                    else:
+                        st.error("Cantidad inválida")
+            
+            # Mostrar y eliminar materiales
+            if sec_edit["materiales"]:
+                df_mat = pd.DataFrame(sec_edit["materiales"])
+                
+                if "cantidad_asignada" not in df_mat.columns:
+                    df_mat["cantidad_asignada"] = 0.0
+                
+                st.dataframe(
+                    df_mat[["nombre", "cantidad_asignada", "unidad"]],
+                    use_container_width=True,
+                    hide_index=True
+                )
+                
+                if st.checkbox("Mostrar opciones de eliminación (Materiales)", key="edit_check_mat"):
+                    for idx, mat in enumerate(sec_edit["materiales"]):
+                        if st.button(f"🗑️ Quitar {mat['nombre']}", key=f"edit_del_mat_{idx}"):
+                            sec_edit["materiales"].pop(idx)
+                            st.rerun()
+            
+            st.divider()
+            
+            # ================= EDITAR EQUIPOS =================
+            st.markdown("### 🔧 Equipos")
+            
+            with st.form("edit_form_agregar_equipo", clear_on_submit=True):
+                col_eq1, col_eq2 = st.columns(2)
+                nombre_eq = col_eq1.text_input("Nombre del Equipo")
+                codigo_eq = col_eq2.text_input("Código del Equipo")
+                
+                if st.form_submit_button("➕ Agregar Equipo"):
+                    if nombre_eq and codigo_eq:
+                        sec_edit["equipos"].append({
+                            "nombre": nombre_eq,
+                            "codigo": codigo_eq
+                        })
+                        st.success(f"✅ {nombre_eq} agregado")
+                        st.rerun()
+            
+            # Mostrar y eliminar equipos
+            if sec_edit["equipos"]:
+                df_eq = pd.DataFrame(sec_edit["equipos"])
+                st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+                
+                if st.checkbox("Mostrar opciones de eliminación (Equipos)", key="edit_check_eq"):
+                    for idx, eq in enumerate(sec_edit["equipos"]):
+                        if st.button(f"🗑️ Quitar {eq['nombre']}", key=f"edit_del_eq_{idx}"):
+                            sec_edit["equipos"].pop(idx)
+                            st.rerun()
+            
+            st.divider()
+            
+            # ================= GUARDAR CAMBIOS =================
+            col_save1, col_save2 = st.columns(2)
+            
+            if col_save1.button("💾 GUARDAR CAMBIOS", type="primary", use_container_width=True):
+                db.collection("obras").document(obra_id_sel).collection("partidas").document(sec_edit["id"]).update({
+                    "mano_obra": sec_edit["mano_obra"],
+                    "materiales": sec_edit["materiales"],
+                    "equipos": sec_edit["equipos"],
+                    "fecha_modificacion": datetime.now(local_tz)
+                })
+                st.session_state.seccion_en_edicion = None
+                st.success("✅ Cambios guardados")
+                st.rerun()
+            
+            if col_save2.button("❌ Cancelar Edición", use_container_width=True):
+                st.session_state.seccion_en_edicion = None
+                st.rerun()
+        
+        # 🔥 MODO VISTA (cuando no hay edición activa)
+        else:
+            for partida in partidas:
+                with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
+                    
+                    # Mano de Obra
+                    if partida.get("mano_obra"):
+                        st.markdown("**👷 Mano de Obra:**")
+                        df_mo = pd.DataFrame(partida["mano_obra"])
+                        st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
+                    
+                    # Materiales
+                    if partida.get("materiales"):
+                        st.markdown("**🧱 Materiales:**")
+                        df_mat = pd.DataFrame(partida["materiales"])
+                        
+                        if "cantidad_asignada" not in df_mat.columns:
+                            df_mat["cantidad_asignada"] = 0.0
+                        
+                        st.dataframe(
+                            df_mat[["nombre", "cantidad_asignada", "unidad"]],
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "cantidad_asignada": st.column_config.NumberColumn(
+                                    "Cantidad",
+                                    format="%.2f"
+                                )
+                            }
+                        )
+                    
+                    # Equipos
+                    if partida.get("equipos"):
+                        st.markdown("**🔧 Equipos:**")
+                        df_eq = pd.DataFrame(partida["equipos"])
+                        st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
+                    
+                    # Botones de acción
+                    col_btn1, col_btn2 = st.columns(2)
+                    
+                    if col_btn1.button("✏️ Editar", key=f"edit_{partida['id']}", use_container_width=True):
+                        st.session_state.seccion_en_edicion = partida
+                        st.rerun()
+                    
+                    if col_btn2.button("🗑️ Eliminar", key=f"del_{partida['id']}", use_container_width=True):
+                        db.collection("obras").document(obra_id_sel).collection("partidas").document(partida["id"]).delete()
+                        st.success("Sección eliminada")
+                        st.rerun()
