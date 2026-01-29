@@ -223,7 +223,7 @@ with tab1:
                 mat_sel = st.selectbox(
                     "Seleccionar Material",
                     options=materiales_sin_asignar,
-                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0)} {x['unidad']}, Precio: S/ {x.get('precio_unitario', 0):.2f})",
+                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_actual', 0):.4f} {x['unidad']}, Precio: S/ {x.get('precio_unitario', 0):.2f})",
                     key="select_material"
                 )
                 
