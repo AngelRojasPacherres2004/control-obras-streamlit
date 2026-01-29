@@ -451,7 +451,13 @@ if archivo:
         if st.button("Importar materiales a la obra", type="primary"):
             total_importacion = df_excel["subtotal"].sum()
             obra_actual = db.collection("obras").document(obra_id).get().to_dict()
-            saldo_disponible = float(obra_actual.get("presupuesto_materiales_actual", 0))
+            
+            # Obtener el presupuesto total asignado
+            p_total = float(obra_actual.get("presupuesto_materiales", 0))
+            # Obtener el saldo actual (si no existe, usar el total)
+            saldo_disponible = float(obra_actual.get("presupuesto_materiales_actual", p_total))
+            
+            st.info(f"💰 Presupuesto total: S/ {p_total:,.2f} | Disponible: S/ {saldo_disponible:,.2f}")
             
             if total_importacion > saldo_disponible:
                 st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
@@ -462,14 +468,15 @@ if archivo:
                         "nombre": r["nombre"],
                         "unidad": r["unidad"],
                         "cantidad": cant_val,
-                        "stock_inicial": cant_val,  # <-- NUEVO
-                        "stock_actual": cant_val,   # <-- NUEVO
+                        "stock_inicial": cant_val,
+                        "stock_actual": cant_val,
                         "precio_unitario": float(r["precio_unitario"]),
                         "subtotal": round(float(cant_val * r["precio_unitario"]), 2),
                         "tipo": "COMPRADO",
                         "fecha": datetime.now()
                     })
                 recalcular_presupuesto_obra(obra_id)
+                st.success(f"✅ {len(df_excel)} materiales importados exitosamente")
                 st.rerun()
 
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
