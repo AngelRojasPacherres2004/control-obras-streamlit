@@ -389,9 +389,9 @@ if mats_obra:
         use_container_width=True,
         column_config={
             "nombre": "Material",
-            "stock_inicial": st.column_config.NumberColumn("Stock inicial", format="%.2f"),
-            "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.2f"),
-            "subtotal": st.column_config.NumberColumn("Inversión", format="S/ %.2f"),
+            "stock_inicial": st.column_config.NumberColumn("Stock inicial", format="%.4f"),
+            "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.4f"),
+            "subtotal": st.column_config.NumberColumn("Inversión", format="S/ %.4f"),
         }
     )
     
