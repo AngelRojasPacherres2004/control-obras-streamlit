@@ -111,10 +111,10 @@ st.dataframe(
     use_container_width=True,
     hide_index=True,
     column_config={
-        "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.2f"),
-        "Stock inicial": st.column_config.NumberColumn(format="%.2f"),
-        "Stock asignado": st.column_config.NumberColumn(format="%.2f"),
-        "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
+        "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.4f"),
+        "Stock inicial": st.column_config.NumberColumn(format="%.4f"),
+        "Stock asignado": st.column_config.NumberColumn(format="%.4f"),
+        "Stock sin asignar": st.column_config.NumberColumn(format="%.4f"),
     }
 )
 
@@ -238,7 +238,7 @@ with tab1:
                     min_value=0.0,
                     max_value=stock_disponible,
                     step=1.0,                  # ⬅️ + y - de 1.00
-                    format="%.2f",              # ⬅️ muestra 1.00
+                    format="%.4f",              # ⬅️ muestra 1.00
                     disabled=stock_disponible <= 0,
                     help=f"Stock disponible: {stock_disponible} {mat_sel['unidad']}"
                 )
@@ -406,7 +406,7 @@ with tab2:
                         column_config={
                             "cantidad_asignada": st.column_config.NumberColumn(
                                 "Cantidad",
-                                format="%.2f"
+                                format="%.4f"
                             )
                         }
                     )
