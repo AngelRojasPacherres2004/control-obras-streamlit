@@ -365,6 +365,17 @@ if mats_obra:
         df_obra['subtotal'] = 0.0
     else:
         df_obra['subtotal'] = df_obra['subtotal'].fillna(0.0)
+    
+    # AGREGAR CAMPOS DE STOCK SI NO EXISTEN
+    if 'stock_inicial' not in df_obra.columns:
+        df_obra['stock_inicial'] = df_obra.get('cantidad', 0.0)
+    else:
+        df_obra['stock_inicial'] = df_obra['stock_inicial'].fillna(df_obra.get('cantidad', 0.0))
+    
+    if 'stock_actual' not in df_obra.columns:
+        df_obra['stock_actual'] = df_obra.get('cantidad', 0.0)
+    else:
+        df_obra['stock_actual'] = df_obra['stock_actual'].fillna(df_obra.get('cantidad', 0.0))
 
     # Creamos la columna de origen visual
     df_obra['Origen'] = df_obra['tipo'].apply(
@@ -373,16 +384,17 @@ if mats_obra:
 
     # --- TABLA PRINCIPAL ---
     st.dataframe(
-    df_obra[["nombre", "unidad", "stock_inicial", "stock_actual", "precio_unitario", "subtotal", "Origen"]],
-    hide_index=True,
-    use_container_width=True,
-    column_config={
-        "nombre": "Material",
-        "stock_inicial": st.column_config.NumberColumn("Stock inicial", format="%.2f"),
-        "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.2f"),
-        "subtotal": st.column_config.NumberColumn("Inversión", format="S/ %.2f"),
-    }
-)
+        df_obra[["nombre", "unidad", "stock_inicial", "stock_actual", "precio_unitario", "subtotal", "Origen"]],
+        hide_index=True,
+        use_container_width=True,
+        column_config={
+            "nombre": "Material",
+            "stock_inicial": st.column_config.NumberColumn("Stock inicial", format="%.2f"),
+            "stock_actual": st.column_config.NumberColumn("Stock actual", format="%.2f"),
+            "subtotal": st.column_config.NumberColumn("Inversión", format="S/ %.2f"),
+        }
+    )
+    
     # --- GESTOR DE EDICIÓN ---
     with st.expander("⚙️ Modificar Stock o Eliminar (Cualquier origen)"):
         # Selector que incluye donaciones
