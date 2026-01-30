@@ -102,6 +102,12 @@ nombre_obra = OBRAS.get(obra_id_sel, "Desconocida")
 st.sidebar.success(f"📍 Obra actual: **{nombre_obra}**")
 obra_ref = db.collection("obras").document(obra_id_sel)
 
+# 🔁 Recalcular stock una sola vez por sesión y obra
+if "stock_recalculado" not in st.session_state:
+    recalcular_stock_sin_asignar(obra_id_sel)
+    st.session_state.stock_recalculado = True
+
+
 st.subheader("📦 Stock de Materiales por Secciones")
 
 materiales_docs = obra_ref.collection("materiales").stream()
@@ -111,10 +117,15 @@ for m in materiales_docs:
     d = m.to_dict()
 
     stock_inicial = float(d.get("stock_inicial", d.get("stock", 0)))
-    stock_sin_asignar = float(d.get("stock_sin_asignar", 0))
 
-    if stock_sin_asignar < 0:
-        stock_sin_asignar = 0
+    if "stock_sin_asignar" in d:
+        stock_sin_asignar = float(d["stock_sin_asignar"])
+    else:
+        stock_sin_asignar = stock_inicial  # 👈 CLAVE
+
+    stock_asignado = stock_inicial - stock_sin_asignar
+
+
 
     # ✅ CÁLCULO CORRECTO (NO DESDE PARTIDAS)
     stock_asignado = stock_inicial - stock_sin_asignar
@@ -253,7 +264,12 @@ with tab1:
                     key="select_material"
                 )
                 # 2. Input de cantidad con límite de stock
-                stock_disponible = float(mat_sel.get("stock_sin_asignar", 0))
+                stock_disponible = float(
+                    mat_sel.get(
+                        "stock_sin_asignar",
+                        mat_sel.get("stock_inicial", mat_sel.get("stock", 0))
+                    )
+                )
 
 
                 col_c1, col_c2 = st.columns([2, 1])
