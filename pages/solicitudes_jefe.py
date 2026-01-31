@@ -45,15 +45,26 @@ def obtener_solicitudes(obra_id):
 st.title("📬 Solicitudes de Pasantes")
 
 OBRAS = obtener_obras()
+lista_ids = list(OBRAS.keys())
+
+# 🔥 MISMA LÓGICA GLOBAL
+indice_actual = 0
+if "obra_id_global" in st.session_state and st.session_state["obra_id_global"] in lista_ids:
+    indice_actual = lista_ids.index(st.session_state["obra_id_global"])
 
 obra_id = st.sidebar.selectbox(
     "Seleccionar obra",
-    options=list(OBRAS.keys()),
-    format_func=lambda x: OBRAS[x],
-    key="obra_jefe"
+    options=lista_ids,
+    format_func=lambda x: OBRAS.get(x, x),
+    index=indice_actual,
+    key="selector_global_solicitudes"
 )
 
+# ✅ GUARDAR GLOBALMENTE
+st.session_state["obra_id_global"] = obra_id
+
 st.sidebar.success(f"🏗️ {OBRAS[obra_id]}")
+
 
 solicitudes = obtener_solicitudes(obra_id)
 
