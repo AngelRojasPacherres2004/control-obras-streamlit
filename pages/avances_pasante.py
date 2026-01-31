@@ -307,6 +307,7 @@ else:
         elif not fotos or len(fotos) < 3:
             st.error("Mínimo 3 fotos")
         else:
+            # ... (dentro del botón de Guardar Avance) ...
             with st.spinner("Guardando avance y actualizando inventario..."):
                 try:
                     # 1. Subir fotos
@@ -315,27 +316,33 @@ else:
                         res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
                         urls.append(res["secure_url"])
 
-                    # 2. Filtrar solo lo usado
+                    # 2. Procesar Datos de Materiales y Gastos
                     df_mat_usado = df_mat_edit[df_mat_edit["Cantidad"] > 0].copy()
                     df_mo_asistio = df_mo_edit[df_mo_edit["Asistencia"] == True].copy()
-                
-                    # Eliminar columnas auxiliares antes de guardar
-                    if "Disponible" in df_mat_usado.columns:
-                        df_mat_usado = df_mat_usado.drop(columns=["Disponible"])
-                    if "ID" in df_mo_asistio.columns:
-                        df_mo_asistio = df_mo_asistio.drop(columns=["ID"])
-                
-                    detalle = pd.concat([df_mo_asistio, df_mat_usado], ignore_index=True).to_dict("records")
+                    
+                    gasto_materiales_total = 0.0 # Acumulador para la obra principal
+                    materiales_para_historial = []
 
-                    # 3. ACTUALIZAR STOCK EN FIREBASE
+                    # --- PROCESO DE MATERIALES ---
                     partida_ref = obra_ref.collection("partidas").document(partida["id"])
                     partida_data = partida_ref.get().to_dict()
                     materiales_partida = partida_data.get("materiales", [])
 
-                    # --- PROCESO DE MATERIALES ---
-                    for _, row in df_mat_edit[df_mat_edit["Cantidad"] > 0].iterrows():
+                    for _, row in df_mat_usado.iterrows():
                         nombre_mat = row["Descripción"]
                         cant_gastada = float(row["Cantidad"])
+                        precio_unid = float(row["Precio"])
+                        subtotal_mat = cant_gastada * precio_unid
+                        
+                        gasto_materiales_total += subtotal_mat # Sumamos al gasto de la obra
+
+                        # Guardamos info para el historial legible
+                        materiales_para_historial.append({
+                            "nombre": nombre_mat,
+                            "cantidad": cant_gastada,
+                            "unidad": "und", # O traer de row si lo añades
+                            "subtotal": subtotal_mat
+                        })
 
                         # Descontar stock GENERAL de la obra
                         mats_query = obra_ref.collection("materiales").where("nombre", "==", nombre_mat).limit(1).stream()
@@ -344,39 +351,48 @@ else:
                                 "stock_actual": firestore.Increment(-cant_gastada)
                             })
 
-                        # Sumar gastado en la SECCIÓN
+                        # Sumar gastado en la SECCIÓN/PARTIDA
                         for m in materiales_partida:
                             if m.get("nombre") == nombre_mat:
                                 m["gastado"] = float(m.get("gastado", 0)) + cant_gastada
+
+                    # 3. ACTUALIZAR GASTO EN EL DOCUMENTO DE LA OBRA (Para métricas en obras.py)
+                    obra_ref.update({
+                        "gasto_materiales": firestore.Increment(gasto_materiales_total)
+                    })
 
                     # Guardar materiales actualizados en la sección
                     partida_ref.update({"materiales": materiales_partida})
 
                     # --- PROCESO DE ASISTENCIA ---
-                    asistentes = df_mo_edit[df_mo_edit["Asistencia"] == True]
-                    if not asistentes.empty:
+                    if not df_mo_asistio.empty:
                         batch_asist = db.batch()
-                        for _, fila in asistentes.iterrows():
+                        for _, fila in df_mo_asistio.iterrows():
                             t_id = fila["ID"]
-                            if t_id:  # Verificar que existe el ID
+                            if t_id:
                                 t_ref = obra_ref.collection("trabajadores").document(t_id)
                                 batch_asist.update(t_ref, {"dias_asistidos": firestore.Increment(1)})
                         batch_asist.commit()
 
-                    # 4. Guardar el documento de avance
+                    # 4. Guardar el documento de avance (Con campos que obras.py reconoce)
                     avance = {
                         "fecha": datetime.now(tz),
+                        "timestamp": datetime.now(tz), # Duplicamos para asegurar compatibilidad
                         "usuario": usuario,
+                        "responsable": usuario, # obras.py suele buscar 'responsable'
                         "descripcion": descripcion,
-                        "detalle": detalle,
-                        "fotos": urls
+                        "materiales_usados": materiales_para_historial, # Nombre que espera obras.py
+                        "fotos": urls,
+                        "partida_id": partida["id"],
+                        "partida_nombre": partida["nombre"]
                     }
 
                     obra_ref.collection("partidas").document(partida["id"]).collection("avances").add(avance)
 
-                    st.success("✅ Avance guardado, asistencia registrada y stock actualizado.")
+                    st.success("✅ Avance guardado y métricas de obra actualizadas.")
                     st.session_state.partida_abierta = None
                     st.rerun()
+# ...
             
                 except Exception as e:
                     st.error(f"Error al guardar: {e}")

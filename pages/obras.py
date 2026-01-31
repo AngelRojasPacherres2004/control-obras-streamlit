@@ -37,15 +37,38 @@ def obtener_obras():
     return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    docs = (
-        db.collection("obras")
-        .document(obra_id)
-        .collection("avances")
-        .order_by("timestamp", direction=firestore.Query.ASCENDING)
-        .stream()
-    )
-    return [d.to_dict() for d in docs]
-
+    """
+    Recorre todas las partidas de la obra y recolecta los avances 
+    guardados por los pasantes para mostrarlos en el panel del Jefe.
+    """
+    avances_totales = []
+    obra_ref = db.collection("obras").document(obra_id)
+    
+    # 1. Obtenemos todas las partidas (secciones) de esta obra
+    partidas = obra_ref.collection("partidas").stream()
+    
+    for p in partidas:
+        p_data = p.to_dict()
+        nombre_partida = p_data.get("nombre", "Sin nombre")
+        
+        # 2. Entramos a la sub-colección 'avances' de cada partida
+        av_docs = p.reference.collection("avances").stream()
+        
+        for a in av_docs:
+            d = a.to_dict()
+            d["id"] = a.id
+            d["seccion_nombre"] = nombre_partida  # Para saber de qué sección es
+            
+            # Asegurar compatibilidad de campos de fecha
+            if "timestamp" not in d and "fecha" in d:
+                d["timestamp"] = d["fecha"]
+            
+            avances_totales.append(d)
+    
+    # 3. Ordenar por fecha: el más reciente arriba
+    avances_totales.sort(key=lambda x: x.get("timestamp", datetime.min), reverse=True)
+    
+    return avances_totales
 # ================= SEGURIDAD / AUTH =================
 if "auth" not in st.session_state:
     st.error("Por favor, inicia sesión.")
@@ -363,19 +386,33 @@ avances = avances_lista
 if not avances:
     st.info("Aún no hay avances registrados")
 else:
-    # ---------- PROCESAR AVANCES ----------
+    # ---------- PROCESAR AVANCES (CORREGIDO) ----------
     registros = []
     for av in avances:
-        fecha = datetime.fromisoformat(av["fecha"]) \
-    .replace(tzinfo=pytz.UTC) \
-    .astimezone(local_tz)
+        fecha_raw = av.get("fecha")
 
+        # 1. Validar el tipo de dato de la fecha
+        if isinstance(fecha_raw, datetime):
+            fecha = fecha_raw
+        elif isinstance(fecha_raw, str):
+            # Por si acaso algún registro viejo quedó como texto
+            fecha = datetime.fromisoformat(fecha_raw)
+        else:
+            # Respaldo: si no hay fecha, intentamos con timestamp o la fecha actual
+            fecha = av.get("timestamp", datetime.now(pytz.UTC))
+
+        # 2. Normalizar zona horaria (Firestore suele traer UTC)
+        if fecha.tzinfo is None:
+            fecha = fecha.replace(tzinfo=pytz.UTC)
         
+        fecha = fecha.astimezone(local_tz)
 
-        # Calcular costo del día desde materiales usados
+        # 3. Calcular costo del día desde materiales usados
         costo_dia = 0.0
         for mat in av.get("materiales_usados", []):
-            precio = precios_materiales.get(mat.get("nombre"), 0)
+            nombre_mat = mat.get("nombre")
+            # Buscamos el precio en el diccionario de materiales de la obra
+            precio = precios_materiales.get(nombre_mat, 0)
             costo_dia += float(mat.get("cantidad", 0)) * precio
 
         registros.append({
@@ -385,7 +422,6 @@ else:
             "costo": costo_dia,
             "avance": av
         })
-
 
 
     df = pd.DataFrame(registros)
