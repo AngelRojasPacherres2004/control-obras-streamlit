@@ -22,50 +22,49 @@ if auth["role"] != "jefe":
     st.stop()
 def recalcular_stock_sin_asignar(obra_id):
     obra_ref = db.collection("obras").document(obra_id)
-
-    # 1️⃣ Obtener materiales
-    materiales = {
-        m.id: m.to_dict()
-        for m in obra_ref.collection("materiales").stream()
-    }
-
-    # 2️⃣ Inicializar asignados en 0
+    
+    # Carga masiva de materiales y partidas para evitar múltiples viajes a la red
+    materiales_ref = obra_ref.collection("materiales").stream()
+    materiales = {m.id: m.to_dict() for m in materiales_ref}
+    
     asignados = {mid: 0.0 for mid in materiales.keys()}
-
-    # 3️⃣ Sumar lo asignado en TODAS las secciones
     partidas = obra_ref.collection("partidas").stream()
+    
     for p in partidas:
-        for mat in p.to_dict().get("materiales", []):
+        data = p.to_dict()
+        for mat in data.get("materiales", []):
             mid = mat.get("material_id")
             if mid in asignados:
                 asignados[mid] += float(mat.get("cantidad_asignada", 0))
 
-    # 4️⃣ Guardar stock_sin_asignar en Firebase
     batch = db.batch()
     for mid, mat in materiales.items():
         stock_inicial = float(mat.get("stock_inicial", mat.get("stock", 0)))
-
         sin_asignar = max(stock_inicial - asignados[mid], 0)
-
+        
         mat_ref = obra_ref.collection("materiales").document(mid)
-        batch.update(mat_ref, {
-            "stock_sin_asignar": round(sin_asignar, 2)
-        })
-
+        batch.update(mat_ref, {"stock_sin_asignar": round(sin_asignar, 2)})
+    
     batch.commit()
+    # IMPORTANTE: Limpiar caché después de actualizar la DB
+    st.cache_data.clear()
 
-# ================= FUNCIONES =================
+# ================= FUNCIONES OPTIMIZADAS CON CACHÉ =================
+@st.cache_data(ttl=600)  # Caché por 10 minutos
 def obtener_obras():
     return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
+@st.cache_data(ttl=300)
 def obtener_trabajadores_obra(obra_id):
     docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
+@st.cache_data(ttl=300)
 def obtener_materiales_obra(obra_id):
     docs = db.collection("obras").document(obra_id).collection("materiales").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
 
+@st.cache_data(ttl=300)
 def obtener_partidas_obra(obra_id):
     docs = db.collection("obras").document(obra_id).collection("partidas").order_by("codigo").stream()
     return [{"id": d.id, **d.to_dict()} for d in docs]
@@ -107,53 +106,37 @@ if "stock_recalculado" not in st.session_state:
     recalcular_stock_sin_asignar(obra_id_sel)
     st.session_state.stock_recalculado = True
 
-
+# Reemplaza el bloque de visualización de stock (aprox. líneas 113-140)
 st.subheader("📦 Stock de Materiales por Secciones")
 
-materiales_docs = obra_ref.collection("materiales").stream()
-filas_stock = []
+materiales_lista = obtener_materiales_obra(obra_id_sel)
+if materiales_lista:
+    df_stock = pd.DataFrame(materiales_lista)
+    
+    # Procesamiento eficiente de columnas con Pandas
+    df_stock["Stock inicial"] = df_stock.apply(lambda x: float(x.get("stock_inicial", x.get("stock", 0))), axis=1)
+    df_stock["Stock sin asignar"] = df_stock["stock_sin_asignar"].fillna(df_stock["Stock inicial"]).astype(float)
+    df_stock["Stock asignado"] = df_stock["Stock inicial"] - df_stock["Stock sin asignar"]
+    df_stock["Precio unitario"] = df_stock["precio_unitario"].fillna(0).astype(float)
+    
+    # Renombrar y seleccionar columnas para mostrar
+    df_mostrar = df_stock[[
+        "nombre", "unidad", "Stock inicial", "Stock asignado", "Stock sin asignar", "Precio unitario"
+    ]].rename(columns={"nombre": "Material", "unidad": "Unidad"})
 
-for m in materiales_docs:
-    d = m.to_dict()
-
-    stock_inicial = float(d.get("stock_inicial", d.get("stock", 0)))
-
-    if "stock_sin_asignar" in d:
-        stock_sin_asignar = float(d["stock_sin_asignar"])
-    else:
-        stock_sin_asignar = stock_inicial  # 👈 CLAVE
-
-    stock_asignado = stock_inicial - stock_sin_asignar
-
-
-
-    # ✅ CÁLCULO CORRECTO (NO DESDE PARTIDAS)
-    stock_asignado = stock_inicial - stock_sin_asignar
-
-    filas_stock.append({
-        "Material": d.get("nombre", ""),
-        "Unidad": d.get("unidad", ""),
-        "Stock inicial": round(stock_inicial, 2),
-        "Stock asignado": round(stock_asignado, 2),
-        "Stock sin asignar": round(stock_sin_asignar, 2),
-        "Precio unitario": round(float(d.get("precio_unitario", 0)), 2)
-    })
+    st.dataframe(
+        df_mostrar,
+        use_container_width=True,
+        hide_index=True,
+        column_config={
+            "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.2f"),
+            "Stock inicial": st.column_config.NumberColumn(format="%.2f"),
+            "Stock asignado": st.column_config.NumberColumn(format="%.2f"),
+            "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
+        }
+    )
 
 
-
-df_stock = pd.DataFrame(filas_stock)
-
-st.dataframe(
-    df_stock,
-    use_container_width=True,
-    hide_index=True,
-    column_config={
-        "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.2f"),
-        "Stock inicial": st.column_config.NumberColumn(format="%.2f"),
-        "Stock asignado": st.column_config.NumberColumn(format="%.2f"),
-        "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
-    }
-)
 # ================= PESTAÑAS PRINCIPALES =================
 tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
 # ================= INICIALIZAR ESTADO DE EDICIÓN =================
@@ -175,15 +158,35 @@ with tab1:
         codigo = col1.text_input("Código de Sección", placeholder="05,05,01")
         nombre = col2.text_input("Nombre de la Sección", placeholder="CONCRETO PREMEZCLADO F'C=210 KG/CM2")
         
+        # 🆕 NUEVOS CAMPOS
+        col3, col4 = st.columns(2)
+        valor_rendimiento = col3.number_input(
+            "Valor de Rendimiento",
+            min_value=0.0,
+            step=1.0,
+            format="%.2f",
+            placeholder="250000.00"
+        )
+        
+        unidad_rendimiento = col4.selectbox(
+            "Unidad de Rendimiento",
+            options=["m³", "m²", "kg", "und", "m", "glb", "ton", "lt"],
+            index=0
+        )
+        
         submit_datos = st.form_submit_button("💾 Crear Sección", type="primary")
         
         if submit_datos:
             if not codigo or not nombre:
                 st.error("Por favor completa el código y el nombre.")
+            elif valor_rendimiento <= 0:
+                st.error("El valor de rendimiento debe ser mayor a 0.")
             else:
                 st.session_state.seccion_editando = {
                     "codigo": codigo,
                     "nombre": nombre,
+                    "valor_rendimiento": valor_rendimiento,  # 🆕
+                    "unidad_rendimiento": unidad_rendimiento,  # 🆕
                     "mano_obra": [],
                     "materiales": [],
                     "equipos": []
@@ -196,7 +199,11 @@ with tab1:
         st.divider()
         seccion = st.session_state.seccion_editando
         
+        # 🆕 MOSTRAR INFO COMPLETA DE LA SECCIÓN
         st.info(f"📌 **{seccion['codigo']}** - {seccion['nombre']}")
+        col_info1, col_info2 = st.columns(2)
+        col_info1.metric("Valor de Rendimiento", f"{seccion['valor_rendimiento']:,.2f}")
+        col_info2.metric("Unidad", seccion['unidad_rendimiento'])
         
         # ================= ASIGNAR MANO DE OBRA =================
         st.markdown("### 👷 Asignar Mano de Obra")
@@ -405,12 +412,13 @@ with tab1:
 
 # ================= TAB 2: VER / EDITAR SECCIONES =================
 with tab2:
-    st.subheader("📋 Secciones de la Obra")
+    st.subheader("📋 Secciones Registradas")
     
+    # USA LA FUNCIÓN OPTIMIZADA AQUÍ:
     partidas = obtener_partidas_obra(obra_id_sel)
     
     if not partidas:
-        st.info("No hay secciones registradas. Crea una en la pestaña anterior.")
+        st.info("No hay secciones registradas en esta obra.")
     else:
         st.success(f"**Total de Secciones:** {len(partidas)}")
         st.divider()
@@ -473,7 +481,7 @@ with tab2:
                 m for m in materiales_disponibles
                 if m["id"] not in materiales_asignados_ids
             ]
-       
+
             if materiales_sin_asignar:
                 mat_sel = st.selectbox(
                     "Agregar Material",
@@ -498,19 +506,25 @@ with tab2:
                     key="edit_cant_material"
                 )
                 
-                if col_c2.button("➕ Agregar", key="edit_btn_add_mat", use_container_width=True):
-                    if cant_sel > 0 and cant_sel <= stock_disponible:
-                        sec_edit["materiales"].append({
-                            "material_id": mat_sel["id"],
-                            "nombre": mat_sel["nombre"],
-                            "unidad": mat_sel["unidad"],
-                            "cantidad_asignada": cant_sel,
-                            "gastado": 0.0
-                        })
-                        st.success(f"✅ {mat_sel['nombre']} agregado")
-                        st.rerun()
-                    else:
-                        st.error("Cantidad inválida")
+                # En la línea 245 (cuando agregas material a una sección)
+            if col_c2.button("➕ Agregar Material", key="btn_add_mat", use_container_width=True):
+                if stock_disponible <= 0:
+                    st.error("No hay stock disponible de este material.")
+                elif cant_sel <= 0:
+                    st.error("La cantidad debe ser mayor a 0.")
+                elif cant_sel > stock_disponible:
+                    st.error(f"No puedes asignar más de {stock_disponible}")
+                else:
+                    seccion["materiales"].append({
+                    "material_id": mat_sel["id"],
+                    "nombre": mat_sel["nombre"],
+                    "unidad": mat_sel["unidad"],
+                    "cantidad_asignada": cant_sel,
+                    "gastado": 0.0,
+                    "stock_al_asignar": stock_disponible
+                })
+                st.success(f"✅ {mat_sel['nombre']} ({cant_sel}) agregado")
+                st.rerun()
             
             # Mostrar y eliminar materiales
             if sec_edit["materiales"]:
@@ -568,7 +582,7 @@ with tab2:
             
             if col_save1.button("💾 GUARDAR CAMBIOS", type="primary", use_container_width=True):
                 db.collection("obras").document(obra_id_sel).collection("partidas").document(sec_edit["id"]).update({
-                    "mano_obra": sec_edit["mano_obra"],
+                    "mano_obra": sec_edit["mano_obra"], 
                     "materiales": sec_edit["materiales"],
                     "equipos": sec_edit["equipos"],
                     "fecha_modificacion": datetime.now(local_tz)

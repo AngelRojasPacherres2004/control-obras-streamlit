@@ -145,14 +145,28 @@ if st.session_state.partida_abierta is None:
                         for i, url in enumerate(fotos):
                             with cols[i % 3]:
                                 st.image(url, use_container_width=True)
-
 # =========================================================
 # ================= VISTA DE AVANCE ========================
 # =========================================================
 else:
     partida = st.session_state.partida_abierta
+    
+    # 🆕 TÍTULO CON RENDIMIENTO Y UNIDAD
     st.title(f"🧱 {partida['codigo']} - {partida['nombre']}")
-        # =====================================================
+    
+    col_info1, col_info2 = st.columns(2)
+    col_info1.metric(
+        "📊 Valor de Rendimiento", 
+        f"{partida.get('valor_rendimiento', 0):,.2f}"
+    )
+    col_info2.metric(
+        "📏 Unidad", 
+        partida.get('unidad_rendimiento', 'N/D')
+    )
+    
+    st.divider()
+    
+    # =====================================================
     st.subheader("📦 Materiales asignados a esta sección")
 
     partida_ref = obra_ref.collection("partidas").document(partida["id"])
