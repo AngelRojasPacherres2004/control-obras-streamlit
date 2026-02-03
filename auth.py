@@ -212,3 +212,4 @@ def verificar_autenticacion(db):
             st.rerun()
 
         return False
+

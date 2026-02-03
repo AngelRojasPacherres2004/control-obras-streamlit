@@ -5,7 +5,7 @@ from datetime import datetime
 from firebase_admin import firestore
 from io import BytesIO
 from docx import Document
-from streamlit_quill import st_quill
+
 
 # ================= DB =================
 db = firestore.client()
@@ -37,21 +37,36 @@ if not ids:
     st.stop()
 
 # ================= CONTROL CORRECTO DE CAMBIO =================
-def cambiar_obra():
-    st.session_state["obra_id_global"] = st.session_state["selector_obra"]
-    st.rerun()
+# ================= OBRAS =================
+def obtener_obras():
+    return {
+        d.id: d.to_dict().get("nombre", d.id)
+        for d in db.collection("obras").stream()
+    }
 
-if "obra_id_global" not in st.session_state:
-    st.session_state["obra_id_global"] = ids[0]
+OBRAS = obtener_obras()
+lista_ids = list(OBRAS.keys())
+
+if not lista_ids:
+    st.warning("No hay obras registradas")
+    st.stop()
+
+# ================= SELECCIÓN DE OBRA =================
+indice_actual = 0
+if "obra_id_global" in st.session_state and st.session_state["obra_id_global"] in lista_ids:
+    indice_actual = lista_ids.index(st.session_state["obra_id_global"])
 
 obra_id = st.sidebar.selectbox(
     "Seleccionar obra",
-    options=ids,
-    format_func=lambda x: OBRAS[x],
-    key="selector_obra",
-    index=ids.index(st.session_state["obra_id_global"]),
-    on_change=cambiar_obra
+    options=lista_ids,
+    format_func=lambda x: OBRAS.get(x, x),
+    index=indice_actual,
+    key="selector_global"
 )
+
+# Guardar selección global (para TODAS las páginas)
+st.session_state["obra_id_global"] = obra_id
+
 
 # ================= DATOS OBRA (SIEMPRE FRESCOS) =================
 obra = db.collection("obras").document(obra_id).get().to_dict()
@@ -139,7 +154,12 @@ ______________________________<br>
 Gerardo Langberg Bacigalupo
 """
 
-contenido = st_quill(value=carta_base, html=True)
+contenido = st.text_area(
+    "Contenido de la carta",
+    value=carta_base.replace("<br>", "\n").replace("<b>", "").replace("</b>", ""),
+    height=350
+)
+
 
 if st.button("📥 Descargar Carta Word"):
     doc = Document()
