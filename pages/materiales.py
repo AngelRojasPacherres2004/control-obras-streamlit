@@ -433,13 +433,38 @@ if archivo:
     if not columnas.issubset(df_excel.columns):
         st.error("El Excel debe tener: nombre, unidad, cantidad, precio_unitario")
     else:
+        # Unificar materiales con mismo nombre, unidad y precio
+        df_excel["cantidad"] = pd.to_numeric(df_excel["cantidad"], errors='coerce')
+        df_excel["precio_unitario"] = pd.to_numeric(df_excel["precio_unitario"], errors='coerce')
+        
+        # Agrupar materiales duplicados
+        df_excel = df_excel.groupby(["nombre", "unidad", "precio_unitario"], as_index=False).agg({
+            "cantidad": "sum"
+        })
+        
         df_excel["subtotal"] = df_excel["cantidad"] * df_excel["precio_unitario"]
-        st.dataframe(df_excel, use_container_width=True)
+        
+        # Mostrar vista previa con formato mejorado
+        st.dataframe(
+            df_excel,
+            use_container_width=True,
+            column_config={
+                "cantidad": st.column_config.NumberColumn(format="%.4f"),
+                "precio_unitario": st.column_config.NumberColumn("Precio Unit.", format="S/ %.2f"),
+                "subtotal": st.column_config.NumberColumn(format="S/ %.2f")
+            }
+        )
 
         if st.button("Importar materiales a la obra", type="primary"):
             total_importacion = df_excel["subtotal"].sum()
+            
+            # Obtener datos FRESCOS directamente de Firebase
             obra_actual = db.collection("obras").document(obra_id).get().to_dict()
-            saldo_disponible = float(obra_actual.get("presupuesto_materiales_actual", 0))
+            
+            # Obtener el presupuesto total asignado
+            p_total = float(obra_actual.get("presupuesto_materiales", 0))
+            # Obtener el saldo actual (si no existe, usar el total)
+            saldo_disponible = float(obra_actual.get("presupuesto_materiales_actual", p_total))
             
             if total_importacion > saldo_disponible:
                 st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
@@ -450,14 +475,20 @@ if archivo:
                         "nombre": r["nombre"],
                         "unidad": r["unidad"],
                         "cantidad": cant_val,
-                        "stock_inicial": cant_val,  # <-- NUEVO
-                        "stock_actual": cant_val,   # <-- NUEVO
+                        "stock_inicial": cant_val,  # Stock inicial
+                        "stock_actual": cant_val,   # Stock actual
+                        "stock_sin_asignar": cant_val,  # Stock sin asignar a secciones
                         "precio_unitario": float(r["precio_unitario"]),
                         "subtotal": round(float(cant_val * r["precio_unitario"]), 2),
                         "tipo": "COMPRADO",
-                        "fecha": datetime.now()
+                        "fecha": datetime.now(local_tz)
                     })
+                
+                # Recalcular presupuesto y limpiar caché
                 recalcular_presupuesto_obra(obra_id)
+                st.cache_data.clear()  # Limpiar caché para refrescar datos
+                
+                st.success(f"✅ {len(df_excel)} materiales importados exitosamente (Total: S/ {total_importacion:,.2f})")
                 st.rerun()
 
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
