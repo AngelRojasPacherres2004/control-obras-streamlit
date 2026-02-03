@@ -501,7 +501,7 @@ with tab2:
                     min_value=0.0,
                     max_value=stock_disponible,
                     step=1.0,
-                    format="%.2f",
+                    format="%.4f",
                     disabled=stock_disponible <= 0,
                     key="edit_cant_material"
                 )
@@ -622,7 +622,7 @@ with tab2:
                             column_config={
                                 "cantidad_asignada": st.column_config.NumberColumn(
                                     "Cantidad",
-                                    format="%.2f"
+                                    format="%.4f"
                                 )
                             }
                         )
