@@ -42,6 +42,8 @@ with st.sidebar:
 
 # ================= ESTADO =================
 st.session_state.setdefault("partida_abierta", None)
+st.session_state.setdefault("mo_refrescar", False)
+st.session_state.setdefault("doble_refresh", 0)
 
 # =========================================================
 # ================= LISTA DE SECCIONES =====================
@@ -163,12 +165,20 @@ else:
         "📏 Unidad", 
         partida.get('unidad_rendimiento', 'N/D')
     )
-    
+
+
+
+  
+
+        
     st.divider()
+
     
     # =====================================================
     st.subheader("📦 Materiales asignados a esta sección")
 
+    
+    
     partida_ref = obra_ref.collection("partidas").document(partida["id"])
     partida_actual = partida_ref.get().to_dict()
 
@@ -208,71 +218,182 @@ else:
         m.to_dict().get("nombre"): float(m.to_dict().get("precio_unitario", 0))
         for m in materiales_obra
         }
-# =====================================================
-# 🔹 MANO DE OBRA (CON ASISTENCIA INTEGRADA)
-# =====================================================
+    # =====================================================
+    # 🔹 MANO DE OBRA (CON ASISTENCIA INTEGRADA)
+    # =====================================================
+    # =====================================================
+    # 🔹 MANO DE OBRA (TIEMPO REAL – PATRÓN CORRECTO)
+    # =====================================================
+
     st.subheader("👷 Mano de Obra")
 
-    filas_mo = []
-    for t in partida.get("mano_obra", []):
-        filas_mo.append({
-            "Asistencia": False,
-            "ID": t.get("trabajador_id"),
-            "Tipo": "Mano de obra",
-            "Descripción": t["nombre"],
-            "Rendimiento": 0.0,
-            "Precio": 0.0,
-            "Cantidad": 0.0,
-            "Parcial": 0.0
-        })
+    editor_key = f"mo_df_{partida['id']}"
+    editor_ui_key = f"mo_editor_ui_{partida['id']}"
 
-    df_mo = pd.DataFrame(filas_mo)
+    valor_rendimiento_seccion = float(partida.get("valor_rendimiento", 1))
+    hh_por_m3 = float(partida.get("hh_por_m3", 2.16))  # o fijo si aún no lo guardas
 
+    # 1️⃣ Inicializar UNA sola vez
+    if editor_key not in st.session_state:
+        filas_mo = []
+        for t in partida.get("mano_obra", []):
+            filas_mo.append({
+                "Asistencia": False,
+                "ID": t.get("trabajador_id"),
+                "Tipo": "Mano de obra",
+                "Descripción": t["nombre"],
+                "Rendimiento": 0.0,
+                "Precio": 0.0,
+                "Cantidad": 0.0,
+                "Parcial": 0.0
+            })
+        st.session_state[editor_key] = pd.DataFrame(filas_mo)
+
+    df_mo = st.session_state[editor_key]
+    df_mo_before = df_mo.copy(deep=True)
+    # 2️⃣ Asegurar columnas
+    for col in ["Rendimiento", "Precio", "Cantidad", "Parcial", "Asistencia"]:
+        if col not in df_mo.columns:
+            df_mo[col] = 0.0 if col != "Asistencia" else False
+
+    # 3️⃣ Calcular SIEMPRE antes del editor
+    for idx, row in df_mo.iterrows():
+        rendimiento = float(row["Rendimiento"])
+        precio = float(row["Precio"])
+
+        jornal = rendimiento * 8
+        cantidad = jornal / valor_rendimiento_seccion if valor_rendimiento_seccion > 0 else 0
+        parcial = cantidad * precio
+
+        df_mo.at[idx, "Cantidad"] = round(cantidad, 4)
+        df_mo.at[idx, "Parcial"] = round(parcial, 2)
+
+    # 4️⃣ Editor
     df_mo_edit = st.data_editor(
         df_mo,
         use_container_width=True,
         hide_index=True,
         column_config={
             "Asistencia": st.column_config.CheckboxColumn("¿Asistió?"),
-            "ID": None,  # Ocultar
-            "Tipo": st.column_config.TextColumn("Tipo", disabled=True),  # 🔒 NO editable
-            "Descripción": st.column_config.TextColumn("Nombre", disabled=True),  # 🔒 NO editable
-            "Rendimiento": st.column_config.NumberColumn("Rendimiento", min_value=0, step=0.1),  # ✅ Editable
-            "Precio": st.column_config.NumberColumn("Precio", min_value=0, format="S/ %.2f"),  # ✅ Editable
-            "Cantidad": st.column_config.NumberColumn("Cantidad", min_value=0, step=0.5),  # ✅ Editable
-            "Parcial": st.column_config.NumberColumn("Parcial", min_value=0, format="S/ %.2f"),  # ✅ Editable
+            "ID": None,
+            "Tipo": st.column_config.TextColumn(disabled=True),
+            "Descripción": st.column_config.TextColumn(disabled=True),
+            "Rendimiento": st.column_config.NumberColumn("Rendimiento", min_value=0, step=0.1),
+            "Precio": st.column_config.NumberColumn("Precio", min_value=0, format="S/ %.2f"),
+            "Cantidad": st.column_config.NumberColumn("Cantidad", disabled=True),
+            "Parcial": st.column_config.NumberColumn("Parcial", format="S/ %.2f", disabled=True),
         },
-        key=f"mo_editor_{partida['id']}"
+        key=editor_ui_key
     )
+
+
+    
+    # =============================
+    # 📊 RENDIMIENTO REAL (LÓGICO)
+    # =============================
+
+    # =============================
+    # 📊 RENDIMIENTO REAL (CORRECTO APU)
+    # =============================
+
+    # Cuadrilla humana (suma del rendimiento humano)
+    cuadrilla_real = df_mo_edit["Rendimiento"].sum()
+
+    # HH por día
+    hh_dia = cuadrilla_real * 8
+
+    # Rendimiento real (m³/día)
+    rendimiento_real = round(hh_dia / hh_por_m3, 2) if hh_por_m3 > 0 else 0
+
+    valor_rendimiento_plan = float(partida.get("valor_rendimiento", 0))
+
+    porcentaje_rendimiento = (
+        rendimiento_real / valor_rendimiento_plan
+        if valor_rendimiento_plan > 0
+        else 0
+    )
+
+    # =============================
+    # 📊 BARRA DE AVANCE DE RENDIMIENTO
+    # =============================
+
+    st.markdown("### 📊 Avance de Rendimiento")
+
+    st.caption(
+        f"🔎 Rendimiento real: **{rendimiento_real:.2f} {partida.get('unidad_rendimiento','')}** "
+        f"({porcentaje_rendimiento*100:.1f}% del plan)"
+    )
+
+    st.progress(min(porcentaje_rendimiento, 1.0))
+
+    st.divider()
+
+   
+
+
+    # 5️⃣ Guardar
+    st.session_state[editor_key] = df_mo_edit
+
+    # =============================
+    # 🧮 TOTAL MANO DE OBRA (TIEMPO REAL)
+    # =============================
+    total_mo = df_mo_edit["Parcial"].sum()
+
+    st.markdown("### 💰 Total Mano de Obra")
+    st.metric(
+        label="Suma Parcial Mano de Obra",
+        value=f"S/ {total_mo:,.2f}"
+    )
+
+
+    # 🔁 Detectar cambios y forzar doble refresh
+    if not df_mo_edit.equals(df_mo):
+        st.session_state.doble_refresh = 2
+
+
     # 🔹 MATERIALES (CON VALIDACIÓN DE STOCK ASIGNADO)
     #=====================================================
+   
+    # =====================================================
+    # 🔹 MATERIALES (MISMO PATRÓN QUE MANO DE OBRA)
+    # =====================================================
+
     st.subheader("🧱 Materiales")
 
-    # Obtener la partida actualizada
-    partida_ref = obra_ref.collection("partidas").document(partida["id"])
-    partida_actual = partida_ref.get().to_dict()
+    editor_key_mat = f"mat_df_{partida['id']}"
+    editor_ui_key_mat = f"mat_editor_ui_{partida['id']}"
 
-    filas_mat = []
-    for m in partida_actual.get("materiales", []):
-        nombre = m.get("nombre")
-        precio = precios_materiales.get(nombre, 0.0)
-    
-        # Calcular stock disponible de la partida
-        stock_asignado = float(m.get("cantidad_asignada", 0))
-        gastado = float(m.get("gastado", 0))
-        disponible = stock_asignado - gastado
-    
-        filas_mat.append({
-            "Tipo": "Material",
-            "Descripción": nombre,
-            "Disponible": disponible,  # ✅ Columna informativa
-            "Cantidad": 0.0,
-            "Precio": precio,
-            "Parcial": 0.0
-        })
+    # 1️⃣ Inicializar UNA sola vez
+    if editor_key_mat not in st.session_state:
+        filas_mat = []
 
-    df_mat = pd.DataFrame(filas_mat)
+        for m in partida_actual.get("materiales", []):
+            nombre = m.get("nombre")
+            precio = precios_materiales.get(nombre, 0.0)
 
+            stock_asignado = float(m.get("cantidad_asignada", 0))
+            gastado = float(m.get("gastado", 0))
+            disponible = stock_asignado - gastado
+
+            filas_mat.append({
+                "Tipo": "Material",
+                "Descripción": nombre,
+                "Disponible": round(disponible, 2),
+                "Cantidad": 0.0,      # 👈 SOLO UNA
+                "Precio": round(precio, 2),
+                "Parcial": 0.0
+            })
+
+        st.session_state[editor_key_mat] = pd.DataFrame(filas_mat)
+
+    df_mat = st.session_state[editor_key_mat]
+
+    # 2️⃣ Asegurar columnas
+    for col in ["Cantidad", "Precio", "Parcial"]:
+        if col not in df_mat.columns:
+            df_mat[col] = 0.0
+
+    # 3️⃣ EDITOR (primero)
     df_mat_edit = st.data_editor(
         df_mat,
         use_container_width=True,
@@ -280,27 +401,56 @@ else:
         column_config={
             "Tipo": st.column_config.TextColumn(disabled=True),
             "Descripción": st.column_config.TextColumn(disabled=True),
-            "Disponible": st.column_config.NumberColumn(
-                "Stock Disponible",
-                disabled=True,
-                help="Cantidad asignada menos lo ya gastado en esta sección"
-            ),
+            "Disponible": st.column_config.NumberColumn("Stock disponible", disabled=True),
             "Cantidad": st.column_config.NumberColumn("Usar", min_value=0),
-            "Precio": st.column_config.NumberColumn(disabled=True),
-            "Parcial": st.column_config.NumberColumn(disabled=True)
+            "Precio": st.column_config.NumberColumn("Precio", format="S/ %.2f"),
+            "Parcial": st.column_config.NumberColumn("Parcial", format="S/ %.2f", disabled=True),
         },
-        key=f"editor_mat_{partida['id']}"
+        key=editor_ui_key_mat
     )
-    # ✅ VALIDACIÓN DE STOCK
-    if not df_mat_edit.empty:
-        for _, row in df_mat_edit.iterrows():
-            cantidad = float(row["Cantidad"])
-            disponible = float(row["Disponible"])
-        
-            if cantidad > disponible:
-                st.error(f"❌ {row['Descripción']}: Solo hay {disponible} disponibles, intentaste usar {cantidad}")
-                st.stop()  
-    # 🔹 DESCRIPCIÓN Y FOTOS
+
+    # 4️⃣ RECALCULAR DESPUÉS DEL EDITOR (🔥 AQUÍ ESTABA EL ERROR)
+    for idx, row in df_mat_edit.iterrows():
+        cantidad = float(row["Cantidad"])
+        precio = float(row["Precio"])
+        df_mat_edit.at[idx, "Parcial"] = round(cantidad * precio, 2)
+
+    # 5️⃣ Guardar estado
+    st.session_state[editor_key_mat] = df_mat_edit
+
+    # =============================
+    # 🧮 TOTAL MATERIALES (TIEMPO REAL)
+    # =============================
+    total_mat = df_mat_edit["Parcial"].sum()
+
+    st.markdown("### 💰 Total Materiales")
+    st.metric(
+        label="Suma Parcial Materiales",
+        value=f"S/ {total_mat:,.2f}"
+)
+
+
+    # 🔁 Detectar cambios y forzar doble refresh (IGUAL QUE MANO DE OBRA)
+    if not df_mat_edit.equals(df_mat):
+        st.session_state.doble_refresh = 2
+
+
+    # 6️⃣ Validación de stock
+    for _, row in df_mat_edit.iterrows():
+        if row["Cantidad"] > row["Disponible"]:
+            st.error(
+                f"❌ {row['Descripción']}: "
+                f"solo hay {row['Disponible']} disponibles"
+            )
+            st.stop()
+
+
+    # 🔄 EJECUTOR DE DOBLE REFRESH
+    if st.session_state.doble_refresh > 0:
+        st.session_state.doble_refresh -= 1
+        st.rerun()
+
+    # 🔹 DESCRIPCIÓN Y FOTOS    
     # =====================================================
     descripcion = st.text_area("📝 Descripción del trabajo realizado")
 
@@ -311,6 +461,9 @@ else:
     )
 
     col1, col2 = st.columns(2)
+
+
+
 
     # =====================================================
 # 💾 GUARDAR AVANCE Y ACTUALIZAR STOCK REAL
