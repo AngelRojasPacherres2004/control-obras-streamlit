@@ -105,21 +105,37 @@ obra_ref = db.collection("obras").document(obra_id_sel)
 if "stock_recalculado" not in st.session_state:
     recalcular_stock_sin_asignar(obra_id_sel)
     st.session_state.stock_recalculado = True
-
-# Reemplaza el bloque de visualización de stock (aprox. líneas 113-140)
+# ================= VISUALIZACIÓN DE STOCK DE MATERIALES =================
 st.subheader("📦 Stock de Materiales por Secciones")
 
 materiales_lista = obtener_materiales_obra(obra_id_sel)
+
 if materiales_lista:
     df_stock = pd.DataFrame(materiales_lista)
     
-    # Procesamiento eficiente de columnas con Pandas
-    df_stock["Stock inicial"] = df_stock.apply(lambda x: float(x.get("stock_inicial", x.get("stock", 0))), axis=1)
+    # 🛡️ SEGURIDAD: Crear columnas si no existen en la base de datos (evita KeyError)
+    columnas_requeridas = {
+        "stock_sin_asignar": None,
+        "precio_unitario": 0,
+        "stock_inicial": 0,
+        "stock": 0
+    }
+    for col, default in columnas_requeridas.items():
+        if col not in df_stock.columns:
+            df_stock[col] = default
+
+    # Procesamiento con Pandas manejando valores nulos
+    df_stock["Stock inicial"] = df_stock.apply(
+        lambda x: float(x.get("stock_inicial") if pd.notnull(x.get("stock_inicial")) else x.get("stock", 0)), 
+        axis=1
+    )
+    
+    # Rellenar stock_sin_asignar con el Stock inicial si es la primera vez (null)
     df_stock["Stock sin asignar"] = df_stock["stock_sin_asignar"].fillna(df_stock["Stock inicial"]).astype(float)
-    df_stock["Stock asignado"] = df_stock["Stock inicial"] - df_stock["Stock sin asignar"]
+    df_stock["Stock asignado"] = (df_stock["Stock inicial"] - df_stock["Stock sin asignar"]).clip(lower=0)
     df_stock["Precio unitario"] = df_stock["precio_unitario"].fillna(0).astype(float)
     
-    # Renombrar y seleccionar columnas para mostrar
+    # Renombrar y seleccionar columnas para la interfaz
     df_mostrar = df_stock[[
         "nombre", "unidad", "Stock inicial", "Stock asignado", "Stock sin asignar", "Precio unitario"
     ]].rename(columns={"nombre": "Material", "unidad": "Unidad"})
@@ -135,7 +151,8 @@ if materiales_lista:
             "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
         }
     )
-
+else:
+    st.info("No hay materiales registrados para esta obra.")
 
 # ================= PESTAÑAS PRINCIPALES =================
 tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
@@ -600,7 +617,15 @@ with tab2:
         else:
             for partida in partidas:
                 with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
-                    
+                    # 🆕 MÉTRICAS DE RENDIMIENTO (Agregado aquí)
+                    col_rend1, col_rend2 = st.columns(2)
+                    val_r = partida.get('valor_rendimiento', 0.0)
+                    uni_r = partida.get('unidad_rendimiento', 'und')
+    
+                    col_rend1.metric("Rendimiento", f"{val_r:,.2f}")
+                    col_rend2.metric("Unidad de Medida", uni_r)
+    
+                    st.divider() # Separador visual
                     # Mano de Obra
                     if partida.get("mano_obra"):
                         st.markdown("**👷 Mano de Obra:**")
