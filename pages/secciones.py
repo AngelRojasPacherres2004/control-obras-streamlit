@@ -130,9 +130,9 @@ if materiales_lista:
         hide_index=True,
         column_config={
             "Precio unitario": st.column_config.NumberColumn("Precio unitario", format="S/ %.2f"),
-            "Stock inicial": st.column_config.NumberColumn(format="%.2f"),
-            "Stock asignado": st.column_config.NumberColumn(format="%.2f"),
-            "Stock sin asignar": st.column_config.NumberColumn(format="%.2f"),
+            "Stock inicial": st.column_config.NumberColumn(format="%.4f"),
+            "Stock asignado": st.column_config.NumberColumn(format="%.4f"),
+            "Stock sin asignar": st.column_config.NumberColumn(format="%.4f"),
         }
     )
 
@@ -266,7 +266,7 @@ with tab1:
                 mat_sel = st.selectbox(
                     "Seleccionar Material",
                     options=materiales_sin_asignar,
-                    format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_sin_asignar', 0)} {x['unidad']})",
+                    format_func=lambda x: f"{x['nombre']} (S/ {x.get('precio_unitario', 0):.2f}) (Disp: {x.get('stock_sin_asignar', 0)} {x['unidad']})",
 
                     key="select_material"
                 )
@@ -285,8 +285,8 @@ with tab1:
                     f"Cantidad a usar ({mat_sel['unidad']})",
                     min_value=0.0,
                     max_value=stock_disponible,
-                    step=1.0,                  # ⬅️ + y - de 1.00
-                    format="%.2f",              # ⬅️ muestra 1.00
+                    step=0.1,                  # ⬅️ + y - de 1.00
+                    format="%.4f",              # ⬅️ muestra 1.00
                     disabled=stock_disponible <= 0,
                     help=f"Stock disponible: {stock_disponible} {mat_sel['unidad']}"
                 )
