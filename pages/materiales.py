@@ -475,18 +475,18 @@ if archivo:
                         "nombre": r["nombre"],
                         "unidad": r["unidad"],
                         "cantidad": cant_val,
-                        "stock_inicial": cant_val,  # Stock inicial
-                        "stock_actual": cant_val,   # Stock actual
-                        "stock_sin_asignar": cant_val,  # Stock sin asignar a secciones
+                        "stock_inicial": cant_val,
+                        "stock_actual": cant_val,
+                        "stock_sin_asignar": cant_val,
                         "precio_unitario": float(r["precio_unitario"]),
                         "subtotal": round(float(cant_val * r["precio_unitario"]), 2),
                         "tipo": "COMPRADO",
-                        "fecha": datetime.now(local_tz)
+                        "fecha": datetime.now()
                     })
                 
                 # Recalcular presupuesto y limpiar caché
                 recalcular_presupuesto_obra(obra_id)
-                st.cache_data.clear()  # Limpiar caché para refrescar datos
+                st.cache_data.clear()
                 
                 st.success(f"✅ {len(df_excel)} materiales importados exitosamente (Total: S/ {total_importacion:,.2f})")
                 st.rerun()
