@@ -138,6 +138,41 @@ if st.session_state.partida_abierta is None:
                     if av.get("detalle"):
                         st.table(pd.DataFrame(av["detalle"]))
 
+                    st.markdown("### 💰 Resumen del avance")
+
+                    df_resumen = pd.DataFrame([{
+                        "Mano de obra (S/)": av.get("subtotal_mano_obra", 0),
+                        "Materiales (S/)": av.get("subtotal_materiales", 0),
+                        "Total avance (S/)": av.get("total_avance", 0)
+                    }])
+
+                    st.table(df_resumen)
+
+                    rend_real = av.get("rendimiento_real", 0)
+                    porc = av.get("porcentaje_rendimiento", 0)
+
+                    st.markdown("### 📊 Rendimiento del día")
+
+                    st.caption(
+                        f"🔎 Rendimiento real: **{rend_real:.2f} {d.get('unidad_rendimiento','')}** "
+                        f"({porc*100:.1f}% del plan)"
+                    )
+
+                    st.progress(min(porc, 1.0))
+
+
+                    # 👷 MANO DE OBRA
+                    if av.get("mano_obra_detalle"):
+                        st.markdown("### 👷 Mano de Obra")
+                        st.table(pd.DataFrame(av["mano_obra_detalle"]))
+
+                    # 🧱 MATERIALES
+                    if av.get("materiales_detalle"):
+                        st.markdown("### 🧱 Materiales")
+                        st.table(pd.DataFrame(av["materiales_detalle"]))
+
+
+
                     # 📸 Mostrar fotos del avance
                     fotos = av.get("fotos", [])
                     if fotos:
@@ -541,18 +576,52 @@ else:
                                 batch_asist.update(t_ref, {"dias_asistidos": firestore.Increment(1)})
                         batch_asist.commit()
 
+
+
+                    # 🔹 TABLA MANO DE OBRA (solo quienes asistieron)
+                    tabla_mano_obra = df_mo_asistio[[
+                        "Descripción", "Rendimiento", "Cantidad", "Precio", "Parcial"
+                    ]].to_dict(orient="records")
+
+                    # 🔹 TABLA MATERIALES USADOS
+                    tabla_materiales = df_mat_usado[[
+                        "Descripción", "Cantidad", "Precio", "Parcial"
+                    ]].to_dict(orient="records")
+
+
+
                     # 4. Guardar el documento de avance (Con campos que obras.py reconoce)
+                                 
                     avance = {
                         "fecha": datetime.now(tz),
-                        "timestamp": datetime.now(tz), # Duplicamos para asegurar compatibilidad
+                        "timestamp": datetime.now(tz),
                         "usuario": usuario,
-                        "responsable": usuario, # obras.py suele buscar 'responsable'
+                        "responsable": usuario,
                         "descripcion": descripcion,
-                        "materiales_usados": materiales_para_historial, # Nombre que espera obras.py
+
+                        # 🔹 COSTOS
+                        "subtotal_mano_obra": round(total_mo, 2),
+                        "subtotal_materiales": round(total_mat, 2),
+                        "total_avance": round(total_mo + total_mat, 2),
+
+                        # 🔹 RENDIMIENTO
+                        "rendimiento_real": rendimiento_real,
+                        "porcentaje_rendimiento": porcentaje_rendimiento,
+
+                        # 🔹 DETALLE
+                        "materiales_usados": materiales_para_historial,
+                        
+                        # 🔹 TABLAS PARA HISTORIAL
+                        "mano_obra_detalle": tabla_mano_obra,
+                        "materiales_detalle": tabla_materiales,
+
+                        
                         "fotos": urls,
                         "partida_id": partida["id"],
                         "partida_nombre": partida["nombre"]
                     }
+
+
 
                     obra_ref.collection("partidas").document(partida["id"]).collection("avances").add(avance)
 
