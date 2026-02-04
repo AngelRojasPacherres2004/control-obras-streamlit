@@ -138,7 +138,7 @@ if materiales_lista:
 
 
 # ================= PESTAÑAS PRINCIPALES =================
-tab1, tab2 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones"])
+tab1, tab2, tab3 = st.tabs(["➕ Crear Sección", "📋 Ver Secciones", "📥 Importar Excel"])
 # ================= INICIALIZAR ESTADO DE EDICIÓN =================
 if "seccion_en_edicion" not in st.session_state:
     st.session_state.seccion_en_edicion = None
@@ -645,3 +645,265 @@ with tab2:
                         recalcular_stock_sin_asignar(obra_id_sel)
                         st.success("Sección eliminada")
                         st.rerun()
+                        
+    # ================= TAB 3: IMPORTAR SECCIONES DESDE EXCEL =================
+with tab3:
+    st.subheader("📥 Importar Secciones desde Excel")
+    
+    st.info("""
+    **Formato requerido del Excel:**
+    - **codigo_seccion**: Código de la sección (ej: 05.05.01)
+    - **nombre_seccion**: Nombre de la sección (ej: CONCRETO PREMEZCLADO F'C=210 KG/CM2)
+    - **valor_rendimiento**: Valor de rendimiento de la sección (ej: 250000.00)
+    - **unidad_rendimiento**: Unidad de rendimiento (ej: m³, m², kg, und, m, glb, ton, lt)
+    - **nombre_material**: Nombre del material a asignar
+    - **cantidad_material**: Cantidad a asignar del material
+    - **unidad_material**: Unidad del material (ej: M3, KG, UND)
+    - **precio_unitario**: Precio unitario del material (para diferenciar materiales con mismo nombre)
+    
+    **Nota:** Una sección puede tener múltiples filas (una por cada material). 
+    Los materiales deben existir previamente en la obra. Si hay materiales con el mismo nombre,
+    el precio unitario ayudará a identificar cuál usar.
+    """)
+    
+    # Descargar plantilla
+    st.markdown("#### 📄 Descargar Plantilla")
+    plantilla_data = {
+        "codigo_seccion": ["05.05.01", "05.05.01", "05.05.02", "05.05.02"],
+        "nombre_seccion": [
+            "CONCRETO PREMEZCLADO F'C=210 KG/CM2",
+            "CONCRETO PREMEZCLADO F'C=210 KG/CM2",
+            "ACERO CORRUGADO FY=4200 KG/CM2",
+            "ACERO CORRUGADO FY=4200 KG/CM2"
+        ],
+        "valor_rendimiento": [250000.00, 250000.00, 180000.00, 180000.00],
+        "unidad_rendimiento": ["m³", "m³", "kg", "kg"],
+        "nombre_material": ["CEMENTO PORTLAND TIPO I", "ARENA GRUESA", "FIERRO CORRUGADO", "ALAMBRE NEGRO"],
+        "cantidad_material": [8.5, 0.54, 120.5, 5.2],
+        "unidad_material": ["BOL", "M3", "KG", "KG"],
+        "precio_unitario": [25.50, 80.00, 4.50, 3.80]
+    }
+    df_plantilla = pd.DataFrame(plantilla_data)
+    
+    # Crear archivo Excel en memoria
+    buffer = BytesIO()
+    with pd.ExcelWriter(buffer, engine='openpyxl') as writer:
+        df_plantilla.to_excel(writer, index=False, sheet_name='Secciones')
+    buffer.seek(0)
+    
+    st.download_button(
+        label="⬇️ Descargar Plantilla Excel (.xlsx)",
+        data=buffer,
+        file_name="plantilla_secciones.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+    
+    st.divider()
+    
+    # Subir archivo
+    st.markdown("#### 📤 Subir Excel con Secciones")
+    archivo_secciones = st.file_uploader(
+        "Selecciona el archivo Excel (.xlsx)",
+        type=["xlsx"],
+        key="upload_secciones"
+    )
+    
+    if archivo_secciones:
+        try:
+            # Leer archivo Excel
+            df_secciones = pd.read_excel(archivo_secciones)
+            
+            # Validar columnas requeridas
+            columnas_requeridas = {
+                "codigo_seccion", 
+                "nombre_seccion",
+                "valor_rendimiento",
+                "unidad_rendimiento",
+                "nombre_material",
+                "cantidad_material", 
+                "unidad_material",
+                "precio_unitario"
+            }
+            
+            if not columnas_requeridas.issubset(df_secciones.columns):
+                st.error(f"❌ El archivo debe contener las columnas: {', '.join(columnas_requeridas)}")
+            else:
+                st.success("✅ Archivo cargado correctamente")
+                
+                # Mostrar vista previa
+                st.markdown("**Vista previa de los datos:**")
+                st.dataframe(
+                    df_secciones, 
+                    use_container_width=True,
+                    column_config={
+                        "valor_rendimiento": st.column_config.NumberColumn(format="%.2f"),
+                        "cantidad_material": st.column_config.NumberColumn(format="%.4f"),
+                        "precio_unitario": st.column_config.NumberColumn(format="S/ %.2f")
+                    }
+                )
+                
+                # Agrupar por sección (incluyendo valor y unidad de rendimiento)
+                secciones_agrupadas = df_secciones.groupby([
+                    'codigo_seccion', 
+                    'nombre_seccion', 
+                    'valor_rendimiento', 
+                    'unidad_rendimiento'
+                ])
+                
+                st.markdown(f"**📊 Se detectaron {len(secciones_agrupadas)} secciones únicas**")
+                
+                # Obtener materiales disponibles de la obra
+                materiales_obra = obtener_materiales_obra(obra_id_sel)
+                
+                # Crear diccionario por nombre Y precio para identificar duplicados
+                materiales_dict = {}
+                for m in materiales_obra:
+                    key = f"{m['nombre'].strip().upper()}_{float(m.get('precio_unitario', 0))}"
+                    materiales_dict[key] = m
+                
+                # Mostrar resumen
+                with st.expander("Ver resumen de secciones a importar"):
+                    for (codigo, nombre, valor_rend, unidad_rend), grupo in secciones_agrupadas:
+                        st.markdown(f"**{codigo}** - {nombre}")
+                        st.caption(f"Rendimiento: {valor_rend:,.2f} {unidad_rend}")
+                        st.dataframe(
+                            grupo[['nombre_material', 'cantidad_material', 'unidad_material', 'precio_unitario']],
+                            use_container_width=True,
+                            hide_index=True,
+                            column_config={
+                                "cantidad_material": st.column_config.NumberColumn(format="%.4f"),
+                                "precio_unitario": st.column_config.NumberColumn(format="S/ %.2f")
+                            }
+                        )
+                        st.divider()
+                
+                # Botón para importar
+                if st.button("🚀 IMPORTAR TODAS LAS SECCIONES", type="primary", use_container_width=True):
+                    errores = []
+                    secciones_importadas = 0
+                    secciones_omitidas = 0
+                    
+                    with st.spinner("Importando secciones..."):
+                        for (codigo, nombre, valor_rend, unidad_rend), grupo in secciones_agrupadas:
+                            # Validar valor de rendimiento
+                            if valor_rend <= 0:
+                                errores.append(f"**Sección {codigo} - {nombre}** omitida:")
+                                errores.append(f"  • El valor de rendimiento debe ser mayor a 0")
+                                secciones_omitidas += 1
+                                continue
+                            
+                            # Crear estructura de sección
+                            nueva_seccion = {
+                                "codigo": codigo,
+                                "nombre": nombre,
+                                "valor_rendimiento": float(valor_rend),
+                                "unidad_rendimiento": str(unidad_rend),
+                                "mano_obra": [],
+                                "materiales": [],
+                                "equipos": [],
+                                "fecha_creacion": datetime.now(local_tz)
+                            }
+                            
+                            # Procesar materiales de esta sección
+                            materiales_validos = True
+                            errores_seccion = []
+                            
+                            for _, fila in grupo.iterrows():
+                                nombre_mat = str(fila['nombre_material']).strip()
+                                precio_mat = float(fila['precio_unitario'])
+                                cantidad_mat = float(fila['cantidad_material'])
+                                unidad_mat = str(fila['unidad_material']).strip()
+                                
+                                # Buscar material por nombre Y precio
+                                key = f"{nombre_mat.upper()}_{precio_mat}"
+                                material_info = materiales_dict.get(key)
+                                
+                                if not material_info:
+                                    # Buscar coincidencia aproximada (tolerancia de 0.01 en precio)
+                                    encontrado = False
+                                    for mat_key, mat_data in materiales_dict.items():
+                                        mat_nombre, mat_precio = mat_key.rsplit('_', 1)
+                                        mat_precio = float(mat_precio)
+                                        
+                                        if (mat_nombre == nombre_mat.upper() and 
+                                            abs(mat_precio - precio_mat) < 0.01):
+                                            material_info = mat_data
+                                            encontrado = True
+                                            break
+                                    
+                                    if not encontrado:
+                                        errores_seccion.append(
+                                            f"Material '{nombre_mat}' con precio S/ {precio_mat:.2f} no encontrado en la obra"
+                                        )
+                                        materiales_validos = False
+                                        continue
+                                
+                                # Obtener stock disponible
+                                stock_disponible = float(
+                                    material_info.get(
+                                        "stock_sin_asignar",
+                                        material_info.get("stock_inicial", material_info.get("stock", 0))
+                                    )
+                                )
+                                
+                                # Validar stock
+                                if cantidad_mat > stock_disponible:
+                                    errores_seccion.append(
+                                        f"Stock insuficiente para '{nombre_mat}' (S/ {precio_mat:.2f}): "
+                                        f"Solicitado={cantidad_mat:.4f}, Disponible={stock_disponible:.4f}"
+                                    )
+                                    materiales_validos = False
+                                    continue
+                                
+                                # Agregar material a la sección
+                                nueva_seccion["materiales"].append({
+                                    "material_id": material_info["id"],
+                                    "nombre": material_info["nombre"],
+                                    "unidad": unidad_mat,
+                                    "cantidad_asignada": cantidad_mat,
+                                    "gastado": 0.0,
+                                    "stock_al_asignar": stock_disponible
+                                })
+                            
+                            # Solo guardar si todos los materiales son válidos
+                            if materiales_validos and nueva_seccion["materiales"]:
+                                db.collection("obras") \
+                                    .document(obra_id_sel) \
+                                    .collection("partidas") \
+                                    .add(nueva_seccion)
+                                
+                                secciones_importadas += 1
+                            else:
+                                secciones_omitidas += 1
+                                # Registrar errores específicos de esta sección
+                                errores.append(f"**Sección {codigo} - {nombre}** omitida:")
+                                for error in errores_seccion:
+                                    errores.append(f"  • {error}")
+                        
+                        # Recalcular stock después de importar todas las secciones
+                        if secciones_importadas > 0:
+                            recalcular_stock_sin_asignar(obra_id_sel)
+                    
+                    # Mostrar resultados
+                    st.divider()
+                    
+                    col_r1, col_r2, col_r3 = st.columns(3)
+                    col_r1.metric("✅ Importadas", secciones_importadas)
+                    col_r2.metric("⚠️ Omitidas", secciones_omitidas)
+                    col_r3.metric("📊 Total", len(secciones_agrupadas))
+                    
+                    if secciones_importadas > 0:
+                        st.success(f"✅ {secciones_importadas} de {len(secciones_agrupadas)} secciones importadas exitosamente")
+                    
+                    if errores:
+                        with st.expander("⚠️ Ver detalles de secciones omitidas", expanded=True):
+                            for error in errores:
+                                st.write(error)
+                    
+                    if secciones_importadas > 0:
+                        st.rerun()
+        
+        except Exception as e:
+            st.error(f"❌ Error al procesar el archivo: {str(e)}")
+            import traceback
+            st.code(traceback.format_exc())
