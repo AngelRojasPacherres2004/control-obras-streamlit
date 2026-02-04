@@ -84,8 +84,7 @@ if st.session_state.partida_abierta is None:
         hide_index=True
     )
 
-
-    # =========================================================
+# =========================================================
     # 📋 SECCIONES DE LA OBRA
     # =========================================================
     st.title("📋 Secciones de la Obra")
@@ -104,36 +103,44 @@ if st.session_state.partida_abierta is None:
     for p in partidas:
         d = p.to_dict()
         
-        # 1. Obtener métricas de rendimiento
-        meta_total = float(d.get("metrado_total", 0))  # La meta de la sección (ej: 100 m3)
+        # 1. Obtener métricas de rendimiento (Usando valor_rendimiento como meta)
+        # Usamos .get() con 0.0 por defecto para evitar errores de tipo
+        meta_rendimiento = float(d.get("valor_rendimiento", 0))  
         acumulado = float(d.get("rendimiento_acumulado", 0))
         unidad = d.get('unidad_rendimiento', 'und')
         
         # 2. Calcular porcentaje total de la sección
-        porcentaje_total = (acumulado / meta_total) if meta_total > 0 else 0
+        porcentaje_total = (acumulado / meta_rendimiento) if meta_rendimiento > 0 else 0
         
         # 3. Diseño de la tarjeta de la sección
         with st.container(border=True):
-            col_txt, col_met, col_btn = st.columns([4, 3, 1])
+            col_txt, col_met, col_btn = st.columns([4, 3, 1.2])
             
             with col_txt:
                 st.markdown(f"### 🧱 {d.get('codigo')} - {d.get('nombre')}")
-                st.caption(f"📋 Meta: {meta_total:,.2f} {unidad}")
+                # Mostramos el Valor de Rendimiento como la meta oficial
+                st.markdown(f"**Meta total:** `{meta_rendimiento:,.2f} {unidad}`")
             
             with col_met:
-                # Mostrar métrica de avance
-                st.write(f"**Avance Actual:** {acumulado:,.2f} / {meta_total:,.2f} {unidad}")
-                # Color dinámico: Naranja si falta, Verde si terminó
-                color_barra = "green" if porcentaje_total >= 1 else "orange"
-                st.progress(min(porcentaje_total, 1.0))
-                st.caption(f"📈 Estado: {porcentaje_total*100:.1f}% completado")
+                # Mostrar métrica de avance con formato numérico claro
+                st.write(f"**Avance:** {acumulado:,.2f} {unidad}")
+                
+                # Barra de progreso: min(progreso, 1.0) para evitar que la barra se rompa si exceden la meta
+                progreso_visual = min(porcentaje_total, 1.0)
+                st.progress(progreso_visual)
+                
+                # Porcentaje con color según estado
+                porcentaje_texto = f"{porcentaje_total*100:.1f}%"
+                if porcentaje_total >= 1.0:
+                    st.caption(f"✅ **Completado: {porcentaje_texto}**")
+                else:
+                    st.caption(f"📈 **Progreso: {porcentaje_texto}**")
 
             with col_btn:
-                st.write("") # Espaciador
-                if st.button("📂 Abrir", key=f"btn_{p.id}", use_container_width=True):
+                st.write("###") # Espaciador para alinear el botón
+                if st.button("📂 Abrir", key=f"btn_secc_{p.id}", use_container_width=True, type="secondary"):
                     st.session_state.partida_abierta = {"id": p.id, **d}
                     st.rerun()
-
     # =====================================================
     # 📚 HISTORIAL DE AVANCES (AL FINAL)
     # =====================================================
