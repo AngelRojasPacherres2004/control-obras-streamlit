@@ -469,26 +469,33 @@ if archivo:
             if total_importacion > saldo_disponible:
                 st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
             else:
+                # Contador de materiales importados
+                materiales_importados = 0
+                
                 for _, r in df_excel.iterrows():
                     cant_val = float(r["cantidad"])
+                    precio_val = float(r["precio_unitario"])
+                    subtotal_val = round(cant_val * precio_val, 2)
+                    
+                    # ✅ ESTRUCTURA CORRECTA IGUAL A LA BASE DE DATOS
                     db.collection("obras").document(obra_id).collection("materiales").add({
-                        "nombre": r["nombre"],
-                        "unidad": r["unidad"],
-                        "cantidad": cant_val,
-                        "stock_inicial": cant_val,
-                        "stock_actual": cant_val,
-                        "stock_sin_asignar": cant_val,
-                        "precio_unitario": float(r["precio_unitario"]),
-                        "subtotal": round(float(cant_val * r["precio_unitario"]), 2),
-                        "tipo": "COMPRADO",
-                        "fecha": datetime.now()
+                        "nombre": str(r["nombre"]),           # (string)
+                        "unidad": str(r["unidad"]),           # (string)
+                        "cantidad": cant_val,                 # (number)
+                        "stock_inicial": cant_val,            # (number) 
+                        "stock_actual": cant_val,             # (number) 
+                        "precio_unitario": precio_val,        # (number)
+                        "subtotal": subtotal_val,             # (number)
+                        "tipo": "COMPRADO",                   # (string)
+                        "fecha": datetime.now()               # (timestamp)
                     })
+                    materiales_importados += 1
                 
                 # Recalcular presupuesto y limpiar caché
                 recalcular_presupuesto_obra(obra_id)
                 st.cache_data.clear()
                 
-                st.success(f"✅ {len(df_excel)} materiales importados exitosamente (Total: S/ {total_importacion:,.2f})")
+                st.success(f"✅ {materiales_importados} materiales importados exitosamente (Total: S/ {total_importacion:,.2f})")
                 st.rerun()
 
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
