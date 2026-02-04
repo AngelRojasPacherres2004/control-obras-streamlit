@@ -504,12 +504,10 @@ with tab2:
                     "Agregar Material",
                     options=materiales_sin_asignar,
                     format_func=lambda x: f"{x['nombre']} (Disp: {x.get('stock_sin_asignar', 0)} {x['unidad']})",
-
                     key="edit_select_material"
                 )
                 
                 stock_disponible = float(mat_sel.get("stock_sin_asignar", 0))
-
                 
                 col_c1, col_c2 = st.columns([2, 1])
                 
@@ -523,25 +521,19 @@ with tab2:
                     key="edit_cant_material"
                 )
                 
-                # En la línea 245 (cuando agregas material a una sección)
-            if col_c2.button("➕ Agregar Material", key="btn_add_mat", use_container_width=True):
-                if stock_disponible <= 0:
-                    st.error("No hay stock disponible de este material.")
-                elif cant_sel <= 0:
-                    st.error("La cantidad debe ser mayor a 0.")
-                elif cant_sel > stock_disponible:
-                    st.error(f"No puedes asignar más de {stock_disponible}")
-                else:
-                    seccion["materiales"].append({
-                    "material_id": mat_sel["id"],
-                    "nombre": mat_sel["nombre"],
-                    "unidad": mat_sel["unidad"],
-                    "cantidad_asignada": cant_sel,
-                    "gastado": 0.0,
-                    "stock_al_asignar": stock_disponible
-                })
-                st.success(f"✅ {mat_sel['nombre']} ({cant_sel}) agregado")
-                st.rerun()
+                if col_c2.button("➕ Agregar", key="edit_btn_add_mat", use_container_width=True):
+                    if cant_sel > 0 and cant_sel <= stock_disponible:
+                        sec_edit["materiales"].append({
+                            "material_id": mat_sel["id"],
+                            "nombre": mat_sel["nombre"],
+                            "unidad": mat_sel["unidad"],
+                            "cantidad_asignada": cant_sel,
+                            "gastado": 0.0
+                        })
+                        st.success(f"✅ {mat_sel['nombre']} agregado")
+                        st.rerun()
+                    else:
+                        st.error("Cantidad inválida")
             
             # Mostrar y eliminar materiales
             if sec_edit["materiales"]:
@@ -599,7 +591,7 @@ with tab2:
             
             if col_save1.button("💾 GUARDAR CAMBIOS", type="primary", use_container_width=True):
                 db.collection("obras").document(obra_id_sel).collection("partidas").document(sec_edit["id"]).update({
-                    "mano_obra": sec_edit["mano_obra"], 
+                    "mano_obra": sec_edit["mano_obra"],
                     "materiales": sec_edit["materiales"],
                     "equipos": sec_edit["equipos"],
                     "fecha_modificacion": datetime.now(local_tz)
@@ -617,56 +609,89 @@ with tab2:
         else:
             for partida in partidas:
                 with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
-                    # 🆕 MÉTRICAS DE RENDIMIENTO (Agregado aquí)
-                    col_rend1, col_rend2 = st.columns(2)
-                    val_r = partida.get('valor_rendimiento', 0.0)
-                    uni_r = partida.get('unidad_rendimiento', 'und')
-    
-                    col_rend1.metric("Rendimiento", f"{val_r:,.2f}")
-                    col_rend2.metric("Unidad de Medida", uni_r)
-    
-                    st.divider() # Separador visual
+            
+                    # ================= BARRA DE RENDIMIENTO ACUMULADO =================
+                    valor_meta = float(partida.get('valor_rendimiento', 0))
+                    rendimiento_acumulado = float(partida.get('rendimiento_acumulado', 0.0))
+            
+                    if valor_meta > 0:
+                        porcentaje_progreso = (rendimiento_acumulado / valor_meta)
+                        progreso_barra = min(porcentaje_progreso, 1.0)
+                
+                        st.markdown(f"**📈 Avance de Rendimiento ({porcentaje_progreso*100:.1f}%)**")
+                        st.progress(progreso_barra)
+                
+                        col_r1, col_r2, col_r3 = st.columns(3)
+                        col_r1.metric(
+                            "🎯 Meta", 
+                            f"{valor_meta:,.2f} {partida.get('unidad_rendimiento', '')}"
+                        )
+                        col_r2.metric(
+                            "📊 Acumulado", 
+                            f"{rendimiento_acumulado:,.2f} {partida.get('unidad_rendimiento', '')}",
+                            delta=f"{rendimiento_acumulado - valor_meta:+,.2f}"
+                        )
+                        col_r3.metric(
+                            "📉 Faltante", 
+                            f"{max(0, valor_meta - rendimiento_acumulado):,.2f} {partida.get('unidad_rendimiento', '')}"
+                        )
+                
+                        if porcentaje_progreso > 1.0:
+                            st.success(f"✅ ¡Meta superada en un {(porcentaje_progreso-1)*100:.1f}%!")
+                        elif porcentaje_progreso >= 0.9:
+                            st.info(f"🔔 Cerca de completar la meta ({(1-porcentaje_progreso)*100:.1f}% restante)")
+                
+                    else:
+                        st.warning("⚠️ No se ha definido un valor de rendimiento meta para esta sección.")
+            
+                    st.divider()
+
                     # Mano de Obra
                     if partida.get("mano_obra"):
                         st.markdown("**👷 Mano de Obra:**")
                         df_mo = pd.DataFrame(partida["mano_obra"])
                         st.dataframe(df_mo[["nombre", "rol"]], use_container_width=True, hide_index=True)
-                    
+            
                     # Materiales
                     if partida.get("materiales"):
                         st.markdown("**🧱 Materiales:**")
                         df_mat = pd.DataFrame(partida["materiales"])
-                        
+                
                         if "cantidad_asignada" not in df_mat.columns:
                             df_mat["cantidad_asignada"] = 0.0
-                        
+                        if "gastado" not in df_mat.columns:
+                            df_mat["gastado"] = 0.0
+                
+                        df_mat["disponible"] = df_mat["cantidad_asignada"] - df_mat["gastado"]
+                
                         st.dataframe(
-                            df_mat[["nombre", "cantidad_asignada", "unidad"]],
+                            df_mat[["nombre", "cantidad_asignada", "gastado", "disponible", "unidad"]],
                             use_container_width=True,
                             hide_index=True,
                             column_config={
-                                "cantidad_asignada": st.column_config.NumberColumn(
-                                    "Cantidad",
-                                    format="%.2f"
-                                )
+                                "cantidad_asignada": st.column_config.NumberColumn("Asignado", format="%.2f"),
+                                "gastado": st.column_config.NumberColumn("Gastado", format="%.2f"),
+                                "disponible": st.column_config.NumberColumn("Disponible", format="%.2f")
                             }
-                        )
-                    
+                        )   
+            
                     # Equipos
                     if partida.get("equipos"):
                         st.markdown("**🔧 Equipos:**")
                         df_eq = pd.DataFrame(partida["equipos"])
                         st.dataframe(df_eq[["codigo", "nombre"]], use_container_width=True, hide_index=True)
-                    
+            
+                    st.divider()
+            
                     # Botones de acción
                     col_btn1, col_btn2 = st.columns(2)
-                    
+            
                     if col_btn1.button("✏️ Editar", key=f"edit_{partida['id']}", use_container_width=True):
                         st.session_state.seccion_en_edicion = partida
                         st.rerun()
-                    
+            
                     if col_btn2.button("🗑️ Eliminar", key=f"del_{partida['id']}", use_container_width=True):
                         db.collection("obras").document(obra_id_sel).collection("partidas").document(partida["id"]).delete()
                         recalcular_stock_sin_asignar(obra_id_sel)
                         st.success("Sección eliminada")
-                        st.rerun()
+                        st.rerun()  

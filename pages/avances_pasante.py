@@ -49,7 +49,10 @@ st.session_state.setdefault("doble_refresh", 0)
 # ================= LISTA DE SECCIONES =====================
 # =========================================================
 if st.session_state.partida_abierta is None:
-
+    # 🔥 LIMPIAR ESTADOS DE EDITORES AL REGRESAR
+    keys_to_clear = [k for k in st.session_state.keys() if k.startswith(("mo_df_", "mat_df_", "mo_editor_ui_", "mat_editor_ui_"))]
+    for k in keys_to_clear:
+        del st.session_state[k]
     # 📦 RESUMEN DE MATERIALES (CON STOCK_INICIAL Y STOCK_ACTUAL)
 
     st.subheader("📦 Resumen de materiales")
@@ -97,17 +100,39 @@ if st.session_state.partida_abierta is None:
         st.info("No hay secciones creadas")
         st.stop()
 
-    # -------- SECCIONES (BOTONES) --------
+    # -------- SECCIONES (BOTONES Y PROGRESO ACUMULADO) --------
     for p in partidas:
         d = p.to_dict()
-        col1, col2 = st.columns([5, 1])
-        with col1:
-            st.markdown(f"### 🧱 {d.get('codigo')} - {d.get('nombre')}")
-            st.caption(f"{len(d.get('materiales', []))} materiales • {len(d.get('mano_obra', []))} personal")
+        
+        # 1. Obtener métricas de rendimiento
+        meta_total = float(d.get("metrado_total", 0))  # La meta de la sección (ej: 100 m3)
+        acumulado = float(d.get("rendimiento_acumulado", 0))
+        unidad = d.get('unidad_rendimiento', 'und')
+        
+        # 2. Calcular porcentaje total de la sección
+        porcentaje_total = (acumulado / meta_total) if meta_total > 0 else 0
+        
+        # 3. Diseño de la tarjeta de la sección
+        with st.container(border=True):
+            col_txt, col_met, col_btn = st.columns([4, 3, 1])
+            
+            with col_txt:
+                st.markdown(f"### 🧱 {d.get('codigo')} - {d.get('nombre')}")
+                st.caption(f"📋 Meta: {meta_total:,.2f} {unidad}")
+            
+            with col_met:
+                # Mostrar métrica de avance
+                st.write(f"**Avance Actual:** {acumulado:,.2f} / {meta_total:,.2f} {unidad}")
+                # Color dinámico: Naranja si falta, Verde si terminó
+                color_barra = "green" if porcentaje_total >= 1 else "orange"
+                st.progress(min(porcentaje_total, 1.0))
+                st.caption(f"📈 Estado: {porcentaje_total*100:.1f}% completado")
 
-        if col2.button("📂 Abrir", key=p.id, use_container_width=True):
-            st.session_state.partida_abierta = {"id": p.id, **d}
-            st.rerun()
+            with col_btn:
+                st.write("") # Espaciador
+                if st.button("📂 Abrir", key=f"btn_{p.id}", use_container_width=True):
+                    st.session_state.partida_abierta = {"id": p.id, **d}
+                    st.rerun()
 
     # =====================================================
     # 📚 HISTORIAL DE AVANCES (AL FINAL)
@@ -201,10 +226,6 @@ else:
         partida.get('unidad_rendimiento', 'N/D')
     )
 
-
-
-  
-
         
     st.divider()
 
@@ -253,9 +274,6 @@ else:
         m.to_dict().get("nombre"): float(m.to_dict().get("precio_unitario", 0))
         for m in materiales_obra
         }
-    # =====================================================
-    # 🔹 MANO DE OBRA (CON ASISTENCIA INTEGRADA)
-    # =====================================================
     # =====================================================
     # 🔹 MANO DE OBRA (TIEMPO REAL – PATRÓN CORRECTO)
     # =====================================================
@@ -322,11 +340,6 @@ else:
     )
 
 
-    
-    # =============================
-    # 📊 RENDIMIENTO REAL (LÓGICO)
-    # =============================
-
     # =============================
     # 📊 RENDIMIENTO REAL (CORRECTO APU)
     # =============================
@@ -363,8 +376,6 @@ else:
 
     st.divider()
 
-   
-
 
     # 5️⃣ Guardar
     st.session_state[editor_key] = df_mo_edit
@@ -385,10 +396,6 @@ else:
     if not df_mo_edit.equals(df_mo):
         st.session_state.doble_refresh = 2
 
-
-    # 🔹 MATERIALES (CON VALIDACIÓN DE STOCK ASIGNADO)
-    #=====================================================
-   
     # =====================================================
     # 🔹 MATERIALES (MISMO PATRÓN QUE MANO DE OBRA)
     # =====================================================
@@ -497,11 +504,8 @@ else:
 
     col1, col2 = st.columns(2)
 
-
-
-
-    # =====================================================
-# 💾 GUARDAR AVANCE Y ACTUALIZAR STOCK REAL
+# =====================================================
+# 💾 GUARDAR AVANCE Y ACTUALIZAR STOCK Y RENDIMIENTO
 # =====================================================
     if col1.button("💾 Guardar Avance", type="primary"):
         if not descripcion.strip():
@@ -509,8 +513,7 @@ else:
         elif not fotos or len(fotos) < 3:
             st.error("Mínimo 3 fotos")
         else:
-            # ... (dentro del botón de Guardar Avance) ...
-            with st.spinner("Guardando avance y actualizando inventario..."):
+            with st.spinner("Guardando avance y actualizando métricas..."):
                 try:
                     # 1. Subir fotos
                     urls = []
@@ -518,53 +521,45 @@ else:
                         res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
                         urls.append(res["secure_url"])
 
-                    # 2. Procesar Datos de Materiales y Gastos
+                    # 2. Procesar Datos de Materiales y Mano de Obra
                     df_mat_usado = df_mat_edit[df_mat_edit["Cantidad"] > 0].copy()
                     df_mo_asistio = df_mo_edit[df_mo_edit["Asistencia"] == True].copy()
                     
-                    gasto_materiales_total = 0.0 # Acumulador para la obra principal
+                    gasto_materiales_total = 0.0
                     materiales_para_historial = []
 
-                    # --- PROCESO DE MATERIALES ---
+                    # Referencia a la partida actual
                     partida_ref = obra_ref.collection("partidas").document(partida["id"])
                     partida_data = partida_ref.get().to_dict()
                     materiales_partida = partida_data.get("materiales", [])
 
+                    # --- PROCESO DE MATERIALES ---
                     for _, row in df_mat_usado.iterrows():
                         nombre_mat = row["Descripción"]
                         cant_gastada = float(row["Cantidad"])
                         precio_unid = float(row["Precio"])
                         subtotal_mat = cant_gastada * precio_unid
                         
-                        gasto_materiales_total += subtotal_mat # Sumamos al gasto de la obra
+                        gasto_materiales_total += subtotal_mat
 
-                        # Guardamos info para el historial legible
                         materiales_para_historial.append({
                             "nombre": nombre_mat,
                             "cantidad": cant_gastada,
-                            "unidad": "und", # O traer de row si lo añades
+                            "unidad": row.get("Unidad", "und"),
                             "subtotal": subtotal_mat
                         })
 
-                        # Descontar stock GENERAL de la obra
+                        # Descontar stock GENERAL
                         mats_query = obra_ref.collection("materiales").where("nombre", "==", nombre_mat).limit(1).stream()
                         for doc in mats_query:
                             obra_ref.collection("materiales").document(doc.id).update({
                                 "stock_actual": firestore.Increment(-cant_gastada)
                             })
 
-                        # Sumar gastado en la SECCIÓN/PARTIDA
+                        # Actualizar gastado en el array de la partida
                         for m in materiales_partida:
                             if m.get("nombre") == nombre_mat:
                                 m["gastado"] = float(m.get("gastado", 0)) + cant_gastada
-
-                    # 3. ACTUALIZAR GASTO EN EL DOCUMENTO DE LA OBRA (Para métricas en obras.py)
-                    obra_ref.update({
-                        "gasto_materiales": firestore.Increment(gasto_materiales_total)
-                    })
-
-                    # Guardar materiales actualizados en la sección
-                    partida_ref.update({"materiales": materiales_partida})
 
                     # --- PROCESO DE ASISTENCIA ---
                     if not df_mo_asistio.empty:
@@ -576,65 +571,53 @@ else:
                                 batch_asist.update(t_ref, {"dias_asistidos": firestore.Increment(1)})
                         batch_asist.commit()
 
-
-
-                    # 🔹 TABLA MANO DE OBRA (solo quienes asistieron)
+                    # 3. PREPARAR DOCUMENTO DE AVANCE
                     tabla_mano_obra = df_mo_asistio[[
                         "Descripción", "Rendimiento", "Cantidad", "Precio", "Parcial"
                     ]].to_dict(orient="records")
 
-                    # 🔹 TABLA MATERIALES USADOS
                     tabla_materiales = df_mat_usado[[
                         "Descripción", "Cantidad", "Precio", "Parcial"
                     ]].to_dict(orient="records")
 
-
-
-                    # 4. Guardar el documento de avance (Con campos que obras.py reconoce)
-                                 
                     avance = {
                         "fecha": datetime.now(tz),
-                        "timestamp": datetime.now(tz),
                         "usuario": usuario,
-                        "responsable": usuario,
                         "descripcion": descripcion,
-
-                        # 🔹 COSTOS
                         "subtotal_mano_obra": round(total_mo, 2),
                         "subtotal_materiales": round(total_mat, 2),
                         "total_avance": round(total_mo + total_mat, 2),
-
-                        # 🔹 RENDIMIENTO
                         "rendimiento_real": rendimiento_real,
                         "porcentaje_rendimiento": porcentaje_rendimiento,
-
-                        # 🔹 DETALLE
-                        "materiales_usados": materiales_para_historial,
-                        
-                        # 🔹 TABLAS PARA HISTORIAL
                         "mano_obra_detalle": tabla_mano_obra,
                         "materiales_detalle": tabla_materiales,
-
-                        
-                        "fotos": urls,
-                        "partida_id": partida["id"],
-                        "partida_nombre": partida["nombre"]
+                        "fotos": urls
                     }
 
+                    # 4. 🔥 ACTUALIZAR SECCIÓN (PARTIDA) EN FIREBASE
+                    # Guardamos el avance en su subcolección
+                    partida_ref.collection("avances").add(avance)
 
+                    # Actualizamos la partida con el nuevo acumulado y materiales
+                    partida_ref.update({
+                        "materiales": materiales_partida,
+                        "rendimiento_acumulado": firestore.Increment(rendimiento_real),
+                        "ultimo_rendimiento": rendimiento_real,
+                        "fecha_ultimo_avance": datetime.now(tz)
+                    })
 
-                    obra_ref.collection("partidas").document(partida["id"]).collection("avances").add(avance)
+                    # 5. ACTUALIZAR TOTALES DE LA OBRA
+                    obra_ref.update({
+                        "gasto_materiales": firestore.Increment(gasto_materiales_total),
+                        "gasto_mano_obra": firestore.Increment(total_mo)
+                    })
 
-                    st.success("✅ Avance guardado y métricas de obra actualizadas.")
+                    st.success(f"✅ Avance guardado. Se sumaron {rendimiento_real} {partida.get('unidad_rendimiento')} al total.")
                     st.session_state.partida_abierta = None
                     st.rerun()
-# ...
-            
-                except Exception as e:
-                    st.error(f"Error al guardar: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
 
+                except Exception as e:
+                    st.error(f"Error crítico: {e}")
     if col2.button("⬅️ Volver"):
         st.session_state.partida_abierta = None
         st.rerun()
