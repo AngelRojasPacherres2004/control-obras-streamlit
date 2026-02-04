@@ -469,7 +469,6 @@ if archivo:
             if total_importacion > saldo_disponible:
                 st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
             else:
-                # Contador de materiales importados
                 materiales_importados = 0
                 
                 for _, r in df_excel.iterrows():
@@ -477,17 +476,17 @@ if archivo:
                     precio_val = float(r["precio_unitario"])
                     subtotal_val = round(cant_val * precio_val, 2)
                     
-                    # ✅ ESTRUCTURA CORRECTA IGUAL A LA BASE DE DATOS
                     db.collection("obras").document(obra_id).collection("materiales").add({
-                        "nombre": str(r["nombre"]),           # (string)
-                        "unidad": str(r["unidad"]),           # (string)
-                        "cantidad": cant_val,                 # (number)
-                        "stock_inicial": cant_val,            # (number) 
-                        "stock_actual": cant_val,             # (number) 
-                        "precio_unitario": precio_val,        # (number)
-                        "subtotal": subtotal_val,             # (number)
-                        "tipo": "COMPRADO",                   # (string)
-                        "fecha": datetime.now()               # (timestamp)
+                        "nombre": str(r["nombre"]),
+                        "unidad": str(r["unidad"]),
+                        "cantidad": cant_val,
+                        "stock_inicial": cant_val,
+                        "stock_actual": cant_val,
+                        "stock_sin_asignar": cant_val,  
+                        "precio_unitario": precio_val,
+                        "subtotal": subtotal_val,
+                        "tipo": "COMPRADO",
+                        "fecha": datetime.now()
                     })
                     materiales_importados += 1
                 
