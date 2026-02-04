@@ -540,42 +540,65 @@ else:
         except Exception as e:
             f_txt = "Fecha N/D"
 
-        with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')}"):
+        seccion = av.get("seccion_nombre", "Sin sección")
+        with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')} | 🧱 {seccion}"):
+
             st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
-            
-          
 
-            # --- SECCIÓN DE MATERIALES ---
-            mats = av.get("materiales_usados")
+            # ================= RENDIMIENTO =================
+            rend_real = av.get("rendimiento_real", 0)
+            porc = av.get("porcentaje_rendimiento", 0)
+
+            st.markdown("### 📊 Rendimiento del día")
+            st.caption(
+                f"🔎 Rendimiento real: **{rend_real:.2f}** "
+                f"({porc*100:.1f}% del plan)"
+            )
+            st.progress(min(porc, 1.0))
+
+            # ================= RESUMEN ECONÓMICO =================
+            st.markdown("### 💰 Resumen económico")
+
+            df_resumen = pd.DataFrame([{
+                "Mano de obra (S/)": av.get("subtotal_mano_obra", 0),
+                "Materiales (S/)": av.get("subtotal_materiales", 0),
+                "Total avance (S/)": av.get("total_avance", 0)
+            }])
+
+            st.table(df_resumen)
+
+            # ================= MANO DE OBRA =================
+            mo = av.get("mano_obra_detalle")
+            if mo:
+                st.markdown("### 👷 Mano de Obra")
+                df_mo = pd.DataFrame(mo)
+                st.table(df_mo)
+
+            # ================= MATERIALES =================
+            mats = av.get("materiales_detalle")
             if mats:
-                st.write("**🧱 Materiales utilizados:**")
-                df_m = pd.DataFrame(mats)
+                st.markdown("### 🧱 Materiales")
+                df_mat = pd.DataFrame(mats)
+                st.table(df_mat)
 
-                
-
-                df_m = df_m[["nombre", "cantidad", "unidad"]]
-                df_m.columns = ["Material", "Cant.", "Unidad"]
-                st.table(df_m)
-
-            
-            
-            # --- FOTOS ---
+            # ================= FOTOS =================
             fotos = av.get("fotos", [])
             if fotos:
-                cols = st.columns(3)
+                st.markdown("### 📸 Fotos del avance")
+                cols = st.columns(min(3, len(fotos)))
                 for i, url in enumerate(fotos):
                     cols[i % 3].image(url, use_container_width=True)
-            
-              # --- SECCIÓN DE PROBLEMÁTICA Y SOLUCIÓN ---
+
+            # ================= PROBLEMÁTICA / SOLUCIÓN =================
             col_h1, col_h2 = st.columns(2)
             prob = av.get("problematica")
             sol = av.get("solucion")
-            
+
             if prob:
                 col_h1.warning(f"**⚠️ Problemática:**\n\n{prob}")
             if sol:
                 col_h2.success(f"**✅ Solución:**\n\n{sol}")
-                
+
             # --- FOTO DE GASTO ADICIONAL (BOLETA / EVIDENCIA) ---
             foto_gasto = av.get("foto_gasto_adicional")
 
