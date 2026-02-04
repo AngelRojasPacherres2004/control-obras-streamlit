@@ -4,6 +4,7 @@ import pandas as pd
 from datetime import datetime
 import pytz
 from firebase_admin import firestore
+from io import BytesIO
 
 # ================= CONFIGURACIÓN DE ZONA HORARIA =================
 local_tz = pytz.timezone('America/Lima')
