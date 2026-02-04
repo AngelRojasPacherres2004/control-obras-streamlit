@@ -43,7 +43,7 @@ def recalcular_stock_sin_asignar(obra_id):
         sin_asignar = max(stock_inicial - asignados[mid], 0)
         
         mat_ref = obra_ref.collection("materiales").document(mid)
-        batch.update(mat_ref, {"stock_sin_asignar": round(sin_asignar, 2)})
+        batch.update(mat_ref, {"stock_sin_asignar": round(sin_asignar, 4)})
     
     batch.commit()
     # IMPORTANTE: Limpiar caché después de actualizar la DB
