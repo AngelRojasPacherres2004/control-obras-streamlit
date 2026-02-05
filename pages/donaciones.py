@@ -279,7 +279,7 @@ with tab4:
             )
         
         st.dataframe(
-            df_mat[['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal', 'notas']],
+            df_mat[['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal']],
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -290,9 +290,9 @@ with tab4:
                 'unidad': 'Unidad',
                 'precio_unitario': st.column_config.NumberColumn('P. Unit. (S/)', format="S/ %.2f"),
                 'subtotal': st.column_config.NumberColumn('Subtotal (S/)', format="S/ %.2f"),
-                'notas': 'Notas'
             }
         )
+
         
         # Total
         total_mat = sum(d['subtotal'] for d in donaciones_mat)
@@ -300,7 +300,10 @@ with tab4:
         
         # Exportar
         st.divider()
-        csv_mat = df_mat[['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal', 'notas']].to_csv(index=False).encode('utf-8')
+        csv_mat = df_mat[
+            ['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal']
+        ].to_csv(index=False).encode("utf-8")
+
         st.download_button(
             label="📥 Descargar CSV",
             data=csv_mat,

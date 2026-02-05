@@ -573,8 +573,14 @@ else:
 
                     # 3. PREPARAR DOCUMENTO DE AVANCE
                     tabla_mano_obra = df_mo_asistio[[
-                        "Descripción", "Rendimiento", "Cantidad", "Precio", "Parcial"
+                        "Tipo",
+                        "Descripción",
+                        "Rendimiento",
+                        "Cantidad",
+                        "Precio",
+                        "Parcial"
                     ]].to_dict(orient="records")
+
 
                     tabla_materiales = df_mat_usado[[
                         "Descripción", "Cantidad", "Precio", "Parcial"
