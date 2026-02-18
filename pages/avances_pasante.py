@@ -289,18 +289,32 @@ else:
     # 1️⃣ Inicializar UNA sola vez
     if editor_key not in st.session_state:
         filas_mo = []
+
         for t in partida.get("mano_obra", []):
+            trabajador_id = t.get("trabajador_id")
+
+            # 🔎 Buscar datos reales del trabajador en Firebase
+            rol_trabajador = "Sin rol"
+
+            if trabajador_id:
+                doc_trab = obra_ref.collection("trabajadores").document(trabajador_id).get()
+                if doc_trab.exists:
+                    rol_trabajador = doc_trab.to_dict().get("rol", "Sin rol")
+
             filas_mo.append({
                 "Asistencia": False,
-                "ID": t.get("trabajador_id"),
-                "Tipo": "Mano de obra",
-                "Descripción": t["nombre"],
+                "ID": trabajador_id,
+                "Tipo": rol_trabajador,  # 🔥 AQUÍ AHORA VA EL ROL REAL
+                "Descripción": t.get("nombre", ""),
                 "Rendimiento": 0.0,
                 "Precio": 0.0,
                 "Cantidad": 0.0,
                 "Parcial": 0.0
             })
+
         st.session_state[editor_key] = pd.DataFrame(filas_mo)
+
+            
 
     df_mo = st.session_state[editor_key]
     df_mo_before = df_mo.copy(deep=True)
