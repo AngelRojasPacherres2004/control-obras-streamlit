@@ -6,6 +6,7 @@ import cloudinary
 from cookies_manager import cookies
 from auth import mostrar_pantalla_inicial, verificar_autenticacion
 import json
+import uuid
 
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
@@ -29,6 +30,40 @@ st.set_page_config(page_title="Control de Obras", layout="centered")
 
 if not cookies.ready():
     st.stop()
+
+# ================= RESTAURAR SESIÓN DESDE COOKIE =================
+# asegurar browser_id único por navegador
+if "browser_id" not in cookies:
+    cookies["browser_id"] = str(uuid.uuid4())
+    cookies.save()
+
+browser_id = cookies["browser_id"]
+
+# ================= RESTAURAR SESIÓN SEGURA =================
+if (
+    "auth" not in st.session_state
+    and cookies.get("session_id")
+):
+    session_id = cookies.get("session_id")
+    session_doc = db.collection("sessions").document(session_id).get()
+
+    if session_doc.exists:
+        session = session_doc.to_dict()
+
+        # 🔐 VALIDACIÓN CRÍTICA
+        if session.get("browser_id") == browser_id:
+
+            st.session_state["auth"] = {
+                "username": session["username"],
+                "role": session["role"],
+                "obra": session.get("obra")
+            }
+            st.session_state["show_login"] = True
+
+        else:
+            # sesión no válida para este navegador
+            del cookies["session_id"]
+            cookies.save()
 
 # ====== ESTADO ======
 if "show_login" not in st.session_state:
@@ -83,14 +118,25 @@ else:
 with st.sidebar:
     st.divider()
     if st.button("🚪 Cerrar sesión", use_container_width=True):
-        # eliminar cookie
-        del cookies["auth"]
+
+        #  eliminar cookie
+        if cookies.get("session_id"):
+            db.collection("sessions").document(cookies["session_id"]).delete()
+            del cookies["session_id"]
+
         cookies.save()
-        # limpiar sesión
+
+
+
+
+        #  limpiar sesión
         st.session_state.clear()
+
         # marcar logout
         st.session_state["logout"] = True
         st.session_state["show_login"] = False
+
+
         # volver al login
         st.rerun()
 

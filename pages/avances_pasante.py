@@ -1,4 +1,4 @@
-# avances_pasante.py
+"""avances_pasante.py"""
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -464,18 +464,41 @@ else:
         value=f"S/ {total_mat:,.2f}"
 )
 
-
-    # 🔁 Detectar cambios y forzar doble refresh (IGUAL QUE MANO DE OBRA)
-    if not df_mat_edit.equals(df_mat):
-        st.session_state.doble_refresh = 2
+hay = False
 
 
-    # 6️⃣ Validación de stock
-    for _, row in df_mat_edit.iterrows():
-        if row["Cantidad"] > row["Disponible"]:
-            st.error(
-                f"❌ {row['Descripción']}: "
-                f"solo hay {row['Disponible']} disponibles"
+for av in avances_docs:
+    hay = True
+    d = av.to_dict()
+
+    fecha_raw = d.get("fecha")
+
+    if isinstance(fecha_raw, str):
+        f = datetime.fromisoformat(fecha_raw)
+
+    elif hasattr(fecha_raw, "to_datetime"):
+        # Firestore Timestamp
+        f = fecha_raw.to_datetime()
+
+    else:
+        # 🔁 MISMO COMPORTAMIENTO DE ANTES
+        f = datetime.now()
+
+    prog = d.get("porcentaje_avance_financiero", 0)
+
+    with st.expander(
+        f"📅 {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"
+    ):
+        st.write(d.get("observaciones"))
+        st.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
+        st.progress(min(prog / 100, 1.0))
+
+        st.markdown("### 🧱 Materiales usados")
+        for m in d.get("materiales_usados", []):
+            st.write(
+                f"- **{m['nombre']}** ({m['unidad']}): "
+                f"{m['cantidad']} × S/ {m['precio_unitario']} "
+                f"= **S/ {m['subtotal']}**"
             )
             st.stop()
 
@@ -485,156 +508,8 @@ else:
         st.session_state.doble_refresh -= 1
         st.rerun()
 
-    # 🔹 DESCRIPCIÓN Y FOTOS    
-    # =====================================================
-    descripcion = st.text_area("📝 Descripción del trabajo realizado")
-
-    fotos = st.file_uploader(
-        "📸 Subir fotos del avance (mínimo 3)",
-        accept_multiple_files=True,
-        type=["jpg", "png", "jpeg"]
-    )
-
-    col1, col2 = st.columns(2)
-
-
-
-
-    # =====================================================
-# 💾 GUARDAR AVANCE Y ACTUALIZAR STOCK REAL
-# =====================================================
-    if col1.button("💾 Guardar Avance", type="primary"):
-        if not descripcion.strip():
-            st.error("Falta descripción")
-        elif not fotos or len(fotos) < 3:
-            st.error("Mínimo 3 fotos")
-        else:
-            # ... (dentro del botón de Guardar Avance) ...
-            with st.spinner("Guardando avance y actualizando inventario..."):
-                try:
-                    # 1. Subir fotos
-                    urls = []
-                    for f in fotos:
-                        res = cloudinary.uploader.upload(f, folder=f"obras/{obra_id}/avances")
-                        urls.append(res["secure_url"])
-
-                    # 2. Procesar Datos de Materiales y Gastos
-                    df_mat_usado = df_mat_edit[df_mat_edit["Cantidad"] > 0].copy()
-                    df_mo_asistio = df_mo_edit[df_mo_edit["Asistencia"] == True].copy()
-                    
-                    gasto_materiales_total = 0.0 # Acumulador para la obra principal
-                    materiales_para_historial = []
-
-                    # --- PROCESO DE MATERIALES ---
-                    partida_ref = obra_ref.collection("partidas").document(partida["id"])
-                    partida_data = partida_ref.get().to_dict()
-                    materiales_partida = partida_data.get("materiales", [])
-
-                    for _, row in df_mat_usado.iterrows():
-                        nombre_mat = row["Descripción"]
-                        cant_gastada = float(row["Cantidad"])
-                        precio_unid = float(row["Precio"])
-                        subtotal_mat = cant_gastada * precio_unid
-                        
-                        gasto_materiales_total += subtotal_mat # Sumamos al gasto de la obra
-
-                        # Guardamos info para el historial legible
-                        materiales_para_historial.append({
-                            "nombre": nombre_mat,
-                            "cantidad": cant_gastada,
-                            "unidad": "und", # O traer de row si lo añades
-                            "subtotal": subtotal_mat
-                        })
-
-                        # Descontar stock GENERAL de la obra
-                        mats_query = obra_ref.collection("materiales").where("nombre", "==", nombre_mat).limit(1).stream()
-                        for doc in mats_query:
-                            obra_ref.collection("materiales").document(doc.id).update({
-                                "stock_actual": firestore.Increment(-cant_gastada)
-                            })
-
-                        # Sumar gastado en la SECCIÓN/PARTIDA
-                        for m in materiales_partida:
-                            if m.get("nombre") == nombre_mat:
-                                m["gastado"] = float(m.get("gastado", 0)) + cant_gastada
-
-                    # 3. ACTUALIZAR GASTO EN EL DOCUMENTO DE LA OBRA (Para métricas en obras.py)
-                    obra_ref.update({
-                        "gasto_materiales": firestore.Increment(gasto_materiales_total)
-                    })
-
-                    # Guardar materiales actualizados en la sección
-                    partida_ref.update({"materiales": materiales_partida})
-
-                    # --- PROCESO DE ASISTENCIA ---
-                    if not df_mo_asistio.empty:
-                        batch_asist = db.batch()
-                        for _, fila in df_mo_asistio.iterrows():
-                            t_id = fila["ID"]
-                            if t_id:
-                                t_ref = obra_ref.collection("trabajadores").document(t_id)
-                                batch_asist.update(t_ref, {"dias_asistidos": firestore.Increment(1)})
-                        batch_asist.commit()
-
-
-
-                    # 🔹 TABLA MANO DE OBRA (solo quienes asistieron)
-                    tabla_mano_obra = df_mo_asistio[[
-                        "Descripción", "Rendimiento", "Cantidad", "Precio", "Parcial"
-                    ]].to_dict(orient="records")
-
-                    # 🔹 TABLA MATERIALES USADOS
-                    tabla_materiales = df_mat_usado[[
-                        "Descripción", "Cantidad", "Precio", "Parcial"
-                    ]].to_dict(orient="records")
-
-
-
-                    # 4. Guardar el documento de avance (Con campos que obras.py reconoce)
-                                 
-                    avance = {
-                        "fecha": datetime.now(tz),
-                        "timestamp": datetime.now(tz),
-                        "usuario": usuario,
-                        "responsable": usuario,
-                        "descripcion": descripcion,
-
-                        # 🔹 COSTOS
-                        "subtotal_mano_obra": round(total_mo, 2),
-                        "subtotal_materiales": round(total_mat, 2),
-                        "total_avance": round(total_mo + total_mat, 2),
-
-                        # 🔹 RENDIMIENTO
-                        "rendimiento_real": rendimiento_real,
-                        "porcentaje_rendimiento": porcentaje_rendimiento,
-
-                        # 🔹 DETALLE
-                        "materiales_usados": materiales_para_historial,
-                        
-                        # 🔹 TABLAS PARA HISTORIAL
-                        "mano_obra_detalle": tabla_mano_obra,
-                        "materiales_detalle": tabla_materiales,
-
-                        
-                        "fotos": urls,
-                        "partida_id": partida["id"],
-                        "partida_nombre": partida["nombre"]
-                    }
-
-
-
-                    obra_ref.collection("partidas").document(partida["id"]).collection("avances").add(avance)
-
-                    st.success("✅ Avance guardado y métricas de obra actualizadas.")
-                    st.session_state.partida_abierta = None
-                    st.rerun()
-# ...
+        for img in d.get("fotos", []):
+            st.image(img, use_container_width=True)
             
-                except Exception as e:
-                    st.error(f"Error al guardar: {e}")
-                    import traceback
-                    st.code(traceback.format_exc())
-
-    if col2.button("⬅️ Volver"):
-        st.session_state.partida_abierta = None
-        st.rerun()
+if not hay:
+    st.info("Aún no hay avances registrados.")
