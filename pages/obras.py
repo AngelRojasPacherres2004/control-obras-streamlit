@@ -266,26 +266,197 @@ else:
         f_dt = av.get("_dt_local")
         f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
 
-        excede = av.get("_acumulado_momento", 0) > presupuesto_obra
-        alerta = "🔴" if excede else "🟢"
+        seccion = av.get("seccion_nombre", "Sin sección")
+        with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')} | 🧱 {seccion}"):
 
-        with st.expander(f"{alerta} {f_txt} — {av.get('responsable', 'N/D')}"):
-            desc = av.get("descripcion") or av.get("observaciones") or "Sin descripción"
-            st.write(f"**Descripción:** {desc}")
-            
-            mats = av.get("materiales_usados") or av.get("detalle_materiales")
+            st.write(f"**Descripción:** {av.get('descripcion', 'Sin descripción')}")
+
+            # ================= RENDIMIENTO =================
+            rend_real = av.get("rendimiento_real", 0)
+            porc = av.get("porcentaje_rendimiento", 0)
+
+            st.markdown("### 📊 Rendimiento del día")
+            st.caption(
+                f"🔎 Rendimiento real: **{rend_real:.2f}** "
+                f"({porc*100:.1f}% del plan)"
+            )
+            st.progress(min(porc, 1.0))
+
+            # ================= RESUMEN ECONÓMICO =================
+            st.markdown("### 💰 Resumen económico")
+
+            df_resumen = pd.DataFrame([{
+                "Mano de obra (S/)": av.get("subtotal_mano_obra", 0),
+                "Materiales (S/)": av.get("subtotal_materiales", 0),
+                "Total avance (S/)": av.get("total_avance", 0)
+            }])
+
+            st.table(df_resumen)
+
+            # ================= MANO DE OBRA =================
+            mo = av.get("mano_obra_detalle")
+            if mo:
+                st.markdown("### 👷 Mano de Obra")
+                df_mo = pd.DataFrame(mo)
+                st.table(df_mo)
+
+            # ================= MATERIALES =================
+            mats = av.get("materiales_detalle")
             if mats:
-                st.write("**🧱 Materiales utilizados:**")
-                df_m = pd.DataFrame(mats)[["nombre", "cantidad", "unidad", "subtotal"]]
-                df_m.columns = ["Material", "Cant.", "Unidad", "Subtotal (S/)"]
-                st.table(df_m)
-            
-            c_col1, c_col2 = st.columns(2)
-            c_col1.metric("Costo del día", f"S/ {av.get('costo_total_dia', 0):,.2f}")
-            c_col2.metric("Acumulado Obra", f"S/ {av.get('_acumulado_momento', 0):,.2f}")
+                st.markdown("### 🧱 Materiales")
+                df_mat = pd.DataFrame(mats)
+                st.table(df_mat)
 
+            # ================= FOTOS =================
             fotos = av.get("fotos", [])
             if fotos:
-                cols = st.columns(3)
+                st.markdown("### 📸 Fotos del avance")
+                cols = st.columns(min(3, len(fotos)))
                 for i, url in enumerate(fotos):
                     cols[i % 3].image(url, use_container_width=True)
+
+            # ================= PROBLEMÁTICA / SOLUCIÓN =================
+            col_h1, col_h2 = st.columns(2)
+            prob = av.get("problematica")
+            sol = av.get("solucion")
+
+            if prob:
+                col_h1.warning(f"**⚠️ Problemática:**\n\n{prob}")
+            if sol:
+                col_h2.success(f"**✅ Solución:**\n\n{sol}")
+
+            # --- FOTO DE GASTO ADICIONAL (BOLETA / EVIDENCIA) ---
+            foto_gasto = av.get("foto_gasto_adicional")
+
+            if foto_gasto:
+                st.markdown("#### 📸 Evidencia / Boleta")
+                st.image(foto_gasto, use_container_width=True)
+
+def limpiar_fechas_para_excel(df: pd.DataFrame) -> pd.DataFrame:
+    """
+    Elimina timezone de columnas datetime para que Excel no falle
+    """
+    for col in df.columns:
+        if pd.api.types.is_datetime64_any_dtype(df[col]):
+            df[col] = df[col].dt.tz_localize(None)
+    return df
+def formatear_materiales_texto(materiales):
+    """
+    Convierte materiales_usados a texto legible para Excel
+    """
+    if not materiales:
+        return ""
+
+    lineas = []
+    for m in materiales:
+        nombre = m.get("nombre", "")
+        cant = m.get("cantidad", 0)
+        unidad = m.get("unidad", "")
+        subtotal = m.get("subtotal", 0)
+        lineas.append(f"- {nombre}: {cant} {unidad} (S/ {subtotal:.2f})")
+
+    return "\n".join(lineas)
+
+def exportar_obra_excel(obra_id: str):
+    obra_ref = db.collection("obras").document(obra_id)
+    obra = obra_ref.get().to_dict()
+
+    # ================= DATOS GENERALES =================
+    df_resumen = pd.DataFrame([{
+        "Nombre de la Obra": obra.get("nombre"),
+        "Ubicación": obra.get("ubicacion"),
+        "Estado": obra.get("estado"),
+        "Presupuesto Caja Chica (S/)": obra.get("presupuesto_caja_chica", 0),
+        "Presupuesto Materiales (S/)": obra.get("presupuesto_materiales", 0),
+        "Presupuesto Mano de Obra (S/)": obra.get("presupuesto_mano_obra", 0),
+        "Presupuesto Total (S/)": obra.get("presupuesto_total", 0),
+        "Gasto Materiales (S/)": obra.get("gasto_materiales", 0),
+        "Gasto Caja Chica (S/)": obra.get("gasto_caja_chica", 0),
+        "Gasto Mano de Obra (S/)": obra.get("gasto_mano_obra", 0),
+    }])
+
+    # ================= MATERIALES =================
+    mats_docs = obra_ref.collection("materiales").stream()
+    materiales = [m.to_dict() for m in mats_docs]
+    df_materiales = pd.DataFrame(materiales) if materiales else pd.DataFrame()
+
+    # ================= MANO DE OBRA =================
+    trab_docs = obra_ref.collection("trabajadores").stream()
+    trabajadores = [t.to_dict() for t in trab_docs]
+    df_trabajadores = pd.DataFrame(trabajadores) if trabajadores else pd.DataFrame()
+
+    # ================= AVANCES =================
+    avances_docs = obra_ref.collection("avances").stream()
+    avances = [a.to_dict() for a in avances_docs]
+    df_avances = pd.DataFrame(avances) if avances else pd.DataFrame()
+
+    # 🔥 LIMPIEZA DE FECHAS (JUSTO ANTES DE EXCEL)
+    df_resumen = limpiar_fechas_para_excel(df_resumen)
+    if not df_materiales.empty:
+        df_materiales = limpiar_fechas_para_excel(df_materiales)
+    if not df_trabajadores.empty:
+        df_trabajadores = limpiar_fechas_para_excel(df_trabajadores)
+    if not df_avances.empty:
+        df_avances = limpiar_fechas_para_excel(df_avances)
+
+    # ================= CREAR EXCEL =================
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine="xlsxwriter") as writer:
+        workbook = writer.book
+
+        # --- FORMATOS ---
+        header_format = workbook.add_format({
+            "bold": True,
+            "bg_color": "#1F4E78",
+            "color": "white",
+            "border": 1,
+            "align": "center"
+        })
+
+        # -------- RESUMEN --------
+        df_resumen.to_excel(writer, sheet_name="Resumen General", index=False)
+        ws = writer.sheets["Resumen General"]
+        ws.set_column("A:J", 30)
+        for col_num, _ in enumerate(df_resumen.columns):
+            ws.write(0, col_num, df_resumen.columns[col_num], header_format)
+
+        # -------- MATERIALES --------
+        if not df_materiales.empty:
+            df_materiales.to_excel(writer, sheet_name="Materiales", index=False)
+            ws = writer.sheets["Materiales"]
+            ws.set_column("A:Z", 22)
+            for col_num, col in enumerate(df_materiales.columns):
+                ws.write(0, col_num, col, header_format)
+
+        # -------- MANO DE OBRA --------
+        if not df_trabajadores.empty:
+            df_trabajadores.to_excel(writer, sheet_name="Mano de Obra", index=False)
+            ws = writer.sheets["Mano de Obra"]
+            ws.set_column("A:Z", 22)
+            for col_num, col in enumerate(df_trabajadores.columns):
+                ws.write(0, col_num, col, header_format)
+
+        # -------- AVANCES --------
+        if not df_avances.empty:
+            df_avances.to_excel(writer, sheet_name="Avances", index=False)
+            ws = writer.sheets["Avances"]
+            ws.set_column("A:Z", 25)
+            for col_num, col in enumerate(df_avances.columns):
+                ws.write(0, col_num, col, header_format)
+
+    output.seek(0)
+    return output
+
+
+if auth["role"] == "jefe":
+    st.divider()
+    st.subheader("📤 Exportar Información de la Obra")
+
+    excel = exportar_obra_excel(obra_id_sel)
+
+    st.download_button(
+        label="📊 Descargar Excel de la Obra",
+        data=excel,
+        file_name=f"obra_{obra_id_sel}.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
