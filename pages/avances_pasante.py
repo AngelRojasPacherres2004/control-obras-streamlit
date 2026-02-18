@@ -1,4 +1,4 @@
-# avances_pasante.py
+"""avances_pasante.py"""
 import streamlit as st
 import pandas as pd
 from datetime import datetime
@@ -471,18 +471,41 @@ else:
         value=f"S/ {total_mat:,.2f}"
 )
 
-
-    # 🔁 Detectar cambios y forzar doble refresh (IGUAL QUE MANO DE OBRA)
-    if not df_mat_edit.equals(df_mat):
-        st.session_state.doble_refresh = 2
+hay = False
 
 
-    # 6️⃣ Validación de stock
-    for _, row in df_mat_edit.iterrows():
-        if row["Cantidad"] > row["Disponible"]:
-            st.error(
-                f"❌ {row['Descripción']}: "
-                f"solo hay {row['Disponible']} disponibles"
+for av in avances_docs:
+    hay = True
+    d = av.to_dict()
+
+    fecha_raw = d.get("fecha")
+
+    if isinstance(fecha_raw, str):
+        f = datetime.fromisoformat(fecha_raw)
+
+    elif hasattr(fecha_raw, "to_datetime"):
+        # Firestore Timestamp
+        f = fecha_raw.to_datetime()
+
+    else:
+        # 🔁 MISMO COMPORTAMIENTO DE ANTES
+        f = datetime.now()
+
+    prog = d.get("porcentaje_avance_financiero", 0)
+
+    with st.expander(
+        f"📅 {f:%d/%m/%Y %H:%M} | 📈 {prog}% | {d.get('responsable')}"
+    ):
+        st.write(d.get("observaciones"))
+        st.metric("Costo del día", f"S/ {d.get('costo_total_dia', 0):,.2f}")
+        st.progress(min(prog / 100, 1.0))
+
+        st.markdown("### 🧱 Materiales usados")
+        for m in d.get("materiales_usados", []):
+            st.write(
+                f"- **{m['nombre']}** ({m['unidad']}): "
+                f"{m['cantidad']} × S/ {m['precio_unitario']} "
+                f"= **S/ {m['subtotal']}**"
             )
             st.stop()
 
