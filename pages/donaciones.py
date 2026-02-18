@@ -44,6 +44,13 @@ def recalcular_donaciones_monetarias(obra_id):
     })
     return total_donaciones
 
+def eliminar_doc(path):
+    db.document(path).delete()
+
+def actualizar_doc(path, data):
+    db.document(path).update(data)
+
+
 # ================= UI =================
 st.title("💝 Gestión de Donaciones")
 
@@ -217,48 +224,75 @@ with tab2:
 # ================= TAB 3: HISTORIAL MONETARIAS =================
 with tab3:
     st.subheader("📋 Historial de Donaciones Monetarias")
-    
+
     donaciones_mon = obtener_donaciones_monetarias(obra_id_sel)
-    
+
     if not donaciones_mon:
         st.info("No hay donaciones monetarias registradas.")
     else:
-        # Tabla resumen
-        df_don = pd.DataFrame(donaciones_mon)
-        
-        # Formatear fecha para visualización
-        if 'fecha' in df_don.columns:
-            df_don['fecha_formato'] = df_don['fecha'].apply(
-                lambda x: x.astimezone(local_tz).strftime('%d/%m/%Y') if hasattr(x, 'astimezone') else 'N/D'
-            )
-        
-        st.dataframe(
-            df_don[['fecha_formato', 'donante', 'pais', 'monto', 'destino', 'notas']],
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                'fecha_formato': 'Fecha',
-                'donante': 'Donante',
-                'pais': 'País',
-                'monto': st.column_config.NumberColumn('Monto (S/)', format="S/ %.2f"),
-                'destino': 'Destino',
-                'notas': 'Notas'
-            }
-        )
-        
-        # Total
-        total = sum(d['monto'] for d in donaciones_mon)
-        st.success(f"**Total acumulado:** S/ {total:,.2f}")
-        
-        # Exportar
-        st.divider()
-        csv = df_don[['fecha_formato', 'donante', 'pais', 'monto', 'destino', 'notas']].to_csv(index=False).encode('utf-8')
-        st.download_button(
-            label="📥 Descargar CSV",
-            data=csv,
-            file_name=f"donaciones_monetarias_{obra_id_sel}.csv",
-            mime="text/csv"
-        )
+        for d in donaciones_mon:
+            with st.expander(f"💵 {d['donante']} — S/ {d['monto']:,.2f}"):
+                st.write(
+                    f"📅 Fecha: {d['fecha'].astimezone(local_tz).strftime('%d/%m/%Y')}"
+                )
+                st.write(f"🌍 País: {d.get('pais','')}")
+                st.write(f"🎯 Destino: {d['destino']}")
+                st.write(f"📝 Notas: {d.get('notas','')}")
+
+                col1, col2 = st.columns(2)
+
+                # 🗑️ ELIMINAR
+                if col1.button("🗑️ Eliminar", key=f"del_mon_{d['id']}"):
+                    eliminar_doc(
+                        f"obras/{obra_id_sel}/donaciones_monetarias/{d['id']}"
+                    )
+                    recalcular_donaciones_monetarias(obra_id_sel)
+                    st.success("Donación eliminada")
+                    st.rerun()
+
+                # ✏️ EDITAR
+                if col2.button("✏️ Editar", key=f"edit_mon_{d['id']}"):
+                    with st.form(f"form_edit_mon_{d['id']}"):
+                        nuevo_donante = st.text_input(
+                            "Donante", value=d['donante']
+                        )
+                        nuevo_pais = st.text_input(
+                            "País", value=d.get("pais", "")
+                        )
+                        nuevo_monto = st.number_input(
+                            "Monto",
+                            value=float(d['monto']),
+                            min_value=0.0
+                        )
+                        nuevo_destino = st.selectbox(
+                            "Destino",
+                            ["Caja Chica", "Materiales", "Mano de Obra", "General"],
+                            index=[
+                                "Caja Chica",
+                                "Materiales",
+                                "Mano de Obra",
+                                "General"
+                            ].index(d['destino'])
+                        )
+                        nuevas_notas = st.text_area(
+                            "Notas", value=d.get("notas", "")
+                        )
+
+                        if st.form_submit_button("💾 Guardar cambios"):
+                            actualizar_doc(
+                                f"obras/{obra_id_sel}/donaciones_monetarias/{d['id']}",
+                                {
+                                    "donante": nuevo_donante,
+                                    "pais": nuevo_pais,
+                                    "monto": nuevo_monto,
+                                    "destino": nuevo_destino,
+                                    "notas": nuevas_notas,
+                                    "editado_en": datetime.now(local_tz)
+                                }
+                            )
+                            recalcular_donaciones_monetarias(obra_id_sel)
+                            st.success("Donación actualizada")
+                            st.rerun()
 
 # ================= TAB 4: HISTORIAL MATERIALES =================
 with tab4:
@@ -279,7 +313,7 @@ with tab4:
             )
         
         st.dataframe(
-            df_mat[['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal', 'notas']],
+            df_mat[['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal']],
             use_container_width=True,
             hide_index=True,
             column_config={
@@ -290,9 +324,9 @@ with tab4:
                 'unidad': 'Unidad',
                 'precio_unitario': st.column_config.NumberColumn('P. Unit. (S/)', format="S/ %.2f"),
                 'subtotal': st.column_config.NumberColumn('Subtotal (S/)', format="S/ %.2f"),
-                'notas': 'Notas'
             }
         )
+
         
         # Total
         total_mat = sum(d['subtotal'] for d in donaciones_mat)
@@ -300,7 +334,54 @@ with tab4:
         
         # Exportar
         st.divider()
-        csv_mat = df_mat[['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal', 'notas']].to_csv(index=False).encode('utf-8')
+        csv_mat = df_mat[
+            ['fecha_formato', 'donante', 'nombre', 'cantidad', 'unidad', 'precio_unitario', 'subtotal']
+        ].to_csv(index=False).encode("utf-8")
+
+        st.divider()
+        st.subheader("✏️ Gestión de Donaciones de Materiales")
+
+        for d in donaciones_mat:
+            with st.expander(f"🧱 {d['nombre']} — {d['cantidad']} {d['unidad']}"):
+                st.write(f"👤 Donante: {d['donante']}")
+                st.write(f"💰 Subtotal: S/ {d['subtotal']:,.2f}")
+
+                col1, col2 = st.columns(2)
+
+                # 🗑️ ELIMINAR
+                if col1.button("🗑️ Eliminar", key=f"del_mat_{d['id']}"):
+                    eliminar_doc(f"obras/{obra_id_sel}/donaciones_materiales/{d['id']}")
+                    st.success("Donación eliminada")
+                    st.rerun()
+
+                # ✏️ EDITAR
+                if col2.button("✏️ Editar", key=f"edit_mat_{d['id']}"):
+                    with st.form(f"form_edit_mat_{d['id']}"):
+                        nuevo_nombre = st.text_input("Material", value=d['nombre'])
+                        nueva_cant = st.number_input("Cantidad", value=float(d['cantidad']), min_value=0.0)
+                        nuevo_precio = st.number_input(
+                            "Precio unitario",
+                            value=float(d['precio_unitario']),
+                            min_value=0.0
+                        )
+
+                        nuevo_subtotal = nueva_cant * nuevo_precio
+                        st.info(f"Nuevo subtotal: S/ {nuevo_subtotal:,.2f}")
+
+                        if st.form_submit_button("💾 Guardar cambios"):
+                            actualizar_doc(
+                                f"obras/{obra_id_sel}/donaciones_materiales/{d['id']}",
+                                {
+                                    "nombre": nuevo_nombre,
+                                    "cantidad": nueva_cant,
+                                    "precio_unitario": nuevo_precio,
+                                    "subtotal": nuevo_subtotal,
+                                    "editado_en": datetime.now(local_tz)
+                                }
+                            )
+                            st.success("Donación actualizada")
+                            st.rerun()
+
         st.download_button(
             label="📥 Descargar CSV",
             data=csv_mat,
