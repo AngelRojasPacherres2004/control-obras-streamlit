@@ -1,3 +1,4 @@
+# arq.py
 import streamlit as st
 import firebase_admin
 from firebase_admin import credentials, firestore
@@ -26,8 +27,6 @@ cloudinary.config(
 )
 
 st.set_page_config(page_title="Control de Obras", layout="centered")
-
-
 
 if not cookies.ready():
     st.stop()
@@ -71,12 +70,10 @@ if "show_login" not in st.session_state:
     st.session_state.show_login = False
 
 # ====== FLUJO VISUAL ======
-
 # 1️⃣ Pantalla inicial (solo diseño)
 if not st.session_state.get("show_login", False) and "auth" not in st.session_state:
     mostrar_pantalla_inicial()
     st.stop()
-
 
 # 2️⃣ Login (diseño + autenticación)
 if "auth" not in st.session_state:
@@ -86,17 +83,37 @@ if "auth" not in st.session_state:
 # ================= NAVEGACIÓN =================
 auth = st.session_state["auth"]
 
-usuarios_page   = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
+# 🔥 PÁGINAS DEFINIDAS
+usuarios_page = st.Page("pages/usuarios.py", title="Usuarios", icon=":material/group:")
 materiales_page = st.Page("pages/materiales.py", title="Materiales", icon=":material/inventory:")
-obras_page      = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
-avances_page    = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+obras_page = st.Page("pages/obras.py", title="Obras", icon=":material/construction:")
+avances_page = st.Page("pages/avances_pasante.py", title="Parte Diario", icon=":material/edit_note:")
+trabajadores_page = st.Page("pages/trabajadores.py", title="Mano de Obra", icon=":material/engineering:")
+informes_page = st.Page("pages/informes.py", title="Informes", icon=":material/assessment:")
+donaciones_page = st.Page("pages/donaciones.py", title="Donaciones", icon=":material/redeem:")
+secciones_page = st.Page("pages/secciones.py", title="Secciones", icon=":material/ballot:")  # 🔥 NUEVA
+solicitudes_pasante_page = st.Page("pages/solicitudes_pasante.py", title="Solicitudes", icon=":material/request_quote:")
+solicitudes_jefe_page = st.Page("pages/solicitudes_jefe.py", title="Recepción", icon=":material/inbox:")
 
 if auth["role"] == "jefe":
-    pg = st.navigation([obras_page, materiales_page, usuarios_page])
+    # 🔥 AGREGADA 'partidas_page' en la navegación del jefe
+    pg = st.navigation([
+        obras_page, 
+        materiales_page, 
+        trabajadores_page,  
+        secciones_page,        # 🔥 NUEVA PÁGINA
+        donaciones_page,
+        informes_page,
+        solicitudes_jefe_page,
+        usuarios_page
+    ])
 else:
-    pg = st.navigation([avances_page])
+    pg = st.navigation([
+        avances_page,
+        solicitudes_pasante_page,
+        donaciones_page
+    ])
 
-# ================= CERRAR SESIÓN =================
 # ================= CERRAR SESIÓN =================
 with st.sidebar:
     st.divider()
@@ -122,10 +139,5 @@ with st.sidebar:
 
         # volver al login
         st.rerun()
-
-
-
-
-
 
 pg.run()

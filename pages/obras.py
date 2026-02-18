@@ -1,3 +1,4 @@
+#obras.py
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
@@ -6,6 +7,7 @@ import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
 from collections import defaultdict
+from io import BytesIO
 
 # ================= CONFIGURACIÓN DE ZONA HORARIA =================
 # Cambia 'America/Lima' por tu ciudad si es necesario
@@ -51,8 +53,11 @@ if "auth" not in st.session_state:
 
 auth = st.session_state["auth"]
 
-if "crear_obra" not in st.session_state:
+# --- NUEVA LÓGICA: RESET AL CAMBIAR DE PESTAÑA ---
+# Si la última página registrada no es esta, cerramos el formulario de creación
+if st.session_state.get("last_page") != "obras":
     st.session_state["crear_obra"] = False
+    st.session_state["last_page"] = "obras"
 
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
@@ -62,6 +67,11 @@ if not OBRAS and auth["role"] != "jefe":
     st.stop()
 
 if auth["role"] == "jefe":
+    # Buscamos en qué posición de la lista está la obra que seleccionamos antes
+    indice_actual = 0
+    if "obra_id_global" in st.session_state and st.session_state["obra_id_global"] in lista_ids:
+        indice_actual = lista_ids.index(st.session_state["obra_id_global"])
+
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
         options=list(OBRAS.keys()) if OBRAS else [],

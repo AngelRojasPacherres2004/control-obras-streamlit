@@ -2,7 +2,7 @@
 Módulo de autenticación y pantalla inicial
 """
 import streamlit as st
-from util import set_background
+from util import set_background_responsive
 from cookies_manager import cookies
 import uuid
 from firebase_admin import firestore
@@ -10,7 +10,8 @@ from firebase_admin import firestore
 
 # ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
-    set_background("Empresalogo.jpg")
+    # Fondo responsive
+    set_background_responsive("Empresalogo_pc.jpg", "Empresalogo_movil.jpg")
 
     st.markdown("""
     <style>
@@ -28,8 +29,6 @@ def mostrar_pantalla_inicial():
     if st.button("Iniciar Sesión", use_container_width=True):
         st.session_state.show_login = True
         st.rerun()
-
-    st.markdown('</div>', unsafe_allow_html=True)
 
 
 # ====== LOGIN ======
