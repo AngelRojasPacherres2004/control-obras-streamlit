@@ -382,18 +382,35 @@ else:
         else 0
     )
 
-    # =============================
-    # 📊 BARRA DE AVANCE DE RENDIMIENTO
-    # =============================
 
-    st.markdown("### 📊 Avance de Rendimiento")
+    # ================= BARRA DE RENDIMIENTO DE LA SECCIÓN =================
+    st.markdown("### 📈 Avance de Rendimiento de esta Sección")
 
     st.caption(
-        f"🔎 Rendimiento real: **{rendimiento_real:.2f} {partida.get('unidad_rendimiento','')}** "
-        f"({porcentaje_rendimiento*100:.1f}% del plan)"
+        f"🔎 Rendimiento real del día: **{rendimiento_real:.2f} {partida.get('unidad_rendimiento','')}** "
+        f"({porcentaje_rendimiento*100:.1f}% del plan diario)"
     )
 
     st.progress(min(porcentaje_rendimiento, 1.0))
+
+    # Mostrar también el acumulado de la sección
+    acumulado_seccion = float(partida.get('rendimiento_acumulado', 0))
+    meta_seccion = float(partida.get('valor_rendimiento', 0))
+
+    if meta_seccion > 0:
+        porcentaje_acumulado = acumulado_seccion / meta_seccion
+    
+        st.caption(
+            f"📊 Acumulado de la sección: **{acumulado_seccion:.2f} / {meta_seccion:.2f} {partida.get('unidad_rendimiento','')}** "
+            f"({porcentaje_acumulado*100:.1f}% completado)"
+        )
+    
+        st.progress(min(porcentaje_acumulado, 1.0))
+    
+        col_s1, col_s2, col_s3 = st.columns(3)
+        col_s1.metric("🎯 Meta Sección", f"{meta_seccion:,.2f} {partida.get('unidad_rendimiento','')}")
+        col_s2.metric("📊 Acumulado", f"{acumulado_seccion:,.2f}", delta=f"{acumulado_seccion - meta_seccion:+,.2f}")
+        col_s3.metric("📉 Faltante", f"{max(0, meta_seccion - acumulado_seccion):,.2f}")
 
     st.divider()
 

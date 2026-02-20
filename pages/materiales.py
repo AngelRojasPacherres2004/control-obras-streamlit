@@ -438,26 +438,56 @@ if archivo:
 
         if st.button("Importar materiales a la obra", type="primary"):
             total_importacion = df_excel["subtotal"].sum()
-            obra_actual = db.collection("obras").document(obra_id).get().to_dict()
-            saldo_disponible = float(obra_actual.get("presupuesto_materiales_actual", 0))
             
-            if total_importacion > saldo_disponible:
-                st.error(f"❌ El total a importar (S/ {total_importacion:,.2f}) excede el presupuesto disponible (S/ {saldo_disponible:,.2f})")
+            # 🔹 OBTENER DATOS FRESCOS DE LA OBRA
+            obra_ref = db.collection("obras").document(obra_id)
+            obra_actual = obra_ref.get().to_dict()
+            
+            # 🔹 OBTENER EL PRESUPUESTO TOTAL (NO EL ACTUAL)
+            presupuesto_total = float(obra_actual.get("presupuesto_materiales", 0))
+            presupuesto_actual = float(obra_actual.get("presupuesto_materiales_actual", presupuesto_total))
+            
+            # 🔹 CALCULAR GASTO ACTUAL (lo que ya se ha gastado)
+            gasto_actual = float(obra_actual.get("gasto_materiales", 0))
+            
+            # 🔹 CALCULAR SI HAY SUFICIENTE PRESUPUESTO
+            # El nuevo gasto sería: lo ya gastado + lo que se quiere importar
+            nuevo_gasto_total = gasto_actual + total_importacion
+            
+            # 🔹 VALIDAR CONTRA EL PRESUPUESTO TOTAL
+            if nuevo_gasto_total > presupuesto_total:
+                st.error(
+                    f"❌ Presupuesto insuficiente:\n\n"
+                    f"- Presupuesto total: S/ {presupuesto_total:,.2f}\n"
+                    f"- Ya gastado: S/ {gasto_actual:,.2f}\n"
+                    f"- Quieres importar: S/ {total_importacion:,.2f}\n"
+                    f"- Nuevo total: S/ {nuevo_gasto_total:,.2f}\n\n"
+                    f"Te faltan S/ {(nuevo_gasto_total - presupuesto_total):,.2f}"
+                )
             else:
+                # ✅ HAY PRESUPUESTO SUFICIENTE, PROCEDER A IMPORTAR
                 for _, r in df_excel.iterrows():
                     cant_val = float(r["cantidad"])
-                    db.collection("obras").document(obra_id).collection("materiales").add({
+                    obra_ref.collection("materiales").add({
                         "nombre": r["nombre"],
                         "unidad": r["unidad"],
                         "cantidad": cant_val,
-                        "stock_inicial": cant_val,  # <-- NUEVO
-                        "stock_actual": cant_val,   # <-- NUEVO
+                        "stock_inicial": cant_val,
+                        "stock_actual": cant_val,
                         "precio_unitario": float(r["precio_unitario"]),
                         "subtotal": round(float(cant_val * r["precio_unitario"]), 2),
                         "tipo": "COMPRADO",
                         "fecha": datetime.now()
                     })
+                
+                # 🔹 RECALCULAR PRESUPUESTO DESPUÉS DE IMPORTAR
                 recalcular_presupuesto_obra(obra_id)
+                
+                st.success(
+                    f"✅ {len(df_excel)} materiales importados correctamente\n\n"
+                    f"Total importado: S/ {total_importacion:,.2f}\n"
+                    f"Nuevo saldo: S/ {(presupuesto_total - nuevo_gasto_total):,.2f}"
+                )
                 st.rerun()
 
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
