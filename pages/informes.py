@@ -80,12 +80,45 @@ obra = db.collection("obras").document(obra_id).get().to_dict()
 st.sidebar.success(f"🏗️ Obra activa: **{obra['nombre']}**")
 
 # ================= CÁLCULOS =================
+# ================= CÁLCULOS REALES DESDE FIRESTORE =================
 presupuesto_total = float(obra.get("presupuesto_total", 0))
-gasto_materiales = float(obra.get("gasto_acumulado", 0))
-gasto_mano_obra = float(obra.get("gasto_mano_obra", 0))
+
+# 🔹 TOTAL MATERIALES (REAL)
+materiales_ref_total = db.collection("obras").document(obra_id).collection("materiales")
+gasto_materiales_total = 0
+
+for doc_mat in materiales_ref_total.stream():
+    data = doc_mat.to_dict()
+    parcial = float(
+        data.get("parcial") or
+        data.get("monto") or
+        data.get("importe") or
+        data.get("total") or
+        0
+    )
+    gasto_materiales_total += parcial
+
+# 🔹 TOTAL MANO DE OBRA (REAL)
+mo_ref_total = db.collection("obras").document(obra_id).collection("mano_obra")
+gasto_mano_obra_total = 0
+
+for doc_mo in mo_ref_total.stream():
+    data = doc_mo.to_dict()
+    parcial = float(
+        data.get("parcial") or
+        data.get("monto") or
+        data.get("importe") or
+        data.get("total") or
+        0
+    )
+    gasto_mano_obra_total += parcial
+
+# 🔹 ADICIONALES
 gastos_adicionales = float(obra.get("gastos_adicionales", 0))
 
-gastos_ejecutados = gasto_materiales + gasto_mano_obra + gastos_adicionales
+# 🔹 TOTAL EJECUTADO REAL
+gastos_ejecutados = gasto_materiales_total + gasto_mano_obra_total + gastos_adicionales
+
 saldo_final = presupuesto_total - gastos_ejecutados
 
 # ================= MATRIZ =================
@@ -226,53 +259,60 @@ else:
 # ================= MATERIAL (FILTRADO REAL) =================
 # ================= MATERIAL (FILTRADO REAL) =================
 # ================= MATERIAL (ROBUSTO) =================
-materiales_ref = db.collection("obras").document(obra_id).collection("materiales")
+# ================= MATERIAL (MENSUAL CORREGIDO) =================
+# ================= GASTO MENSUAL IGUAL QUE OBRAS.PY =================
 
-gasto_materiales_mes = 0
+from collections import defaultdict
+import pytz
 
-for doc_mat in materiales_ref.stream():
-    data = doc_mat.to_dict()
-    fecha = data.get("fecha")
-    parcial = float(
-    data.get("parcial") or
-    data.get("monto") or
-    data.get("importe") or
-    data.get("total") or
-    0
-    )
+local_tz = pytz.timezone("America/Lima")
 
+gasto_materiales_mes = 0.0
+gasto_mo_mes = 0.0
+gasto_caja_mes = 0.0
 
-    if not fecha:
-        continue
+obra_ref = db.collection("obras").document(obra_id)
 
-    try:
-        # Timestamp Firestore
+# 🔥 OJO: igual que obras.py → recorrer PARTIDAS → AVANCES
+partidas_ref = obra_ref.collection("partidas").stream()
+
+for partida in partidas_ref:
+    avances_ref = partida.reference.collection("avances").stream()
+
+    for av in avances_ref:
+        data = av.to_dict()
+
+        fecha = data.get("fecha") or data.get("timestamp")
+
+        if not fecha:
+            continue
+
+        # Normalizar fecha
         if hasattr(fecha, "to_datetime"):
             fecha_dt = fecha.to_datetime()
-
-        # datetime normal
         elif isinstance(fecha, datetime):
             fecha_dt = fecha
-
-        # string tipo 2026-02-15
-        elif "-" in fecha:
-            fecha_dt = datetime.strptime(fecha, "%Y-%m-%d")
-
-        # string tipo 15/02/2026
-        elif "/" in fecha:
-            fecha_dt = datetime.strptime(fecha, "%d/%m/%Y")
-
         else:
             continue
 
-        if inicio_mes.replace(tzinfo=None) <= fecha_dt.replace(tzinfo=None) < fin_mes.replace(tzinfo=None):
-            gasto_materiales_mes += parcial
+        if fecha_dt.tzinfo is None:
+            fecha_dt = fecha_dt.replace(tzinfo=pytz.UTC)
 
-    except:
-        continue
+        fecha_dt = fecha_dt.astimezone(local_tz)
 
+        # 🔥 FILTRO POR MES EXACTAMENTE IGUAL
+        if fecha_dt.year == anio_actual and fecha_dt.month == mes_numero:
 
+            subtotal_materiales = float(data.get("subtotal_materiales", 0))
+            subtotal_mano_obra = float(data.get("subtotal_mano_obra", 0))
+            gasto_caja = float(data.get("gasto_caja_chica", 0) or 0)
 
+            gasto_materiales_mes += subtotal_materiales
+            gasto_mo_mes += subtotal_mano_obra
+            gasto_caja_mes += gasto_caja
+
+# TOTAL MES EXACTO COMO LA GRÁFICA
+gasto_total_mes = gasto_materiales_mes + gasto_mo_mes + gasto_caja_mes
 # ================= MANO DE OBRA (FILTRADO REAL) =================
 # ================= MANO DE OBRA (ROBUSTO) =================
 mo_ref = db.collection("obras").document(obra_id).collection("mano_obra")

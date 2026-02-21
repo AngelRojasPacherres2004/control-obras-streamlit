@@ -452,45 +452,38 @@ else:
         horizontal=True
     )
 
- # ================== GRAFICO SEMANAL (CORREGIDO) ==================
+    # ================== GRAFICO SEMANAL ==================
     if modo == "Semana (L–V)":
 
-        # Orden fijo L–V
         dias_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
         dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
 
-        # 🔥 FILTRAR POR SEMANA Y MES
         df_sem = df[
             (df["semana"] == semana_sel) &
             (df["mes"] == mes_sel)
         ]
 
-        # Inicializar SIEMPRE en orden correcto
         gastos_por_dia = {dia: 0.0 for dia in dias_en}
 
         for _, r in df_sem.iterrows():
             dia_en = r["fecha"].strftime("%A")
 
             if dia_en in gastos_por_dia:
-                # Calcular costo del día desde materiales
-                costo_materiales = 0.0
-                for mat in r["avance"].get("materiales_usados", []):
-                    precio = precios_materiales.get(mat.get("nombre"), 0)
-                    costo_materiales += float(mat.get("cantidad", 0)) * precio
-    
-                gasto_caja = r["avance"].get("gasto_caja_chica", 0) or 0
-                gasto_total = costo_materiales + gasto_caja
-    
+
+                # 🔥 USAR TOTALES REALES GUARDADOS
+                subtotal_materiales = float(r["avance"].get("subtotal_materiales", 0))
+                subtotal_mano_obra = float(r["avance"].get("subtotal_mano_obra", 0))
+                gasto_caja = float(r["avance"].get("gasto_caja_chica", 0) or 0)
+
+                gasto_total = subtotal_materiales + subtotal_mano_obra + gasto_caja
+
                 gastos_por_dia[dia_en] += gasto_total
 
-
-        # DataFrame ORDENADO
         chart_df = pd.DataFrame({
-             "Día": dias_es,
-              "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
+            "Día": dias_es,
+            "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
         })
 
-        # 🔥 FORZAR ORDEN L–V
         chart_df["Día"] = pd.Categorical(
             chart_df["Día"],
             categories=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
@@ -501,24 +494,27 @@ else:
 
         st.bar_chart(chart_df, height=320)
 
-
     # ================== GRAFICO MENSUAL ==================
     else:
-        costos_mes = defaultdict(float)
-        for _, r in df.iterrows():
-            costos_mes[r["mes"]] += r["costo"]
 
-        meses_orden = list(range(1, 13))
-        valores = [costos_mes.get(m, 0) for m in meses_orden]
+        df_mes = df[df["mes"] == mes_sel]
+
+        gasto_total_mes = 0.0
+
+        for _, r in df_mes.iterrows():
+
+            subtotal_materiales = float(r["avance"].get("subtotal_materiales", 0))
+            subtotal_mano_obra = float(r["avance"].get("subtotal_mano_obra", 0))
+            gasto_caja = float(r["avance"].get("gasto_caja_chica", 0) or 0)
+
+            gasto_total_mes += subtotal_materiales + subtotal_mano_obra + gasto_caja
 
         chart_df = pd.DataFrame({
-            "Mes": [MESES_ES[m] for m in meses_orden],
-            "Costo": valores
+            "Mes": [MESES_ES[mes_sel]],
+            "Gasto Total (S/)": [gasto_total_mes]
         }).set_index("Mes")
 
-
-        st.bar_chart(chart_df, height=300)
-
+        st.bar_chart(chart_df, height=320)
 # ================= HISTORIAL DE AVANCES =================
 st.divider()
 st.header("📚 Historial de Avances")
