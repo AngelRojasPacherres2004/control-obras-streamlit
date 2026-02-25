@@ -3,78 +3,74 @@ Módulo de autenticación y pantalla inicial
 """
 
 import json
+import base64
 import streamlit as st
 from util import set_background_responsive
 from cookies_manager import cookies
+
+
+# ====== HELPER ======
+def _get_image_base64(path):
+    with open(path, "rb") as f:
+        return base64.b64encode(f.read()).decode()
 
 
 # ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
     set_background_responsive("Empresalogo_pc_fondo.jpg", "Empresalogo_movil_fondo.jpg")
 
-    st.markdown("""
+    logo_b64 = _get_image_base64("logo(1).png")
+
+    st.markdown(f"""
         <style>
-#MainMenu, footer, header {visibility: hidden;}
-.main { padding: 0 !important; }
+        #MainMenu, footer, header {{visibility: hidden;}}
+        .main {{ padding: 0 !important; }}
 
-.block-container {
-    padding-top: 2vh !important;
-    display: flex !important;
-    flex-direction: column !important;
-    justify-content: center !important;
-    align-items: center !important;
-}
+        .block-container {{
+            padding-top: 2vh !important;
+            display: flex !important;
+            flex-direction: column !important;
+            justify-content: center !important;
+            align-items: center !important;
+        }}
 
-div[data-testid="stButton"] {
-    width: 350px !important;
-    max-width: 70% !important;
-    margin: 0 auto !important;
-}
+        div[data-testid="stButton"] {{
+            width: 350px !important;
+            max-width: 70% !important;
+            margin: 0 auto !important;
+        }}
 
-.stButton button {
-    background-color: rgba(0, 0, 0, 0.8) !important;
-    color: white !important;
-    border: 2px solid white !important;
-    font-size: 18px !important;
-    padding: 12px 24px !important;
-    border-radius: 8px !important;
-    width: 100% !important;
-}
+        .stButton button {{
+            background-color: rgba(0, 0, 0, 0.8) !important;
+            color: white !important;
+            border: 2px solid white !important;
+            font-size: 18px !important;
+            padding: 12px 24px !important;
+            border-radius: 8px !important;
+            width: 100% !important;
+        }}
 
-div[data-testid="stImage"] img {
-    max-width: 400px !important;
-    margin: auto !important;
-    display: block !important;
-}
+        @media (max-width: 768px) {{
+            .block-container {{
+                width: 100% !important;
+                max-width: 100% !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+                margin: 0 auto !important;
+            }}
+            div[data-testid="stButton"] {{
+                max-width: 90% !important;
+            }}
+        }}
+        </style>
 
-/* --- SOLUCIÓN MÓVIL --- */
-@media (max-width: 768px) {
-    .block-container {
-        padding-left: 0 !important;  /* Elimina margen izquierdo */
-        padding-right: 0 !important; /* Elimina margen derecho */
-        width: 100% !important;      /* Fuerza ancho total */
-        max-width: 100% !important;
-        margin-left: 0 !important;
-        margin-right: 0 !important;
-    }
-    
-    div[data-testid="column"] {
-        width: 100% !important;
-        flex: none !important;
-    }
-
-    div[data-testid="stImage"] img {
-        max-width: 200px !important;
-    }
-}
-</style>
+        <div style="display:flex; justify-content:center; width:100%; margin-bottom:10px; padding:0;">
+            <img src="data:image/png;base64,{logo_b64}"
+                 style="max-width:250px; width:50%; display:block; margin:0 auto;">
+        </div>
         """, unsafe_allow_html=True)
 
-    col1, col2, col3 = st.columns([1, 2, 1])
-    with col2:
-        st.image("logo(1).png", use_container_width=True)
-
-    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
+    st.markdown("<br><br><br>", unsafe_allow_html=True)
 
     if st.button("Iniciar Sesión", use_container_width=True, key="btn_pantalla_inicial"):
         st.session_state.show_login = True
@@ -86,59 +82,81 @@ def verificar_autenticacion(db):
     if "auth" not in st.session_state:
         set_background_responsive("Empresalogo_pc_fondo.jpg", "Empresalogo_movil_fondo.jpg")
 
-        st.markdown("""
+        logo_b64 = _get_image_base64("logo(1).png")
+
+        st.markdown(f"""
         <style>
-#MainMenu, footer, header {visibility: hidden;}
-.main { padding: 0 !important; }
+        #MainMenu, footer, header {{visibility: hidden;}}
+        .main {{ padding: 0 !important; }}
 
-.block-container {
-    padding-top: 2vh !important;
-    display: flex !important;
-    flex-direction: column !important;
-    align-items: center !important;
-    max-width: 420px !important;
-    margin: auto !important;
-}
+        .block-container {{
+            padding-top: 2vh !important;
+            display: flex !important;
+            flex-direction: column !important;
+            align-items: center !important;
+            max-width: 420px !important;
+            margin: auto !important;
+        }}
 
-.stTextInput input {
-    background-color: #000000 !important;
-    color: #ffffff !important;
-    border-radius: 10px !important;
-    border: 2px solid #ffffff !important;
-    padding: 14px 16px !important;
-}
+        .stTextInput input {{
+            background-color: #000000 !important;
+            color: #ffffff !important;
+            border-radius: 10px !important;
+            border: 2px solid #ffffff !important;
+            padding: 14px 16px !important;
+            font-size: 16px !important;
+        }}
 
-.stButton button {
-    background-color: rgba(0, 0, 0, 0.9) !important;
-    color: white !important;
-    border: 2px solid white !important;
-    border-radius: 8px !important;
-    width: 100% !important;
-}
+        label,
+        div[data-testid="stTextInput"] label {{
+            color: #ffffff !important;
+            font-weight: 600;
+            font-size: 15px !important;
+        }}
 
-/* --- SOLUCIÓN MÓVIL LOGIN --- */
-@media (max-width: 768px) {
-    .block-container {
-        width: 90% !important; /* Centra el bloque de login al 90% del ancho del celular */
-        max-width: 90% !important;
-        padding-left: 0 !important;
-        padding-right: 0 !important;
-        margin-left: auto !important;
-        margin-right: auto !important;
-    }
+        .stButton {{
+            display: flex !important;
+            justify-content: center !important;
+            width: 100% !important;
+        }}
 
-    /* Centrar el logo que está dentro de columnas */
-    div[data-testid="stHorizontalBlock"] {
-        display: flex !important;
-        justify-content: center !important;
-    }
-}
-</style>
+        .stButton button {{
+            background-color: rgba(0, 0, 0, 0.9) !important;
+            color: white !important;
+            border: 2px solid white !important;
+            font-size: 18px !important;
+            padding: 12px 24px !important;
+            border-radius: 8px !important;
+            width: 100% !important;
+            margin-top: 10px !important;
+        }}
+
+        .stButton button:hover {{
+            background-color: rgba(255, 255, 255, 0.2) !important;
+        }}
+
+        @media (max-width: 768px) {{
+            .block-container {{
+                width: 100% !important;
+                max-width: 100% !important;
+                padding-left: 1rem !important;
+                padding-right: 1rem !important;
+                margin: 0 auto !important;
+            }}
+            .stTextInput input {{
+                font-size: 18px !important;
+            }}
+            label {{
+                font-size: 16px !important;
+            }}
+        }}
+        </style>
+
+        <div style="display:flex; justify-content:center; width:100%; margin-bottom:10px; padding:0;">
+            <img src="data:image/png;base64,{logo_b64}"
+                 style="max-width:250px; width:50%; display:block; margin:0 auto;">
+        </div>
         """, unsafe_allow_html=True)
-
-        col1, col2, col3 = st.columns([1, 2, 1])
-        with col2:
-            st.image("logo(1).png", use_container_width=True)
 
         st.markdown("<br>", unsafe_allow_html=True)
 
