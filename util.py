@@ -1,7 +1,3 @@
-"""
-util.py
-Funciones de utilidad para fondos de imagen
-"""
 import base64
 import streamlit as st
 
@@ -15,9 +11,10 @@ def set_background(image_file):
     .stApp {{
         background-image: url("data:image/jpg;base64,{encoded}");
         background-size: cover;
-        background-position-x: 33%;
-        background-position-y: 23%;
-        background-attachment: fixed;
+        background-position: center center;
+        background-attachment: scroll;
+        background-repeat: no-repeat;
+        min-height: 100vh;
     }}
     </style>
     """
@@ -33,22 +30,24 @@ def set_background_responsive(desktop_image, mobile_image):
     
     st.markdown(f"""
     <style>
-    /* Desktop */
+    /* ===== Desktop ===== */
     .stApp {{
         background-image: url("data:image/jpg;base64,{desktop_data}");
         background-size: cover;
-        background-position-x: center;
-        background-position-y: 40%;
+        background-position: center 40%;
         background-repeat: no-repeat;
-        background-attachment: fixed;
+        background-attachment: scroll;
+        min-height: 100vh;
     }}
-    
-    /* Móvil */
+
+    /* ===== Móvil ===== */
     @media (max-width: 768px) {{
         .stApp {{
             background-image: url("data:image/jpg;base64,{mobile_data}") !important;
-            background-size: cover !important;
-            background-position: center !important;
+            background-size: cover !important;        /* 🔥 cover, no contain */
+            background-position: center top !important;
+            background-attachment: scroll !important;
+            background-repeat: no-repeat !important;
         }}
     }}
     </style>

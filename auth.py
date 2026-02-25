@@ -10,68 +10,71 @@ from cookies_manager import cookies
 
 # ====== PANTALLA INICIAL ======
 def mostrar_pantalla_inicial():
-    # Fondo responsive
-    set_background_responsive("Empresalogo_pc.jpg", "Empresalogo_movil.jpg")
+    set_background_responsive("Empresalogo_pc_fondo.jpg", "Empresalogo_movil_fondo.jpg")
 
-    # Estilos
     st.markdown("""
         <style>
-        /* Ocultar elementos Streamlit */
-        #MainMenu, footer, header {visibility: hidden;}
+#MainMenu, footer, header {visibility: hidden;}
+.main { padding: 0 !important; }
 
-        /* Reset */
-        .main {
-            padding: 0 !important;
-        }
+.block-container {
+    padding-top: 2vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    justify-content: center !important;
+    align-items: center !important;
+}
 
-        /* CONTENEDOR GENERAL */
-        .block-container {
-            padding-top: 47vh !important;
-            display: flex !important;
-            justify-content: center !important;
-            align-items: center !important;
-        }
+div[data-testid="stButton"] {
+    width: 350px !important;
+    max-width: 70% !important;
+    margin: 0 auto !important;
+}
 
-        /* CONTENEDOR DEL BOTÓN */
-        div[data-testid="stButton"] {
-            width: 350px !important;
-            max-width: 70% !important;
-            margin: 0 auto !important;  /* 🔥 CENTRADO ADICIONAL */
-        }
+.stButton button {
+    background-color: rgba(0, 0, 0, 0.8) !important;
+    color: white !important;
+    border: 2px solid white !important;
+    font-size: 18px !important;
+    padding: 12px 24px !important;
+    border-radius: 8px !important;
+    width: 100% !important;
+}
 
-        /* BOTÓN - CENTRADO */
-        .stButton {
-            display: flex !important;
-            justify-content: center !important;
-            width: 100% !important;  /* 🔥 ASEGURA ANCHO COMPLETO */
-        }
+div[data-testid="stImage"] img {
+    max-width: 400px !important;
+    margin: auto !important;
+    display: block !important;
+}
 
-        .stButton button {
-            background-color: rgba(0, 0, 0, 0.8) !important;
-            color: white !important;
-            border: 2px solid white !important;
-            font-size: 18px !important;
-            padding: 12px 24px !important;
-            border-radius: 8px !important;
-            width: 100% !important;
-        }
+/* --- SOLUCIÓN MÓVIL --- */
+@media (max-width: 768px) {
+    .block-container {
+        padding-left: 0 !important;  /* Elimina margen izquierdo */
+        padding-right: 0 !important; /* Elimina margen derecho */
+        width: 100% !important;      /* Fuerza ancho total */
+        max-width: 100% !important;
+        margin-left: 0 !important;
+        margin-right: 0 !important;
+    }
+    
+    div[data-testid="column"] {
+        width: 100% !important;
+        flex: none !important;
+    }
 
-        /* ====== CELULAR ====== */
-        @media (max-width: 768px) {
-            .block-container {
-                padding-top: 32vh !important;
-            }
-
-            div[data-testid="stButton"] {
-                max-width: 90% !important;
-            }
-
-            .stButton {
-                justify-content: center !important;
-            }
-        }
-        </style>
+    div[data-testid="stImage"] img {
+        max-width: 200px !important;
+    }
+}
+</style>
         """, unsafe_allow_html=True)
+
+    col1, col2, col3 = st.columns([1, 2, 1])
+    with col2:
+        st.image("logo(1).png", use_container_width=True)
+
+    st.markdown("<br><br><br><br>", unsafe_allow_html=True)
 
     if st.button("Iniciar Sesión", use_container_width=True, key="btn_pantalla_inicial"):
         st.session_state.show_login = True
@@ -81,103 +84,63 @@ def mostrar_pantalla_inicial():
 # ====== LOGIN ======
 def verificar_autenticacion(db):
     if "auth" not in st.session_state:
-        # Fondo responsive
-        set_background_responsive("Empresalogo_pc.jpg", "Empresalogo_movil.jpg")
+        set_background_responsive("Empresalogo_pc_fondo.jpg", "Empresalogo_movil_fondo.jpg")
 
         st.markdown("""
         <style>
-        /* Ocultar elementos Streamlit */
-        #MainMenu, footer, header {visibility: hidden;}
+#MainMenu, footer, header {visibility: hidden;}
+.main { padding: 0 !important; }
 
-        /* Reset */
-        .main {
-            padding: 0 !important;
-        }
+.block-container {
+    padding-top: 2vh !important;
+    display: flex !important;
+    flex-direction: column !important;
+    align-items: center !important;
+    max-width: 420px !important;
+    margin: auto !important;
+}
 
-        /* CONTENEDOR PRINCIPAL */
-        .block-container {
-            padding-top: 10vh !important;
-            display: flex !important;
-            flex-direction: column !important;
-            align-items: center !important;
-        
-        }
+.stTextInput input {
+    background-color: #000000 !important;
+    color: #ffffff !important;
+    border-radius: 10px !important;
+    border: 2px solid #ffffff !important;
+    padding: 14px 16px !important;
+}
 
-        /* CONTENEDOR DE INPUTS */
-        .login-box {
-            background: rgba(255, 255, 255, 0.15);
-            backdrop-filter: blur(8px);
-            padding: 25px;
-            border-radius: 14px;
-            max-width: 420px;
-            margin: auto;
-            box-shadow: 0 8px 30px rgba(0,0,0,0.4);
-        }
+.stButton button {
+    background-color: rgba(0, 0, 0, 0.9) !important;
+    color: white !important;
+    border: 2px solid white !important;
+    border-radius: 8px !important;
+    width: 100% !important;
+}
 
-        /* INPUTS */
-        .stTextInput input {
-            background-color: #000000 !important;
-            color: #ffffff !important;
-            border-radius: 10px !important;
-            border: 2px solid #ffffff !important;
-            padding: 14px 16px !important;
-            font-size: 16px !important;
-        }
+/* --- SOLUCIÓN MÓVIL LOGIN --- */
+@media (max-width: 768px) {
+    .block-container {
+        width: 90% !important; /* Centra el bloque de login al 90% del ancho del celular */
+        max-width: 90% !important;
+        padding-left: 0 !important;
+        padding-right: 0 !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+    }
 
-        /* LABELS */
-        label, 
-        div[data-testid="stTextInput"] label {
-            color: #ffffff !important;
-            font-weight: 600;
-            font-size: 15px !important;
-        }
-
-        /* BOTÓN INGRESAR - CENTRADO */
-        .stButton {
-            display: flex !important;
-            justify-content: center !important;  /* 🔥 CENTRADO */
-            width: 100% !important;
-        }
-
-        .stButton button {
-            background-color: rgba(0, 0, 0, 0.9) !important;
-            color: white !important;
-            border: 2px solid white !important;
-            font-size: 18px !important;
-            padding: 12px 24px !important;
-            border-radius: 8px !important;
-            width: 100% !important;
-            margin-top: 10px !important;
-        }
-
-        .stButton button:hover {
-            background-color: rgba(255, 255, 255, 0.2) !important;
-        }
-
-        /* ====== RESPONSIVE MÓVIL ====== */
-        @media (max-width: 768px) {
-            .block-container {
-                padding-top: 5vh !important;
-            }
-
-            .login-box {
-                max-width: 90% !important;
-                padding: 20px !important;
-            }
-
-            .stTextInput input {
-                font-size: 18px !important;
-            }
-
-            label {
-                font-size: 16px !important;
-            }
-        }
-        </style>
+    /* Centrar el logo que está dentro de columnas */
+    div[data-testid="stHorizontalBlock"] {
+        display: flex !important;
+        justify-content: center !important;
+    }
+}
+</style>
         """, unsafe_allow_html=True)
 
-        st.markdown("<br><br>", unsafe_allow_html=True)
-        st.title("")
+        col1, col2, col3 = st.columns([1, 2, 1])
+        with col2:
+            st.image("logo(1).png", use_container_width=True)
+
+        st.markdown("<br>", unsafe_allow_html=True)
 
         username = st.text_input("Usuario")
         password = st.text_input("Contraseña", type="password")
@@ -201,15 +164,12 @@ def verificar_autenticacion(db):
                 "obra": data.get("obra")
             }
 
-            # Guardar sesión
             st.session_state["auth"] = auth_data
             st.session_state["show_login"] = True
 
-            # Guardar cookie
             cookies["auth"] = json.dumps(auth_data)
             cookies.save()
 
             st.rerun()
 
         return False
-
