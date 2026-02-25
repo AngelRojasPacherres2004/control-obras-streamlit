@@ -313,48 +313,9 @@ for partida in partidas_ref:
 
 # TOTAL MES EXACTO COMO LA GRÁFICA
 gasto_total_mes = gasto_materiales_mes + gasto_mo_mes + gasto_caja_mes
-# ================= MANO DE OBRA (FILTRADO REAL) =================
-# ================= MANO DE OBRA (ROBUSTO) =================
-mo_ref = db.collection("obras").document(obra_id).collection("mano_obra")
-
-gasto_mo_mes = 0
-
-for doc_mo in mo_ref.stream():
-    data = doc_mo.to_dict()
-    fecha = data.get("fecha")
-    parcial = float(
-    data.get("parcial") or
-    data.get("monto") or
-    data.get("importe") or
-    data.get("total") or
-    0
-    )
 
 
-    if not fecha:
-        continue
 
-    try:
-        if hasattr(fecha, "to_datetime"):
-            fecha_dt = fecha.to_datetime()
-        elif isinstance(fecha, datetime):
-            fecha_dt = fecha
-        elif "-" in fecha:
-            fecha_dt = datetime.strptime(fecha, "%Y-%m-%d")
-        elif "/" in fecha:
-            fecha_dt = datetime.strptime(fecha, "%d/%m/%Y")
-        else:
-            continue
-
-        if inicio_mes.replace(tzinfo=None) <= fecha_dt.replace(tzinfo=None) < fin_mes.replace(tzinfo=None):
-            gasto_mo_mes += parcial
-
-    except:
-        continue
-
-
-# ================= TOTAL MES =================
-gasto_total_mes = gasto_materiales_mes + gasto_mo_mes
 
 
 
@@ -435,6 +396,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
         ["Concepto", "Monto (S/)"],
         ["Materiales", f"S/ {gasto_materiales_mes:,.2f}"],
         ["Mano de Obra", f"S/ {gasto_mo_mes:,.2f}"],
+        ["Caja Chica", f"S/ {gasto_caja_mes:,.2f}"],
         ["TOTAL EJECUTADO", f"S/ {gasto_total_mes:,.2f}"],
     ]
 
@@ -473,21 +435,166 @@ if st.button("📥 Descargar Informe Mensual PDF"):
 
     elementos.append(Spacer(1, 20))
 
-    # -------- SECCIONES EN PROCESO --------
-    elementos.append(Paragraph("<b>SECCIONES EN PROCESO</b>", styles["Heading2"]))
-    elementos.append(Spacer(1, 10))
+    elementos.append(Spacer(1, 30))
 
-    if secciones_proceso:
-        for s in secciones_proceso:
-            elementos.append(Paragraph(f"• {s}", styles["Normal"]))
-    else:
-        elementos.append(Paragraph("No hay secciones en proceso.", styles["Normal"]))
+    # =========================================================
+    # 📚 HISTORIAL DE AVANCES POR SECCIÓN
+    # =========================================================
+    elementos.append(Paragraph("<b>HISTORIAL DE AVANCES</b>", styles["Heading1"]))
+    elementos.append(Spacer(1, 15))
 
+    partidas_stream = obra_ref.collection("partidas").stream()
+
+    for partida in partidas_stream:
+
+        partida_data = partida.to_dict()
+        nombre_partida = partida_data.get("nombre", "Sin nombre")
+        codigo_partida = partida_data.get("codigo", "")
+
+        elementos.append(Paragraph(
+            f"<b>🧱 {codigo_partida} - {nombre_partida}</b>",
+            styles["Heading2"]
+        ))
+        elementos.append(Spacer(1, 10))
+
+        avances_stream = (
+            partida.reference
+            .collection("avances")
+            .order_by("fecha", direction=firestore.Query.DESCENDING)
+            .stream()
+        )
+
+        avances_lista = list(avances_stream)
+
+        if not avances_lista:
+            elementos.append(Paragraph("No tiene avances registrados.", styles["Normal"]))
+            elementos.append(Spacer(1, 10))
+            continue
+
+        for av in avances_lista:
+
+            av_data = av.to_dict()
+            fecha = av_data.get("fecha")
+            usuario = av_data.get("usuario", "N/D")
+            fecha_txt = "Fecha no disponible"
+
+            if fecha:
+                if hasattr(fecha, "to_datetime"):
+                    fecha = fecha.to_datetime()
+
+                if isinstance(fecha, datetime):
+                    fecha_txt = fecha.strftime("%d/%m/%Y")
+            else:
+                fecha_txt = "Fecha no disponible"
+
+            elementos.append(Paragraph(
+                f"<b>Fecha:</b> {fecha_txt} | <b>Usuario:</b> {usuario}",
+                styles["Normal"]
+            ))
+            elementos.append(Spacer(1, 5))
+            elementos.append(Spacer(1, 8))
+            descripcion = av_data.get("descripcion", "")
+            if descripcion:
+                elementos.append(Paragraph(descripcion, styles["Normal"]))
+                elementos.append(Spacer(1, 5))
+
+            # 🔹 RESUMEN ECONÓMICO DEL AVANCE
+            # =====================================================
+            # 🔹 DETALLE DE MANO DE OBRA
+            # =====================================================
+
+            mano_obra_lista = av_data.get("mano_obra_detalle", [])
+
+            if mano_obra_lista:
+                elementos.append(Spacer(1, 8))
+                elementos.append(Paragraph("<b>Detalle Mano de Obra</b>", styles["Heading3"]))
+                elementos.append(Spacer(1, 6))
+
+                tabla_mo = [["Tipo", "Trabajador", "Rend.", "Precio", "Cant.", "Parcial (S/)"]]
+
+                subtotal_mo = 0
+
+                for trabajador in mano_obra_lista:
+
+                    tipo = trabajador.get("Tipo", "")
+                    nombre_trab = trabajador.get("Descripción", "")
+                    precio = float(trabajador.get("Precio", 0))
+                    cantidad = float(trabajador.get("Cantidad", 0))
+                    parcial = float(trabajador.get("Parcial", 0))
+                    rendimiento = float(trabajador.get("Rendimiento", 0))
+
+                    subtotal_mo += parcial
+
+                    tabla_mo.append([
+                        tipo,
+                        nombre_trab,
+                        f"{rendimiento:.2f}",
+                        f"S/ {precio:,.2f}",
+                        f"{cantidad:.2f}",
+                        f"S/ {parcial:,.2f}"
+                    ])
+
+                tabla_mo.append(["", "", "", "", "TOTAL", f"S/ {subtotal_mo:,.2f}"])
+
+                tabla_mano = Table(tabla_mo, colWidths=[80, 100, 50, 60, 50, 70])
+
+                tabla_mano.setStyle([
+                    ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+                    ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+                    ("BACKGROUND", (0,-1), (-1,-1), colors.whitesmoke),
+                    ("ALIGN", (2,1), (-1,-1), "RIGHT"),
+                ])
+
+                elementos.append(tabla_mano)
+                elementos.append(Spacer(1, 10))
+            else:
+                subtotal_mo = float(av_data.get("subtotal_mano_obra", 0))
+            # =====================================================
+            # 🔹 RESUMEN GENERAL DEL AVANCE
+            # =====================================================
+
+            subtotal_mat = float(av_data.get("subtotal_materiales", 0))
+            total_avance = subtotal_mo + subtotal_mat
+
+            tabla_resumen = [
+                ["Concepto", "Monto (S/)"],
+                ["Mano de Obra", f"S/ {subtotal_mo:,.2f}"],
+                ["Materiales", f"S/ {subtotal_mat:,.2f}"],
+                ["Total Avance", f"S/ {total_avance:,.2f}"],
+            ]
+
+            tabla_detalle = Table(tabla_resumen, colWidths=[250, 150])
+            tabla_detalle.setStyle([
+                ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+                ("BACKGROUND", (0,0), (-1,0), colors.lightgrey),
+                ("ALIGN", (1,1), (-1,-1), "RIGHT"),
+            ])
+
+            elementos.append(tabla_detalle)
+            elementos.append(Spacer(1, 15))
+
+           
+
+            # 🔹 RENDIMIENTO
+            rendimiento_real = float(av_data.get("rendimiento_real", 0))
+            porcentaje = float(av_data.get("porcentaje_rendimiento", 0)) * 100
+
+            elementos.append(Paragraph(
+                f"Rendimiento: {rendimiento_real:.2f} "
+                f"({porcentaje:.1f}% del plan)",
+                styles["Normal"]
+            ))
+            elementos.append(Spacer(1, 15))
+
+        elementos.append(Spacer(1, 20))
+
+    # =========================================================
+    # FIRMA
+    # =========================================================
     elementos.append(Spacer(1, 40))
     elementos.append(Paragraph("__________________________________", styles["Normal"]))
     elementos.append(Paragraph("Gerardo Langberg Bacigalupo", styles["Normal"]))
     elementos.append(Paragraph("Director de Proyecto", styles["Normal"]))
-
     pdf.build(elementos)
     buffer.seek(0)
 
