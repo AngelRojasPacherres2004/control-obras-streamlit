@@ -652,7 +652,6 @@ else:
 
                     # 5. ACTUALIZAR TOTALES DE LA OBRA
                     obra_ref.update({
-                        "gasto_materiales": firestore.Increment(gasto_materiales_total),
                         "gasto_mano_obra": firestore.Increment(total_mo)
                     })
 

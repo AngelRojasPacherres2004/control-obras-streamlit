@@ -1,7 +1,7 @@
 "informes.py"
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from firebase_admin import firestore
 from io import BytesIO
 from docx import Document
@@ -316,7 +316,44 @@ gasto_total_mes = gasto_materiales_mes + gasto_mo_mes + gasto_caja_mes
 
 
 
+####
 
+# ================= GASTO SEMANAL DEL MES =================
+presupuesto_semanal = obra.get("presupuesto_materiales_semanal", [])
+
+gastos_semanales_mes = []
+
+if presupuesto_semanal:
+
+    fecha_inicio_obra = obra.get("fecha_inicio")
+    if hasattr(fecha_inicio_obra, "to_datetime"):
+        fecha_inicio_obra = fecha_inicio_obra.to_datetime()
+
+    if fecha_inicio_obra:
+        fecha_inicio_obra = fecha_inicio_obra.replace(tzinfo=None)
+
+        # Ajustar al lunes base
+        lunes_base = fecha_inicio_obra - timedelta(days=fecha_inicio_obra.weekday())
+
+        for sem in presupuesto_semanal:
+            num_sem = sem.get("semana")
+            gasto_real = float(sem.get("gasto_real", 0))
+
+            fecha_inicio_sem = lunes_base + timedelta(days=(num_sem - 1) * 7)
+            fecha_fin_sem = fecha_inicio_sem + timedelta(days=6)
+
+            # Si la semana cae dentro del mes seleccionado
+            if (
+                fecha_inicio_sem.year == anio_actual and fecha_inicio_sem.month == mes_numero
+            ) or (
+                fecha_fin_sem.year == anio_actual and fecha_fin_sem.month == mes_numero
+            ):
+                gastos_semanales_mes.append([
+                    f"Semana {num_sem}",
+                    fecha_inicio_sem.strftime("%d/%m"),
+                    fecha_fin_sem.strftime("%d/%m"),
+                    f"S/ {gasto_real:,.2f}"
+                ])
 
 
 
@@ -410,6 +447,34 @@ if st.button("📥 Descargar Informe Mensual PDF"):
 
     elementos.append(tabla)
     elementos.append(Spacer(1, 30))
+
+
+    # -------- GASTOS POR SEMANA --------
+    if gastos_semanales_mes:
+
+        elementos.append(Paragraph("<b>GASTOS POR SEMANA</b>", styles["Heading2"]))
+        elementos.append(Spacer(1, 10))
+
+        tabla_semanal_data = [
+            ["Semana", "Inicio", "Fin", "Gasto (S/)"]
+        ] + gastos_semanales_mes
+
+        tabla_semanal = Table(tabla_semanal_data, colWidths=[80, 80, 80, 100])
+
+        tabla_semanal.setStyle([
+            ("BACKGROUND", (0,0), (-1,0), colors.HexColor("#244062")),
+            ("TEXTCOLOR", (0,0), (-1,0), colors.white),
+            ("GRID", (0,0), (-1,-1), 0.5, colors.grey),
+            ("ALIGN", (3,1), (-1,-1), "RIGHT"),
+        ])
+
+        elementos.append(tabla_semanal)
+        elementos.append(Spacer(1, 25))
+
+
+
+
+
 
     # -------- SECCIONES TERMINADAS --------
     elementos.append(Paragraph("<b>SECCIONES TERMINADAS</b>", styles["Heading2"]))
