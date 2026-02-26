@@ -75,7 +75,6 @@ if st.session_state.partida_abierta is None:
             "Stock Actual": round(stock_actual, 2)
         })
 
-
     df_resumen = pd.DataFrame(filas_resumen)
 
     st.dataframe(
@@ -192,7 +191,6 @@ if st.session_state.partida_abierta is None:
 
                     st.progress(min(porc, 1.0))
 
-
                     # 👷 MANO DE OBRA
                     if av.get("mano_obra_detalle"):
                         st.markdown("### 👷 Mano de Obra")
@@ -202,7 +200,6 @@ if st.session_state.partida_abierta is None:
                     if av.get("materiales_detalle"):
                         st.markdown("### 🧱 Materiales")
                         st.table(pd.DataFrame(av["materiales_detalle"]))
-
 
 
                     # 📸 Mostrar fotos del avance
@@ -263,7 +260,6 @@ else:
         "Stock actual asignado": round(stock_actual_asignado, 2),
         "_max": round(stock_actual_asignado, 2)  # 👈 límite por fila
         })
-
 
     if filas_seccion:
         st.dataframe(
@@ -367,7 +363,6 @@ else:
         key=editor_ui_key
     )
 
-
     # =============================
     # 📊 RENDIMIENTO REAL (CORRECTO APU)
     # =============================
@@ -388,7 +383,6 @@ else:
         if valor_rendimiento_plan > 0
         else 0
     )
-
 
     # ================= BARRA DE RENDIMIENTO DE LA SECCIÓN =================
     st.markdown("### 📈 Avance de Rendimiento de esta Sección")
@@ -421,7 +415,6 @@ else:
 
     st.divider()
 
-
     # 5️⃣ Guardar
     st.session_state[editor_key] = df_mo_edit
 
@@ -435,7 +428,6 @@ else:
         label="Suma Parcial Mano de Obra",
         value=f"S/ {total_mo:,.2f}"
     )
-
 
     # 🔁 Detectar cambios y forzar doble refresh
     if not df_mo_edit.equals(df_mo):
@@ -516,11 +508,9 @@ else:
         value=f"S/ {total_mat:,.2f}"
 )
 
-
     # 🔁 Detectar cambios y forzar doble refresh (IGUAL QUE MANO DE OBRA)
     if not df_mat_edit.equals(df_mat):
         st.session_state.doble_refresh = 2
-
 
     # 6️⃣ Validación de stock
     for _, row in df_mat_edit.iterrows():
@@ -530,7 +520,6 @@ else:
                 f"solo hay {row['Disponible']} disponibles"
             )
             st.stop()
-
 
     # 🔄 EJECUTOR DE DOBLE REFRESH
     if st.session_state.doble_refresh > 0:
@@ -637,7 +626,6 @@ else:
                         "Parcial",
                         "Sueldo Acumulado"
                     ]].to_dict(orient="records")
-
 
                     tabla_materiales = df_mat_usado[[
                         "Descripción", "Cantidad", "Precio", "Parcial"

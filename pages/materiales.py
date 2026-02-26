@@ -1,9 +1,10 @@
 #materiales.py
 import streamlit as st
 import pandas as pd
-from datetime import datetime
+from datetime import datetime, timedelta
 from firebase_admin import firestore
 from io import BytesIO
+
 import cloudinary
 import cloudinary.uploader
 
@@ -491,33 +492,62 @@ if archivo:
                 st.rerun()
 
 # ================== SECCIÓN E (MEJORADA CON SEMANAS) ==================
+# ================== SECCIÓN E (SELECTOR DE SEMANAS CON FECHAS) ==================
 st.divider()
 st.header("💰 Estado del Presupuesto de Materiales")
 
 obra_final = db.collection("obras").document(obra_id).get().to_dict()
 p_semanal_lista = obra_final.get("presupuesto_materiales_semanal", [])
-num_sem_actual = obtener_semana_actual_obra(obra_final)
 
-# Buscar datos de la semana actual
-datos_sem_actual = next((s for s in p_semanal_lista if s["semana"] == num_sem_actual), None)
+fecha_inicio_obra = obra_final.get("fecha_inicio")
+if hasattr(fecha_inicio_obra, "to_datetime"):
+    fecha_inicio_obra = fecha_inicio_obra.to_datetime()
 
-if datos_sem_actual:
-    st.subheader(f"📅 Semana Actual: {num_sem_actual}")
-    col_s1, col_s2, col_s3 = st.columns(3)
-    
-    p_sem_ini = datos_sem_actual.get("presupuesto_materiales", 0)
-    g_sem_real = datos_sem_actual.get("gasto_real", 0)
-    s_sem_disp = datos_sem_actual.get("saldo_semanal", p_sem_ini)
-    
-    col_s1.metric("Asignado Semana", f"S/ {p_sem_ini:,.2f}")
-    col_s2.metric("Gastado Semana", f"S/ {g_sem_real:,.2f}", delta=f"Actual", delta_color="inverse")
-    col_s3.metric("Disponible Semana", f"S/ {s_sem_disp:,.2f}")
-    
-    if p_sem_ini > 0:
-        st.progress(min(1.0, g_sem_real / p_sem_ini), text=f"Consumo semanal: {(g_sem_real/p_sem_ini)*100:.1f}%")
+if not p_semanal_lista or not fecha_inicio_obra:
+    st.warning("⚠️ No hay presupuesto semanal configurado.")
 else:
-    st.warning("⚠️ No se encontró presupuesto configurado para esta semana.")
+    fecha_inicio_obra = fecha_inicio_obra.replace(tzinfo=None)
 
+    # 🔹 Ajustar la fecha de inicio al lunes más cercano hacia atrás
+    lunes_base = fecha_inicio_obra - timedelta(days=fecha_inicio_obra.weekday())
+
+    # --- Construir opciones con semanas lunes-domingo ---
+    opciones_semanas = {}
+
+    for sem in p_semanal_lista:
+        num_sem = sem.get("semana")
+
+        fecha_inicio_sem = lunes_base + timedelta(days=(num_sem - 1) * 7)
+        fecha_fin_sem = fecha_inicio_sem + timedelta(days=6)
+
+        label = f"Semana {num_sem} ({fecha_inicio_sem.strftime('%d/%m/%Y')} - {fecha_fin_sem.strftime('%d/%m/%Y')})"
+        opciones_semanas[label] = sem
+        label = f"Semana {num_sem} ({fecha_inicio_sem.strftime('%d/%m/%Y')} - {fecha_fin_sem.strftime('%d/%m/%Y')})"
+        opciones_semanas[label] = sem
+
+    # --- Selector ---
+    seleccion = st.selectbox(
+        "Seleccionar semana",
+        options=list(opciones_semanas.keys())
+    )
+
+    datos_sem = opciones_semanas[seleccion]
+
+    st.divider()
+
+    col_s1, col_s2, col_s3 = st.columns(3)
+
+    p_sem_ini = datos_sem.get("presupuesto_materiales", 0)
+    g_sem_real = datos_sem.get("gasto_real", 0)
+    s_sem_disp = datos_sem.get("saldo_semanal", p_sem_ini)
+
+    col_s1.metric("Asignado Semana", f"S/ {p_sem_ini:,.2f}")
+    col_s2.metric("Gastado Semana", f"S/ {g_sem_real:,.2f}")
+    col_s3.metric("Disponible Semana", f"S/ {s_sem_disp:,.2f}")
+
+    if p_sem_ini > 0:
+        consumo = min(1.0, g_sem_real / p_sem_ini)
+        st.progress(consumo, text=f"Consumo: {consumo*100:.1f}%")
 # ================== SECCIÓN F - GESTIÓN DE RECIBOS ==================
 st.divider()
 st.header("🧾 Gestión de Recibos de Materiales")
