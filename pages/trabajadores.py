@@ -38,17 +38,21 @@ ROLES_CONSTRUCCION = [
 # ================= FUNCIONES DE CÁLCULO =================
 def recalcular_mano_obra(obra_id):
     """
-    Suma el presupuesto asignado a cada trabajador y actualiza el saldo
-    disponible en el documento principal de la obra.
+    Recalcula el presupuesto disponible de mano de obra tomando como base
+    el `presupuesto_mano_obra` original de la obra y restando el
+    `sueldo_acumulado` de todos los trabajadores.
+
+    También actualiza el campo `gasto_mano_obra` para reflejar el total
+    devengado hasta el momento.
     """
     # 1. Obtener todos los trabajadores de la subcolección
     trabajadores_docs = db.collection("obras").document(obra_id).collection("trabajadores").stream()
     
-    # 2. Calcular el total comprometido en sueldos
-    total_en_planillas = 0.0
+    # 2. Calcular el total acumulado de sueldos
+    total_acumulado = 0.0
     for d in trabajadores_docs:
         data_t = d.to_dict()
-        total_en_planillas += float(data_t.get("presupuesto", 0))
+        total_acumulado += float(data_t.get("sueldo_acumulado", 0))
     
     # 3. Obtener el presupuesto inicial de la obra
     obra_ref = db.collection("obras").document(obra_id)
@@ -56,13 +60,13 @@ def recalcular_mano_obra(obra_id):
     
     p_mo_inicial = float(obra_data.get("presupuesto_mano_obra", 0))
     
-    # 4. Calcular saldo restante
-    saldo_disponible = p_mo_inicial - total_en_planillas
+    # 4. Calcular saldo restante basado en acumulado
+    saldo_disponible = p_mo_inicial - total_acumulado
     
-    # 5. ACTUALIZACIÓN CRÍTICA: Estos nombres de campos deben coincidir en obras.py
+    # 5. Actualizar campos en el documento de obra
     obra_ref.update({
         "presupuesto_mano_obra_actual": round(saldo_disponible, 2),
-        "gasto_mano_obra": round(total_en_planillas, 2), # Cambiado a 'gasto_mano_obra' para estandarizar
+        "gasto_mano_obra": round(total_acumulado, 2),
         "fecha_actualizacion_mo": datetime.now()
     })
     return saldo_disponible
@@ -208,7 +212,8 @@ with tab1:
                         "sueldo_diario": sueldo_diario,
                         "url_foto": res["secure_url"],
                         "fecha_registro": datetime.now(),
-                        "dias_asistidos": 0  # <--- ESTA ES LA LÍNEA NUEVA
+                        "dias_asistidos": 0,  # <--- dias
+                        "sueldo_acumulado": 0.0  # nuevo campo acumulado
                     })
 
                     st.success(f"✅ {nombre_t} registrado correctamente con 0 asistencias.")
@@ -233,9 +238,13 @@ with tab2:
                 df_t["sueldo_diario"] = df_t["presupuesto"]
             else:
                 df_t["sueldo_diario"] = 0.0
+        if "sueldo_acumulado" not in df_t.columns:
+            df_t["sueldo_acumulado"] = 0.0
+        if "dias_asistidos" not in df_t.columns:
+            df_t["dias_asistidos"] = 0
 
         st.dataframe(
-            df_t[["nombre", "rol", "telefono", "email", "grupo", "sueldo_diario"]],
+            df_t[["nombre", "rol", "telefono", "email", "grupo", "sueldo_diario", "dias_asistidos", "sueldo_acumulado"]],
             use_container_width=True,
             hide_index=True
         )
@@ -279,10 +288,15 @@ with tab2:
     step=10.0
 )
 
-               
-                col_b1, col_b2 = st.columns(2)
+                # mostrar solo lectura para dias y acumulado
+                cinfo1, cinfo2 = st.columns(2)
+                cinfo1.metric("Días asistidos", trabajador_sel.get("dias_asistidos", 0))
+                cinfo2.metric("Sueldo acumulado", f"S/ {trabajador_sel.get('sueldo_acumulado', 0):,.2f}")
+
+                col_b1, col_b2, col_b3 = st.columns(3)
                 btn_update = col_b1.form_submit_button("💾 Actualizar Datos")
                 btn_delete = col_b2.form_submit_button("🗑️ Eliminar Trabajador")
+                btn_pay = col_b3.form_submit_button("💸 Pagar Salario")
                 
                 if btn_update:
                     db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).update({
@@ -298,12 +312,30 @@ with tab2:
                    
                     st.success("Datos actualizados correctamente")
                     st.rerun()
-                    
-                
-                    # Dentro del Tab 2, en la parte de eliminar:
-                if btn_delete:
-                    db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).delete()
-                    # Esta llamada es la que sincroniza con obras.py
+                if btn_pay:
+                    monto = float(trabajador_sel.get("sueldo_acumulado", 0))
+                    if monto <= 0:
+                        st.info("No hay salario acumulado para pagar.")
+                    else:
+                        obra_ref = db.collection("obras").document(obra_id_sel)
+                        # incrementar gasto y actualizar presupuesto actual según gasto
+                        obra_ref.update({
+                            "gasto_mano_obra": firestore.Increment(monto)
+                        })
+                        # recalcular presupuesto actual usando valores almacenados
+                        obra_data = obra_ref.get().to_dict()
+                        p_inicial = float(obra_data.get("presupuesto_mano_obra", 0))
+                        gasto_total = float(obra_data.get("gasto_mano_obra", 0))
+                        obra_ref.update({
+                            "presupuesto_mano_obra_actual": round(p_inicial - gasto_total, 2)
+                        })
+
+                        # poner a cero el acumulado del trabajador
+                        db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).update({
+                            "sueldo_acumulado": 0.0
+                        })
+                        st.success(f"Salario pagado: S/ {monto:,.2f}")
+                        st.rerun()
                    
                     st.warning("Trabajador eliminado y presupuesto liberado")
                     st.rerun()

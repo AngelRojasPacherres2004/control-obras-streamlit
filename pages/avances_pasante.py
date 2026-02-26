@@ -302,11 +302,16 @@ else:
 
             # 🔎 Buscar datos reales del trabajador en Firebase
             rol_trabajador = "Sin rol"
+            sueldo_diario = 0.0
+            sueldo_acumulado = 0.0
 
             if trabajador_id:
                 doc_trab = obra_ref.collection("trabajadores").document(trabajador_id).get()
                 if doc_trab.exists:
-                    rol_trabajador = doc_trab.to_dict().get("rol", "Sin rol")
+                    trab_dict = doc_trab.to_dict()
+                    rol_trabajador = trab_dict.get("rol", "Sin rol")
+                    sueldo_diario = float(trab_dict.get("sueldo_diario", 0.0))
+                    sueldo_acumulado = float(trab_dict.get("sueldo_acumulado", 0.0))
 
             filas_mo.append({
                 "Asistencia": False,
@@ -314,9 +319,10 @@ else:
                 "Tipo": rol_trabajador,  # 🔥 AQUÍ AHORA VA EL ROL REAL
                 "Descripción": t.get("nombre", ""),
                 "Rendimiento": 0.0,
-                "Precio": 0.0,
+                "Precio": sueldo_diario,  # 🔥 AQUÍ AHORA VA EL SUELDO DIARIO
                 "Cantidad": 0.0,
-                "Parcial": 0.0
+                "Parcial": 0.0,
+                "Sueldo Acumulado": sueldo_acumulado  # 🔥 ACUMULADO DEL TRABAJADOR
             })
 
         st.session_state[editor_key] = pd.DataFrame(filas_mo)
@@ -326,7 +332,7 @@ else:
     df_mo = st.session_state[editor_key]
     df_mo_before = df_mo.copy(deep=True)
     # 2️⃣ Asegurar columnas
-    for col in ["Rendimiento", "Precio", "Cantidad", "Parcial", "Asistencia"]:
+    for col in ["Rendimiento", "Precio", "Cantidad", "Parcial", "Asistencia", "Sueldo Acumulado"]:
         if col not in df_mo.columns:
             df_mo[col] = 0.0 if col != "Asistencia" else False
 
@@ -356,6 +362,7 @@ else:
             "Precio": st.column_config.NumberColumn("Precio", min_value=0, format="S/ %.2f"),
             "Cantidad": st.column_config.NumberColumn("Cantidad", disabled=True),
             "Parcial": st.column_config.NumberColumn("Parcial", format="S/ %.2f", disabled=True),
+            "Sueldo Acumulado": st.column_config.NumberColumn("Sueldo Acumulado", format="S/ %.2f", disabled=True),
         },
         key=editor_ui_key
     )
@@ -606,17 +613,29 @@ else:
                             t_id = fila["ID"]
                             if t_id:
                                 t_ref = obra_ref.collection("trabajadores").document(t_id)
-                                batch_asist.update(t_ref, {"dias_asistidos": firestore.Increment(1)})
+                                # Actualizar ambos: días asistidos y sueldo acumulado
+                                sueldo_parcial = float(fila["Parcial"])
+                                batch_asist.update(t_ref, {
+                                    "dias_asistidos": firestore.Increment(1),
+                                    "sueldo_acumulado": firestore.Increment(sueldo_parcial)  # 🔥 ACUMULAR SUELDO
+                                })
                         batch_asist.commit()
 
                     # 3. PREPARAR DOCUMENTO DE AVANCE
+                    # antes de convertir, incrementar el acumulado en el dataframe para reflejar el pago
+                    if "Sueldo Acumulado" in df_mo_asistio.columns:
+                        df_mo_asistio["Sueldo Acumulado"] = (
+                            df_mo_asistio["Sueldo Acumulado"].astype(float)
+                            + df_mo_asistio["Parcial"].astype(float)
+                        )
                     tabla_mano_obra = df_mo_asistio[[
                         "Tipo",
                         "Descripción",
                         "Rendimiento",
                         "Cantidad",
                         "Precio",
-                        "Parcial"
+                        "Parcial",
+                        "Sueldo Acumulado"
                     ]].to_dict(orient="records")
 
 
@@ -651,8 +670,9 @@ else:
                     })
 
                     # 5. ACTUALIZAR TOTALES DE LA OBRA
+                    # Nota: no actualizamos gasto_materiales desde esta pantalla, solo se mantiene
+                    # el subtotal en el avance. El cálculo global se realiza en otro módulo.
                     obra_ref.update({
-                        "gasto_materiales": firestore.Increment(gasto_materiales_total),
                         "gasto_mano_obra": firestore.Increment(total_mo)
                     })
 
