@@ -50,6 +50,42 @@ def mostrar_pantalla_inicial():
             width: 100% !important;
         }}
 
+        /* logo sizing rules */
+        .app-logo {{
+            display: block;
+            margin: 0 auto;
+        }}
+        /* wrapper to control vertical placement */
+        .logo-wrapper {{
+            display:flex;
+            justify-content:center;
+            width:100%;
+            margin-bottom:10px;
+            padding:0;
+        }}
+        @media (min-width: 769px) {{
+            .logo-wrapper {{
+                margin-top: 6vh !important;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            .logo-wrapper {{
+                margin-top: 2vh !important;
+            }}
+        }}
+        @media (min-width: 769px) {{
+            .app-logo {{
+                max-width: 400px !important;
+                width: 60% !important;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            .app-logo {{
+                max-width: 250px !important;
+                width: 80% !important;
+            }}
+        }}
+
         @media (max-width: 768px) {{
             .block-container {{
                 width: 100% !important;
@@ -61,12 +97,18 @@ def mostrar_pantalla_inicial():
             div[data-testid="stButton"] {{
                 max-width: 90% !important;
             }}
+            /* mobile: lower logo and add space before button */
+            .logo-wrapper {{
+                margin-top: 8vh !important;
+            }}
+            div[data-testid="stButton"] {{
+                margin-top: 4vh !important;
+            }}
         }}
         </style>
 
-        <div style="display:flex; justify-content:center; width:100%; margin-bottom:10px; padding:0;">
-            <img src="data:image/png;base64,{logo_b64}"
-                 style="max-width:250px; width:50%; display:block; margin:0 auto;">
+        <div class="logo-wrapper">
+            <img class="app-logo" src="data:image/png;base64,{logo_b64}">
         </div>
         """, unsafe_allow_html=True)
 
@@ -96,6 +138,12 @@ def verificar_autenticacion(db):
             align-items: center !important;
             max-width: 420px !important;
             margin: auto !important;
+        }}
+        /* larger container on desktop so logo doesn't shrink after login */
+        @media (min-width: 769px) {{
+            .block-container {{
+                max-width: 60% !important;
+            }}
         }}
 
         .stTextInput input {{
@@ -135,6 +183,38 @@ def verificar_autenticacion(db):
             background-color: rgba(255, 255, 255, 0.2) !important;
         }}
 
+        /* logo sizing */
+        .app-logo {{
+            display: block;
+            margin: 0 auto;
+        }}
+        /* wrapper to control vertical placement */
+        .logo-wrapper {{
+            display:flex;
+            justify-content:center;
+            width:100%;
+            margin-bottom:10px;
+            padding:0;
+        }}
+        @media (min-width: 769px) {{
+            .app-logo {{
+                max-width: 400px !important;
+                width: 60% !important;
+            }}
+            .logo-wrapper {{
+                margin-top: 6vh !important;
+            }}
+        }}
+        @media (max-width: 768px) {{
+            .app-logo {{
+                max-width: 250px !important;
+                width: 80% !important;
+            }}
+            .logo-wrapper {{
+                margin-top: 2vh !important;
+            }}
+        }}
+
         @media (max-width: 768px) {{
             .block-container {{
                 width: 100% !important;
@@ -149,12 +229,25 @@ def verificar_autenticacion(db):
             label {{
                 font-size: 16px !important;
             }}
+            /* mobile: lower logo and add space before buttons in login */
+            .logo-wrapper {{
+                margin-top: 8vh !important;
+            }}
+            .stButton, div[data-testid="stButton"] {{
+                margin-top: 4vh !important;
+            }}
+        }}
+        /* reapply desktop logo sizing to keep consistent after rerun */
+        @media (min-width: 769px) {{
+            .app-logo {{
+                max-width: 400px !important;
+                width: 60% !important;
+            }}
         }}
         </style>
 
-        <div style="display:flex; justify-content:center; width:100%; margin-bottom:10px; padding:0;">
-            <img src="data:image/png;base64,{logo_b64}"
-                 style="max-width:250px; width:50%; display:block; margin:0 auto;">
+        <div class="logo-wrapper">
+            <img class="app-logo" src="data:image/png;base64,{logo_b64}">
         </div>
         """, unsafe_allow_html=True)
 
