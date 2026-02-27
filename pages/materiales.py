@@ -542,7 +542,7 @@ else:
     s_sem_disp = datos_sem.get("saldo_semanal", p_sem_ini)
 
     col_s1.metric("Asignado Semana", f"S/ {p_sem_ini:,.2f}")
-    col_s2.metric("Gastado Semana", f"S/ {g_sem_real:,.2f}")
+    col_s2.metric("Gastado en materiales", f"S/ {g_sem_real:,.2f}")
     col_s3.metric("Disponible Semana", f"S/ {s_sem_disp:,.2f}")
 
     if p_sem_ini > 0:

@@ -98,20 +98,8 @@ for doc_mat in materiales_ref_total.stream():
     )
     gasto_materiales_total += parcial
 
-# 🔹 TOTAL MANO DE OBRA (REAL)
-mo_ref_total = db.collection("obras").document(obra_id).collection("mano_obra")
-gasto_mano_obra_total = 0
-
-for doc_mo in mo_ref_total.stream():
-    data = doc_mo.to_dict()
-    parcial = float(
-        data.get("parcial") or
-        data.get("monto") or
-        data.get("importe") or
-        data.get("total") or
-        0
-    )
-    gasto_mano_obra_total += parcial
+# 🔹 TOTAL MANO DE OBRA (DESDE trabajadores.py)
+gasto_mano_obra_total = float(obra.get("gasto_mano_obra", 0))
 
 # 🔹 ADICIONALES
 gastos_adicionales = float(obra.get("gastos_adicionales", 0))
@@ -128,7 +116,12 @@ data = [
     ["Saldo inicial", presupuesto_total, presupuesto_total],
     ["Donaciones recibidas", 0.0, 0.0],
     ["Total ingresos", presupuesto_total, presupuesto_total],
-    ["Gastos ejecutados", gastos_ejecutados, gastos_ejecutados],
+
+    ["Gasto Materiales", gasto_materiales_total, gasto_materiales_total],
+    ["Gasto Mano de Obra", gasto_mano_obra_total, gasto_mano_obra_total],
+    ["Gastos Adicionales", gastos_adicionales, gastos_adicionales],
+
+    ["Total Gastos Ejecutados", gastos_ejecutados, gastos_ejecutados],
     ["Saldo final", saldo_final, saldo_final],
 ]
 
@@ -273,47 +266,75 @@ gasto_caja_mes = 0.0
 
 obra_ref = db.collection("obras").document(obra_id)
 
-# 🔥 OJO: igual que obras.py → recorrer PARTIDAS → AVANCES
-partidas_ref = obra_ref.collection("partidas").stream()
+# ================= GASTO MENSUAL REAL DESDE MATERIALES.PY =================
 
-for partida in partidas_ref:
-    avances_ref = partida.reference.collection("avances").stream()
+gasto_materiales_mes = 0.0
+gasto_mo_mes = 0.0
+gasto_caja_mes = 0.0
 
-    for av in avances_ref:
-        data = av.to_dict()
+# 🔹 MATERIALES (desde compras reales)
+materiales_ref = (
+    db.collection("obras")
+    .document(obra_id)
+    .collection("materiales")
+    .stream()
+)
 
-        fecha = data.get("fecha") or data.get("timestamp")
+for doc in materiales_ref:
+    data = doc.to_dict()
 
-        if not fecha:
-            continue
+    # Ignorar donaciones
+    if data.get("tipo") == "DONACIÓN":
+        continue
 
-        # Normalizar fecha
-        if hasattr(fecha, "to_datetime"):
-            fecha_dt = fecha.to_datetime()
-        elif isinstance(fecha, datetime):
-            fecha_dt = fecha
-        else:
-            continue
+    fecha = data.get("fecha")
+    if not fecha:
+        continue
 
-        if fecha_dt.tzinfo is None:
-            fecha_dt = fecha_dt.replace(tzinfo=pytz.UTC)
+    if hasattr(fecha, "to_datetime"):
+        fecha = fecha.to_datetime()
 
-        fecha_dt = fecha_dt.astimezone(local_tz)
+    if isinstance(fecha, datetime):
+        fecha = fecha.replace(tzinfo=None)
 
-        # 🔥 FILTRO POR MES EXACTAMENTE IGUAL
-        if fecha_dt.year == anio_actual and fecha_dt.month == mes_numero:
+        if inicio_mes.replace(tzinfo=None) <= fecha < fin_mes.replace(tzinfo=None):
+            gasto_materiales_mes += float(data.get("subtotal", 0))
 
-            subtotal_materiales = float(data.get("subtotal_materiales", 0))
-            subtotal_mano_obra = float(data.get("subtotal_mano_obra", 0))
-            gasto_caja = float(data.get("gasto_caja_chica", 0) or 0)
 
-            gasto_materiales_mes += subtotal_materiales
-            gasto_mo_mes += subtotal_mano_obra
-            gasto_caja_mes += gasto_caja
+# 🔹 MANO DE OBRA (si tienes colección directa)
+mano_obra_ref = (
+    db.collection("obras")
+    .document(obra_id)
+    .collection("mano_obra")
+    .stream()
+)
 
-# TOTAL MES EXACTO COMO LA GRÁFICA
+for doc in mano_obra_ref:
+    data = doc.to_dict()
+
+    fecha = data.get("fecha")
+    if not fecha:
+        continue
+
+    if hasattr(fecha, "to_datetime"):
+        fecha = fecha.to_datetime()
+
+    if isinstance(fecha, datetime):
+        fecha = fecha.replace(tzinfo=None)
+
+        if inicio_mes.replace(tzinfo=None) <= fecha < fin_mes.replace(tzinfo=None):
+            gasto_mo_mes += float(
+                data.get("parcial") or
+                data.get("monto") or
+                data.get("importe") or
+                data.get("total") or
+                0
+            )
+
+# 🔹 TOTAL FINAL DEL MES
+gasto_materiales_mes = round(gasto_materiales_mes, 2)
+gasto_mo_mes = round(gasto_mo_mes, 2)
 gasto_total_mes = gasto_materiales_mes + gasto_mo_mes + gasto_caja_mes
-
 
 
 ####
@@ -432,7 +453,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
     tabla_data = [
         ["Concepto", "Monto (S/)"],
         ["Materiales", f"S/ {gasto_materiales_mes:,.2f}"],
-        ["Mano de Obra", f"S/ {gasto_mo_mes:,.2f}"],
+        ["Mano de Obra", f"S/ {gasto_mano_obra_total:,.2f}"],
         ["Caja Chica", f"S/ {gasto_caja_mes:,.2f}"],
         ["TOTAL EJECUTADO", f"S/ {gasto_total_mes:,.2f}"],
     ]
@@ -452,7 +473,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
     # -------- GASTOS POR SEMANA --------
     if gastos_semanales_mes:
 
-        elementos.append(Paragraph("<b>GASTOS POR SEMANA</b>", styles["Heading2"]))
+        elementos.append(Paragraph("<b>GASTOS DE MATERIALES POR SEMANA</b>", styles["Heading2"]))
         elementos.append(Spacer(1, 10))
 
         tabla_semanal_data = [
