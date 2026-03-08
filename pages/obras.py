@@ -148,110 +148,111 @@ if auth["role"] == "pasante":
         st.write("🧱 **Materiales usados hoy:**")
         mats_usados = []
         costo_dia = 0.0
-        
-        for m in lista_mats:
-            c1, c2 = st.columns([3, 1])
-            cant = c2.number_input(f"{m['nombre']} ({m['unidad']})", min_value=0.0, key=f"form_{m['nombre']}")
-            if cant > 0:
-                subt = round(cant * m.get("precio_unitario", 0), 2)
-                costo_dia += subt
-                mats_usados.append({
-                    "nombre": m['nombre'], "unidad": m['unidad'],
-                    "cantidad": cant, "precio_unitario": m.get("precio_unitario", 0),
-                    "subtotal": subt
-                })
-        
-        st.info(f"Costo calculado del día: S/ {costo_dia:.2f}")
-        fotos = st.file_uploader("Subir fotos (mínimo 3)", type=["jpg", "png", "jpeg"], accept_multiple_files=True)
-        enviar = st.form_submit_button("GUARDAR AVANCE")
+        for mat in av.get("materiales_usados", []):
+            nombre_mat = mat.get("nombre")
+            # Buscamos el precio en el diccionario de materiales de la obra
+            precio = precios_materiales.get(nombre_mat, 0)
+            costo_dia += float(mat.get("cantidad", 0)) * precio
 
-    if enviar:
-        if not desc or len(fotos) < 3:
-            st.error("Faltan campos obligatorios o fotos (mínimo 3)")
-        else:
-            with st.spinner("Subiendo fotos..."):
-                urls = [cloudinary.uploader.upload(f, folder=f"obras/{obra_id_sel}")["secure_url"] for f in fotos]
-                
-                # --- AQUÍ LA CORRECCIÓN DE FECHA AL GUARDAR ---
-                ahora_local = datetime.now(local_tz)
-                
-                db.collection("obras").document(obra_id_sel).collection("avances").add({
-                    "fecha": ahora_local.isoformat(),
-                    "timestamp": ahora_local, # Guardamos el objeto datetime con zona horaria
-                    "responsable": resp,
-                    "descripcion": desc,
-                    "materiales_usados": mats_usados,
-                    "costo_total_dia": costo_dia,
-                    "fotos": urls
-                })
-                db.collection("obras").document(obra_id_sel).update({
-                    "gasto_acumulado": firestore.Increment(costo_dia)
-                })
-                st.success("✅ Avance guardado correctamente")
-                st.rerun()
+        registros.append({
+            "fecha": fecha,
+            "semana": fecha.isocalendar()[1],
+            "mes": fecha.month,
+            "costo": costo_dia,
+            "avance": av
+        })
 
-# ================= DASHBOARD ECONÓMICO =================
-st.divider()
-st.subheader("📊 Análisis de Costos")
+
+    df = pd.DataFrame(registros)
+
+    col1, col2 = st.columns(2)
+
+    # ---------- SELECT SEMANA ----------
+    semanas = sorted(df["semana"].unique())
+    semana_sel = col1.selectbox(
+        "📆 Seleccionar semana",
+        semanas,
+        format_func=lambda x: f"Semana {x}"
+    )
+
+    # ---------- SELECT MES ----------
+    meses = sorted(df["mes"].unique())
+    mes_sel = col2.selectbox(
+        "📅 Seleccionar mes",
+        meses,
+        format_func=lambda x: MESES_ES[x]
+    )
+
+
+    # ---------- MODO VISUAL ----------
+    modo = st.radio(
+        "Vista",
+        ["Semana (L–V)", "Meses"],
+        horizontal=True
+    )
+
+    # ================== GRAFICO SEMANAL ==================
+    if modo == "Semana (L–V)":
+
+        dias_en = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday"]
+        dias_es = ["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"]
+
+        df_sem = df[
+            (df["semana"] == semana_sel) &
+            (df["mes"] == mes_sel)
+        ]
+
+        gastos_por_dia = {dia: 0.0 for dia in dias_en}
 
 avances_lista = cargar_avances(obra_id_sel)
 
-if not avances_lista:
-    st.info("No hay datos suficientes para mostrar gráficos.")
-else:
-    registros = []
-    acumulado_paso_a_paso = 0.0
-    
-    for a in avances_lista:
-        costo = float(a.get("costo_total_dia", 0))
-        acumulado_paso_a_paso += costo
-        a["_acumulado_momento"] = acumulado_paso_a_paso
-        
-        # --- CORRECCIÓN DE FECHA AL LEER PARA GRÁFICOS ---
-        try:
-            # Priorizamos el timestamp de Firebase
-            dt = a.get("timestamp")
-            if dt:
-                # Si el objeto viene sin zona horaria (naive), lo localizamos en UTC y pasamos a local
-                if dt.tzinfo is None:
-                    dt = pytz.utc.localize(dt).astimezone(local_tz)
-                else:
-                    dt = dt.astimezone(local_tz)
-            else:
-                # Si no hay timestamp, usamos el string ISO
-                dt = datetime.fromisoformat(a.get("fecha")).astimezone(local_tz)
-            
-            a["_dt_local"] = dt # Guardamos para el historial
-            
-            registros.append({
-                "fecha": dt,
-                "semana": dt.isocalendar()[1],
-                "mes": dt.month,
-                "costo": costo,
-                "dia_nombre": dt.strftime("%A")
-            })
-        except: continue
+            if dia_en in gastos_por_dia:
 
-    if registros:
-        df = pd.DataFrame(registros)
-        c1, c2 = st.columns(2)
-        sem_sel = c1.selectbox("📆 Ver Semana", sorted(df["semana"].unique(), reverse=True))
-        modo = st.radio("Filtro", ["Semana Completa", "Mensual"], horizontal=True)
+                # 🔥 USAR TOTALES REALES GUARDADOS
+                subtotal_materiales = float(r["avance"].get("subtotal_materiales", 0))
+                subtotal_mano_obra = float(r["avance"].get("subtotal_mano_obra", 0))
+                gasto_caja = float(r["avance"].get("gasto_caja_chica", 0) or 0)
 
-        if modo == "Semana Completa":
-            dias_semana = ["Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday", "Sunday"]
-            dias_es = ["Lun", "Mar", "Mié", "Jue", "Vie", "Sáb", "Dom"]
-            df_sem = df[df["semana"] == sem_sel]
-            costos_dia = df_sem.groupby("dia_nombre")["costo"].sum().reindex(dias_semana, fill_value=0)
-            st.bar_chart(pd.DataFrame({"Gasto (S/)": costos_dia.values}, index=dias_es))
-        else:
-            costos_mes = df.groupby("mes")["costo"].sum().reindex(range(1, 13), fill_value=0)
-            st.bar_chart(pd.DataFrame({"Gasto (S/)": costos_mes.values}, index=[MESES_ES[m] for m in range(1,13)]))
+                gasto_total = subtotal_materiales + subtotal_mano_obra + gasto_caja
 
-        porcentaje = min(acumulado_paso_a_paso / presupuesto_obra, 1.0) if presupuesto_obra > 0 else 0
-        st.write(f"**Progreso del Presupuesto:** {porcentaje*100:.1f}%")
-        st.progress(porcentaje)
+                gastos_por_dia[dia_en] += gasto_total
 
+        chart_df = pd.DataFrame({
+            "Día": dias_es,
+            "Gasto Total (S/)": [gastos_por_dia[d] for d in dias_en]
+        })
+
+        chart_df["Día"] = pd.Categorical(
+            chart_df["Día"],
+            categories=["Lunes", "Martes", "Miércoles", "Jueves", "Viernes"],
+            ordered=True
+        )
+
+        chart_df = chart_df.sort_values("Día").set_index("Día")
+
+        st.bar_chart(chart_df, height=320)
+
+    # ================== GRAFICO MENSUAL ==================
+    else:
+
+        df_mes = df[df["mes"] == mes_sel]
+
+        gasto_total_mes = 0.0
+
+        for _, r in df_mes.iterrows():
+
+            subtotal_materiales = float(r["avance"].get("subtotal_materiales", 0))
+            subtotal_mano_obra = float(r["avance"].get("subtotal_mano_obra", 0))
+            gasto_caja = float(r["avance"].get("gasto_caja_chica", 0) or 0)
+
+            gasto_total_mes += subtotal_materiales + subtotal_mano_obra + gasto_caja
+
+        chart_df = pd.DataFrame({
+            "Mes": [MESES_ES[mes_sel]],
+            "Gasto Total (S/)": [gasto_total_mes]
+        }).set_index("Mes")
+
+        st.bar_chart(chart_df, height=320)
 # ================= HISTORIAL DE AVANCES =================
 st.divider()
 st.header("📚 Historial de Avances")

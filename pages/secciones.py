@@ -608,14 +608,36 @@ with tab2:
         # 🔥 MODO VISTA (cuando no hay edición activa)
         else:
             for partida in partidas:
-                with st.expander(f"**{partida.get('codigo')}** - {partida.get('nombre')}", expanded=False):
+                # ================= CALCULAR ESTADO DE LA SECCIÓN =================
+                valor_meta = float(partida.get('valor_rendimiento', 0))
+                rendimiento_acumulado = float(partida.get('rendimiento_acumulado', 0.0))
+                porcentaje_progreso = (rendimiento_acumulado / valor_meta) if valor_meta > 0 else 0
+        
+                # ================= DETERMINAR COLOR Y EMOJI SEGÚN PROGRESO =================
+                if porcentaje_progreso >= 1.0:
+                    icono_estado = "✅"
+                    color_borde = "green"
+                    texto_estado = f"COMPLETADO ({porcentaje_progreso*100:.1f}%)"
+                elif porcentaje_progreso >= 0.9:
+                    icono_estado = "🔔"
+                    color_borde = "orange"
+                    texto_estado = f"Cerca de completar ({porcentaje_progreso*100:.1f}%)"
+                elif porcentaje_progreso >= 0.5:
+                    icono_estado = "📈"
+                    color_borde = "blue"
+                    texto_estado = f"En progreso ({porcentaje_progreso*100:.1f}%)"
+                else:
+                    icono_estado = "🚧"
+                    color_borde = "gray"
+                    texto_estado = f"Iniciando ({porcentaje_progreso*100:.1f}%)"
+        
+                # ================= TÍTULO DEL EXPANDER CON ESTADO VISUAL =================
+                titulo_expander = f"{icono_estado} **{partida.get('codigo')}** - {partida.get('nombre')} • {texto_estado}"
+        
+                with st.expander(titulo_expander, expanded=False):
             
-                    # ================= BARRA DE RENDIMIENTO ACUMULADO =================
-                    valor_meta = float(partida.get('valor_rendimiento', 0))
-                    rendimiento_acumulado = float(partida.get('rendimiento_acumulado', 0.0))
-            
+                # ================= BARRA DE RENDIMIENTO ACUMULADO =================
                     if valor_meta > 0:
-                        porcentaje_progreso = (rendimiento_acumulado / valor_meta)
                         progreso_barra = min(porcentaje_progreso, 1.0)
                 
                         st.markdown(f"**📈 Avance de Rendimiento ({porcentaje_progreso*100:.1f}%)**")
