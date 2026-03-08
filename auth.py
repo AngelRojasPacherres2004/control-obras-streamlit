@@ -7,6 +7,8 @@ import base64
 import streamlit as st
 from util import set_background_responsive
 from cookies_manager import cookies
+import uuid
+from firebase_admin import firestore
 
 
 # ====== HELPER ======
