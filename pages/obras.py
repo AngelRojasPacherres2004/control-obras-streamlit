@@ -2,15 +2,15 @@
 import streamlit as st
 import pandas as pd
 from datetime import datetime, date
-import pytz
+import pytz  # Librería para manejo de zonas horarias
 import cloudinary
 import cloudinary.uploader
 from firebase_admin import firestore
 from collections import defaultdict
 from io import BytesIO
 
-
 # ================= CONFIGURACIÓN DE ZONA HORARIA =================
+# Cambia 'America/Lima' por tu ciudad si es necesario
 local_tz = pytz.timezone('America/Lima')
 
 # ================= CONFIGURACIÓN =================
@@ -37,38 +37,15 @@ def obtener_obras():
     return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    """
-    Recorre todas las partidas de la obra y recolecta los avances 
-    guardados por los pasantes para mostrarlos en el panel del Jefe.
-    """
-    avances_totales = []
-    obra_ref = db.collection("obras").document(obra_id)
-    
-    # 1. Obtenemos todas las partidas (secciones) de esta obra
-    partidas = obra_ref.collection("partidas").stream()
-    
-    for p in partidas:
-        p_data = p.to_dict()
-        nombre_partida = p_data.get("nombre", "Sin nombre")
-        
-        # 2. Entramos a la sub-colección 'avances' de cada partida
-        av_docs = p.reference.collection("avances").stream()
-        
-        for a in av_docs:
-            d = a.to_dict()
-            d["id"] = a.id
-            d["seccion_nombre"] = nombre_partida  # Para saber de qué sección es
-            
-            # Asegurar compatibilidad de campos de fecha
-            if "timestamp" not in d and "fecha" in d:
-                d["timestamp"] = d["fecha"]
-            
-            avances_totales.append(d)
-    
-    # 3. Ordenar por fecha: el más reciente arriba
-    avances_totales.sort(key=lambda x: x.get("timestamp", datetime.min), reverse=True)
-    
-    return avances_totales
+    docs = (
+        db.collection("obras")
+        .document(obra_id)
+        .collection("avances")
+        .order_by("timestamp", direction=firestore.Query.ASCENDING)
+        .stream()
+    )
+    return [d.to_dict() for d in docs]
+
 # ================= SEGURIDAD / AUTH =================
 if "auth" not in st.session_state:
     st.error("Por favor, inicia sesión.")
@@ -84,7 +61,10 @@ if st.session_state.get("last_page") != "obras":
 
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
-lista_ids = list(OBRAS.keys())
+
+if not OBRAS and auth["role"] != "jefe":
+    st.warning("No hay obras creadas.")
+    st.stop()
 
 if auth["role"] == "jefe":
     # Buscamos en qué posición de la lista está la obra que seleccionamos antes
@@ -94,320 +74,79 @@ if auth["role"] == "jefe":
 
     obra_id_sel = st.sidebar.selectbox(
         "Seleccionar obra",
-        options=lista_ids,
+        options=list(OBRAS.keys()) if OBRAS else [],
         format_func=lambda x: OBRAS.get(x, x),
-        index=indice_actual,
-        key="selector_global",
-        # Esto asegura que si cambias de obra en el menú, se cierre el formulario "Crear"
         on_change=lambda: st.session_state.update({"crear_obra": False})
     )
-    
-    # Guardamos para las otras pantallas
-    st.session_state["obra_id_global"] = obra_id_sel
     st.sidebar.divider()
     if st.sidebar.button("➕ Crear Nueva Obra", use_container_width=True):
         st.session_state["crear_obra"] = True
-        st.rerun()  
 else:
-    # Para pasantes, usamos la obra asignada en su perfil
     obra_id_sel = auth.get("obra")
-    # También lo guardamos globalmente por si el pasante entra a otras páginas
-    st.session_state["obra_id_global"] = obra_id_sel
-    
     if not obra_id_sel:
         st.error("No tienes una obra asignada.")
         st.stop()
     st.sidebar.success(f"Obra asignada: {OBRAS.get(obra_id_sel, 'Desconocida')}")
+
 # ================= FORMULARIO CREAR OBRA =================
-if auth["role"] == "jefe" and st.session_state.get("crear_obra", False):
+if auth["role"] == "jefe" and st.session_state["crear_obra"]:
     st.title("➕ Crear nueva obra")
-
-    # Inicializar estados de pasos si no existen
-    if "paso_creacion" not in st.session_state:
-        st.session_state.paso_creacion = 1
-    if "temp_datos_obra" not in st.session_state:
-        st.session_state.temp_datos_obra = {}
-
-    # --- PASO 1: DATOS GENERALES Y PRESUPUESTOS BASE ---
-    if st.session_state.paso_creacion == 1:
-        with st.form("form_datos_generales"):
-            nombre = st.text_input("Nombre de la obra")
-            ubicacion = st.text_input("Ubicación")
-            estado = st.selectbox("Estado", ["en espera", "en progreso", "pausado", "finalizado"])
-            
-            c1, c2 = st.columns(2)
-            f_inicio = c1.date_input("Fecha inicio", value=date.today())
-            f_fin = c2.date_input("Fecha fin estimado", value=date.today())
-
-            st.subheader("💰 Presupuestos Base")
-            col_p1, col_p2 = st.columns(2)
-            p_caja = col_p1.number_input("Presupuesto Caja Chica (S/)", min_value=0.0, step=100.0)
-            p_mano = col_p2.number_input("Presupuesto Mano de Obra (S/)", min_value=0.0, step=100.0)
-            
-            p_mats_total = st.number_input("Presupuesto TOTAL Materiales (S/)", min_value=0.0, step=100.0, 
-                                           help="Este monto se distribuirá por semanas en el siguiente paso")
-
-            if st.form_submit_button("Siguiente: Configurar Semanas ➡️"):
-                if not nombre or p_mats_total <= 0:
-                    st.error("Por favor completa el nombre y el presupuesto de materiales.")
-                elif f_fin <= f_inicio:
-                    st.error("La fecha fin debe ser mayor a la de inicio.")
-                else:
-                    st.session_state.temp_datos_obra = {
-                        "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
-                        "f_inicio": f_inicio, "f_fin": f_fin,
-                        "p_caja": p_caja, "p_mano": p_mano, "p_mats_total": p_mats_total
-                    }
-                    st.session_state.paso_creacion = 2
-                    st.rerun()
-   # --- PASO 2: DISTRIBUCIÓN SEMANAL ---
-    elif st.session_state.paso_creacion == 2:
-        datos = st.session_state.temp_datos_obra
-        st.info(f"📍 **Obra:** {datos['nombre']} | **Presupuesto Materiales a distribuir:** S/ {datos['p_mats_total']:,.2f}")
+    with st.form("form_crear_obra"):
+        nombre = st.text_input("Nombre de la obra")
+        ubicacion = st.text_input("Ubicación")
+        estado = st.selectbox("Estado", ["en espera", "en progreso", "pausado", "finalizado"])
+        c1, c2 = st.columns(2)
+        f_inicio = c1.date_input("Fecha inicio")
+        f_fin = c2.date_input("Fecha fin estimado")
+        presupuesto_inicial = st.number_input("Presupuesto Total (S/)", min_value=0.0)
         
-        # 🔥 CALCULAR SEMANAS REALES (Lunes a Domingo)
-        lista_semanas_temp = []
-        fecha_cursor = datos['f_inicio']
-        
-        while fecha_cursor <= datos['f_fin']:
-            # Calcular el DOMINGO de la semana actual
-            dias_hasta_domingo = 6 - fecha_cursor.weekday()  # 0=Lun, 6=Dom
-            domingo_semana = fecha_cursor + pd.Timedelta(days=dias_hasta_domingo)
-            
-            # La semana termina el domingo O en la fecha fin (lo que ocurra primero)
-            sem_fin = min(domingo_semana, datos['f_fin'])
-            
-            lista_semanas_temp.append({
-                'inicio': fecha_cursor,
-                'fin': sem_fin
-            })
-            
-            # Saltar al LUNES siguiente
-            fecha_cursor = sem_fin + pd.Timedelta(days=1)
-        
-        num_semanas = len(lista_semanas_temp)
-
-        with st.form("form_semanas_materiales"):
-            st.subheader("🧱 Distribución Semanal de Materiales")
-            st.caption("📅 Cada semana termina en Domingo (o fin de obra)")
-            
-            lista_semanas = []
-            suma_ingresada = 0.0
-            
-            for i, sem in enumerate(lista_semanas_temp):
-                sem_ini = sem['inicio']
-                sem_fin = sem['fin']
-                
-                # Sugerir monto equitativo
-                sugerido = round(datos['p_mats_total'] / num_semanas, 2)
-                
-                # Calcular días de trabajo en esta semana
-                dias_semana = (sem_fin - sem_ini).days + 1
-                
-                # Nombre del día de inicio
-                dias_nombres = ['Lun', 'Mar', 'Mié', 'Jue', 'Vie', 'Sáb', 'Dom']
-                dia_inicio_nombre = dias_nombres[sem_ini.weekday()]
-                
-                monto = st.number_input(
-                    f"Semana {i+1}: {dia_inicio_nombre} {sem_ini.strftime('%d/%m')} - {sem_fin.strftime('%d/%m')} ({dias_semana} días)",
-                    min_value=0.0, step=10.0, value=sugerido, key=f"sem_input_{i}"
-                )
-                suma_ingresada += monto
-                
-                lista_semanas.append({
-                    "semana": i + 1,
-                    "fecha_inicio": datetime.combine(sem_ini, datetime.min.time()),
-                    "fecha_fin": datetime.combine(sem_fin, datetime.min.time()),
-                    "presupuesto_materiales": monto,
-                    "dias_laborables": dias_semana
-                })
-
-            diferencia = round(datos['p_mats_total'] - suma_ingresada, 2)
-            if diferencia == 0:
-                st.success("✅ El total coincide perfectamente.")
-            elif diferencia > 0:
-                st.warning(f"Faltan asignar: S/ {diferencia:,.2f}")
+        col_g, col_c = st.columns(2)
+        if col_g.form_submit_button("💾 Guardar Obra"):
+            if not nombre: st.error("El nombre es obligatorio")
             else:
-                st.error(f"Te has pasado por: S/ {abs(diferencia):,.2f}")
-
-            c_col1, c_col2 = st.columns(2)
-            if c_col1.form_submit_button("💾 Finalizar y Guardar Obra"):
-                if abs(diferencia) > 0.01: # Tolerancia por decimales
-                    st.error(f"La suma de las semanas debe ser exactamente S/ {datos['p_mats_total']:,.2f}")
-                else:
-                    oid = datos['nombre'].lower().strip().replace(" ", "_")
-                    ahora = datetime.now(local_tz)
-                    
-                    db.collection("obras").document(oid).set({
-                        "nombre": datos['nombre'],
-                        "ubicacion": datos['ubicacion'],
-                        "estado": datos['estado'],
-                        "fecha_inicio": datetime.combine(datos['f_inicio'], datetime.min.time()),
-                        "fecha_fin_estimado": datetime.combine(datos['f_fin'], datetime.min.time()),
-                        "presupuesto_caja_chica": datos['p_caja'],
-                        "presupuesto_mano_obra": datos['p_mano'],
-                        "presupuesto_materiales": datos['p_mats_total'],
-                        "presupuesto_materiales_semanal": lista_semanas,
-                        "presupuesto_total": datos['p_caja'] + datos['p_mano'] + datos['p_mats_total'],
-                        "gasto_materiales": 0,      
-                        "gasto_caja_chica": 0,     
-                        "gasto_mano_obra": 0,       
-                        "creado_en": ahora
-                    })
-                    
-                    st.session_state.paso_creacion = 1
-                    st.session_state.crear_obra = False
-                    st.success("Obra creada exitosamente")
-                    st.rerun()
-
-            if c_col2.form_submit_button("⬅️ Volver / Editar Totales"):
-                st.session_state.paso_creacion = 1
+                oid = nombre.lower().strip().replace(" ", "_")
+                # Guardamos las fechas de creación con zona horaria
+                ahora_obra = datetime.now(local_tz)
+                db.collection("obras").document(oid).set({
+                    "nombre": nombre, "ubicacion": ubicacion, "estado": estado,
+                    "fecha_inicio": datetime.combine(f_inicio, datetime.min.time()),
+                    "fecha_fin_estimado": datetime.combine(f_fin, datetime.min.time()),
+                    "presupuesto_total": presupuesto_inicial,
+                    "gasto_acumulado": 0, "creado_en": ahora_obra
+                })
+                st.session_state["crear_obra"] = False
                 st.rerun()
-
-    if st.button("❌ Cancelar todo"):
-        st.session_state.paso_creacion = 1
-        st.session_state.crear_obra = False
-        st.rerun()
-
-    st.stop()
-# ================= INFORMACIÓN DE LA OBRA (MÉTRICAS DOBLES) =================
-if not obra_id_sel:
-    st.info("Selecciona o crea una obra para comenzar.")
+        if col_c.form_submit_button("❌ Cancelar"):
+            st.session_state["crear_obra"] = False
+            st.rerun()
     st.stop()
 
+# ================= INFORMACIÓN DE LA OBRA =================
 doc_ref = db.collection("obras").document(obra_id_sel).get()
+if not doc_ref.exists:
+    st.error("La obra seleccionada no existe.")
+    st.stop()
+
 obra_data = doc_ref.to_dict()
+presupuesto_obra = float(obra_data.get("presupuesto_total", 0))
 
 st.subheader(f"🏗️ {obra_data.get('nombre')}")
+st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}")
 
-# Formatear fechas
-fecha_inicio = obra_data.get('fecha_inicio')
-fecha_fin = obra_data.get('fecha_fin_estimado')
-
-f_inicio_str = fecha_inicio.strftime('%d/%m/%Y') if fecha_inicio else 'N/D'
-f_fin_str = fecha_fin.strftime('%d/%m/%Y') if fecha_fin else 'N/D'
-
-st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')} | 📅 {f_inicio_str} → {f_fin_str}")
-
-# --- LÓGICA DE CÁLCULOS (CORREGIDA) ---
-# 1. Caja Chica
-p_caja_ini = float(obra_data.get("presupuesto_caja_chica", 0))
-g_caja_uso = float(obra_data.get("gasto_caja_chica", 0))
-p_caja_act = p_caja_ini - g_caja_uso
-
-# 2. Materiales
-p_mats_ini = float(obra_data.get("presupuesto_materiales", 0))
-g_mats_uso = float(obra_data.get("gasto_materiales", 0)) 
-p_mats_act = p_mats_ini - g_mats_uso
-
-# 3. Mano de Obra
-p_mano_ini = float(obra_data.get("presupuesto_mano_obra", 0))
-g_mano_uso = float(obra_data.get("gasto_mano_obra", 0)) # <--- Obtenido de Firebase
-p_mano_act = p_mano_ini - g_mano_uso # <--- Esto debería ser 0 si p = g
-
-# 4. Totales
-p_total_ini = float(obra_data.get("presupuesto_total", 0))
-# El total disponible es la suma de lo que queda en cada rubro
-p_total_act = p_caja_act + p_mats_act + p_mano_act
-# 5. Donaciones (Solo Informativo)
-total_don_monetaria = float(obra_data.get("total_donaciones_monetarias", 0))
-# --- DISEÑO DE MÉTRICAS (INICIAL ARRIBA / ACTUAL ABAJO) ---
-m1, m2, m3, m4,m5 = st.columns(5)
-
-
-with m1:
-    st.metric("📦 Caja Chica (Inicial)", f"S/ {p_caja_ini:,.2f}")
-    st.metric("Caja Chica (Actual)", f"S/ {p_caja_act:,.2f}", 
-              delta=f"- S/ {g_caja_uso:,.2f}", delta_color="inverse")
-
-with m2:
-    st.metric("👷 Mano Obra (Inicial)", f"S/ {p_mano_ini:,.2f}")
-    st.metric("Mano Obra (Actual)", f"S/ {p_mano_act:,.2f}",
-              delta=f"- S/ {g_mano_uso:,.2f}", delta_color="inverse")
-
-with m3:
-    st.metric("🧱 Materiales (Inicial)", f"S/ {p_mats_ini:,.2f}")
-    st.metric("Materiales (Actual)", f"S/ {p_mats_act:,.2f}", 
-              delta=f"- S/ {g_mats_uso:,.2f}", delta_color="inverse")
-
-with m4:
-    st.metric("💰 Total Obra (Inicial)", f"S/ {p_total_ini:,.2f}")
-    st.metric("Total Disponible", f"S/ {p_total_act:,.2f}", 
-              delta=f"{(p_total_act/p_total_ini*100) if p_total_ini > 0 else 0:.1f}%")
-
-with m5:
-    st.markdown("### 💝 Donaciones")
-    st.metric(
-        label="Recaudado (Aparte)", 
-        value=f"S/ {total_don_monetaria:,.2f}",
-        help="Este dinero proviene de donaciones y no afecta el presupuesto inicial de la obra."
-    )
-# Carga única de avances para usar en toda la página (Gráficos, Historial y Excel)
-avances_lista = cargar_avances(obra_id_sel)
-
-# ================= ANÁLISIS ECONÓMICO (REPARADO) =================
-st.divider()
-st.subheader("📊 Resumen de Gastos")
-
-g_mats = float(obra_data.get("gasto_materiales", 0))
-g_caja = float(obra_data.get("gasto_caja_chica", 0))
-g_mano = float(obra_data.get("gasto_mano_obra", 0))
-p_total_ini = float(obra_data.get("presupuesto_total", 0))
-
-total_gastado = g_mats + g_caja + g_mano
-
-if p_total_ini > 0:
-    porcentaje = min(total_gastado / p_total_ini, 1.0)
-    st.write(f"**Gasto Real Total:** S/ {total_gastado:,.2f} de S/ {p_total_ini:,.2f} ({porcentaje*100:.1f}%)")
-    st.progress(porcentaje)
+# ================= REGISTRAR AVANCE (PASANTE) =================
+if auth["role"] == "pasante":
+    st.divider()
+    st.header("📝 Registrar Avance Diario")
     
-    # Desglose visual rápido
-    c1, c2, c3 = st.columns(3)
-    c1.caption(f"🧱 Mats: S/ {g_mats:,.2f}")
-    c2.caption(f"📦 Caja: S/ {g_caja:,.2f}")
-    c3.caption(f"👷 Mano Obra: S/ {g_mano:,.2f}")
-else:
-    st.info("Presupuesto no configurado.")
+    materiales_ref = db.collection("obras").document(obra_id_sel).collection("materiales").stream()
+    lista_mats = [m.to_dict() for m in materiales_ref]
 
-# ================= PRECIOS DE MATERIALES =================
-materiales_ref = db.collection("obras").document(obra_id_sel).collection("materiales").stream()
-
-precios_materiales = {}
-for m in materiales_ref:
-    d = m.to_dict()
-    precios_materiales[d.get("nombre")] = float(d.get("precio_unitario", 0))
-
-
-# ================= DASHBOARD DE AVANCES =================
-st.divider()
-st.subheader("📊 Avance económico de la obra")
-
-avances = avances_lista
-if not avances:
-    st.info("Aún no hay avances registrados")
-else:
-    # ---------- PROCESAR AVANCES (CORREGIDO) ----------
-    registros = []
-    for av in avances:
-        fecha_raw = av.get("fecha")
-
-        # 1. Validar el tipo de dato de la fecha
-        if isinstance(fecha_raw, datetime):
-            fecha = fecha_raw
-        elif isinstance(fecha_raw, str):
-            # Por si acaso algún registro viejo quedó como texto
-            fecha = datetime.fromisoformat(fecha_raw)
-        else:
-            # Respaldo: si no hay fecha, intentamos con timestamp o la fecha actual
-            fecha = av.get("timestamp", datetime.now(pytz.UTC))
-
-        # 2. Normalizar zona horaria (Firestore suele traer UTC)
-        if fecha.tzinfo is None:
-            fecha = fecha.replace(tzinfo=pytz.UTC)
+    with st.form("nuevo_avance", clear_on_submit=True):
+        resp = st.text_input("Responsable", value=auth.get("username", ""))
+        desc = st.text_area("Descripción del trabajo")
         
-        fecha = fecha.astimezone(local_tz)
-
-        # 3. Calcular costo del día desde materiales usados
+        st.write("🧱 **Materiales usados hoy:**")
+        mats_usados = []
         costo_dia = 0.0
         for mat in av.get("materiales_usados", []):
             nombre_mat = mat.get("nombre")
@@ -465,8 +204,7 @@ else:
 
         gastos_por_dia = {dia: 0.0 for dia in dias_en}
 
-        for _, r in df_sem.iterrows():
-            dia_en = r["fecha"].strftime("%A")
+avances_lista = cargar_avances(obra_id_sel)
 
             if dia_en in gastos_por_dia:
 
@@ -519,22 +257,15 @@ else:
 st.divider()
 st.header("📚 Historial de Avances")
 
-# Usamos avances_lista que definimos al inicio de la página
 if not avances_lista:
     st.info("No hay registros en el historial.")
 else:
     avances_mostrar = avances_lista[::-1]
+    
     for av in avances_mostrar:
-        try:
-            dt = av.get("timestamp")
-            if dt:
-                if not dt.tzinfo:
-                    dt = dt.replace(tzinfo=pytz.UTC)
-                f_txt = dt.astimezone(local_tz).strftime("%d/%m/%Y %H:%M")
-            else:
-                f_txt = "Fecha N/D"
-        except Exception as e:
-            f_txt = "Fecha N/D"
+        # Usamos la fecha corregida que procesamos en el bloque anterior
+        f_dt = av.get("_dt_local")
+        f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
 
         seccion = av.get("seccion_nombre", "Sin sección")
         with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')} | 🧱 {seccion}"):
