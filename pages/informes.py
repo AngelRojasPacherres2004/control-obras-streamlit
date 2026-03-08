@@ -6,12 +6,12 @@ from firebase_admin import firestore
 from io import BytesIO
 from docx import Document
 from reportlab.lib.pagesizes import A4
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, KeepTogether
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
 from datetime import timezone
 from io import BytesIO
-
+from collections import defaultdict
 
 # ================= DB =================
 db = firestore.client()
@@ -241,14 +241,12 @@ mes_nombre = MESES[mes_numero]
 
 # ================= RANGO DE FECHA =================
 # ================= RANGO DE FECHA =================
-inicio_mes = datetime(anio_actual, mes_numero, 1, tzinfo=timezone.utc)
+inicio_mes = datetime(anio_actual, mes_numero, 1)
 
 if mes_numero == 12:
-    fin_mes = datetime(anio_actual + 1, 1, 1, tzinfo=timezone.utc)
+    fin_mes = datetime(anio_actual + 1, 1, 1)
 else:
-    fin_mes = datetime(anio_actual, mes_numero + 1, 1, tzinfo=timezone.utc)
-
-
+    fin_mes = datetime(anio_actual, mes_numero + 1, 1)
 # ================= MATERIAL (FILTRADO REAL) =================
 # ================= MATERIAL (FILTRADO REAL) =================
 # ================= MATERIAL (ROBUSTO) =================
@@ -295,24 +293,34 @@ for doc in materiales_ref:
         fecha = fecha.to_datetime()
 
     if isinstance(fecha, datetime):
+
         fecha = fecha.replace(tzinfo=None)
 
-        if inicio_mes.replace(tzinfo=None) <= fecha < fin_mes.replace(tzinfo=None):
-            gasto_materiales_mes += float(data.get("subtotal", 0))
+        if inicio_mes <= fecha < fin_mes:
+            monto = float(
+                data.get("parcial") or
+                data.get("monto") or
+                data.get("importe") or
+                data.get("total") or
+                data.get("subtotal") or
+                0
+            )
 
-
+            gasto_materiales_mes += monto
 # 🔹 MANO DE OBRA (si tienes colección directa)
-mano_obra_ref = (
+# 🔹 MANO DE OBRA (PAGOS REALES)
+pagos_mo_ref = (
     db.collection("obras")
     .document(obra_id)
-    .collection("mano_obra")
+    .collection("pagos_mano_obra")
     .stream()
 )
 
-for doc in mano_obra_ref:
-    data = doc.to_dict()
+for doc in pagos_mo_ref:
 
+    data = doc.to_dict()
     fecha = data.get("fecha")
+
     if not fecha:
         continue
 
@@ -320,24 +328,21 @@ for doc in mano_obra_ref:
         fecha = fecha.to_datetime()
 
     if isinstance(fecha, datetime):
+
         fecha = fecha.replace(tzinfo=None)
 
-        if inicio_mes.replace(tzinfo=None) <= fecha < fin_mes.replace(tzinfo=None):
-            gasto_mo_mes += float(
-                data.get("parcial") or
-                data.get("monto") or
-                data.get("importe") or
-                data.get("total") or
-                0
-            )
+        if inicio_mes <= fecha < fin_mes:
+            gasto_mo_mes += float(data.get("monto", 0))
+
+
+
+
 
 # 🔹 TOTAL FINAL DEL MES
 gasto_materiales_mes = round(gasto_materiales_mes, 2)
 gasto_mo_mes = round(gasto_mo_mes, 2)
 gasto_total_mes = gasto_materiales_mes + gasto_mo_mes + gasto_caja_mes
 
-
-####
 
 # ================= GASTO SEMANAL DEL MES =================
 presupuesto_semanal = obra.get("presupuesto_materiales_semanal", [])
@@ -413,6 +418,10 @@ for doc_sec in partidas_ref.stream():
         elif isinstance(fecha_creacion, datetime):
             fecha_dt = fecha_creacion
 
+    # 🔹 QUITAR TIMEZONE
+    if fecha_dt:
+        fecha_dt = fecha_dt.replace(tzinfo=None)
+
     # 🔹 Iniciadas en el mes
     if fecha_dt and inicio_mes <= fecha_dt < fin_mes:
         secciones_iniciadas.append(detalle)
@@ -453,7 +462,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
     tabla_data = [
         ["Concepto", "Monto (S/)"],
         ["Materiales", f"S/ {gasto_materiales_mes:,.2f}"],
-        ["Mano de Obra", f"S/ {gasto_mano_obra_total:,.2f}"],
+        ["Mano de Obra", f"S/ {gasto_mo_mes:,.2f}"],
         ["Caja Chica", f"S/ {gasto_caja_mes:,.2f}"],
         ["TOTAL EJECUTADO", f"S/ {gasto_total_mes:,.2f}"],
     ]
@@ -466,7 +475,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
         ("ALIGN", (1,1), (-1,-1), "RIGHT"),
     ])
 
-    elementos.append(tabla)
+    elementos.append(KeepTogether(tabla))
     elementos.append(Spacer(1, 30))
 
 
@@ -489,7 +498,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
             ("ALIGN", (3,1), (-1,-1), "RIGHT"),
         ])
 
-        elementos.append(tabla_semanal)
+        elementos.append(KeepTogether(tabla_semanal))
         elementos.append(Spacer(1, 25))
 
 
@@ -631,7 +640,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
                     ("ALIGN", (2,1), (-1,-1), "RIGHT"),
                 ])
 
-                elementos.append(tabla_mano)
+                elementos.append(KeepTogether(tabla_mano))
                 elementos.append(Spacer(1, 10))
             else:
                 subtotal_mo = float(av_data.get("subtotal_mano_obra", 0))
@@ -656,7 +665,7 @@ if st.button("📥 Descargar Informe Mensual PDF"):
                 ("ALIGN", (1,1), (-1,-1), "RIGHT"),
             ])
 
-            elementos.append(tabla_detalle)
+            elementos.append(KeepTogether(tabla_detalle))
             elementos.append(Spacer(1, 15))
 
            

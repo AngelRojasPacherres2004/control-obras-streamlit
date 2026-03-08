@@ -314,31 +314,36 @@ with tab2:
                     st.rerun()
                 if btn_pay:
                     monto = float(trabajador_sel.get("sueldo_acumulado", 0))
+
                     if monto <= 0:
                         st.info("No hay salario acumulado para pagar.")
                     else:
+
                         obra_ref = db.collection("obras").document(obra_id_sel)
-                        # incrementar gasto y actualizar presupuesto actual según gasto
+
+                        # 🔹 REGISTRAR EL PAGO CON FECHA
+                        obra_ref.collection("pagos_mano_obra").add({
+                            "trabajador": trabajador_sel.get("nombre"),
+                            "trabajador_id": trabajador_sel.get("id"),
+                            "monto": monto,
+                            "fecha": datetime.now(),
+                            "tipo": "pago_salario"
+                        })
+
+                        # 🔹 SUMAR AL GASTO TOTAL
                         obra_ref.update({
                             "gasto_mano_obra": firestore.Increment(monto)
                         })
-                        # recalcular presupuesto actual usando valores almacenados
-                        obra_data = obra_ref.get().to_dict()
-                        p_inicial = float(obra_data.get("presupuesto_mano_obra", 0))
-                        gasto_total = float(obra_data.get("gasto_mano_obra", 0))
-                        obra_ref.update({
-                            "presupuesto_mano_obra_actual": round(p_inicial - gasto_total, 2)
-                        })
 
-                        # poner a cero el acumulado del trabajador
-                        db.collection("obras").document(obra_id_sel).collection("trabajadores").document(trabajador_sel["id"]).update({
-                            "sueldo_acumulado": 0.0
-                        })
+                        # 🔹 RESETEAR ACUMULADO
+                        db.collection("obras").document(obra_id_sel)\
+                            .collection("trabajadores")\
+                            .document(trabajador_sel["id"]).update({
+                                "sueldo_acumulado": 0.0
+                            })
+
                         st.success(f"Salario pagado: S/ {monto:,.2f}")
                         st.rerun()
-                   
-                    st.warning("Trabajador eliminado y presupuesto liberado")
-                    st.rerun()
 # ================= EXPORTAR =================
 if trabajadores:
     st.divider()
