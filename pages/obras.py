@@ -37,15 +37,31 @@ def obtener_obras():
     return {d.id: d.to_dict().get("nombre", d.id) for d in db.collection("obras").stream()}
 
 def cargar_avances(obra_id):
-    docs = (
-        db.collection("obras")
-        .document(obra_id)
-        .collection("avances")
-        .order_by("timestamp", direction=firestore.Query.ASCENDING)
-        .stream()
-    )
-    return [d.to_dict() for d in docs]
+    obra_ref = db.collection("obras").document(obra_id)
 
+    partidas = obra_ref.collection("partidas").stream()
+
+    avances = []
+
+    for p in partidas:
+
+        partida_data = p.to_dict()
+        nombre_partida = partida_data.get("nombre", p.id)
+
+        avances_ref = obra_ref.collection("partidas").document(p.id).collection("avances").stream()
+
+        for av in avances_ref:
+            data = av.to_dict()
+
+            # usar fecha si existe
+            data["timestamp"] = data.get("timestamp") or data.get("fecha")
+
+            # 🔥 GUARDAR SECCIÓN
+            data["seccion_nombre"] = nombre_partida
+
+            avances.append(data)
+
+    return avances
 # ================= SEGURIDAD / AUTH =================
 if "auth" not in st.session_state:
     st.error("Por favor, inicia sesión.")
@@ -61,7 +77,7 @@ if st.session_state.get("last_page") != "obras":
 
 # ================= SELECCIÓN DE OBRA =================
 OBRAS = obtener_obras()
-
+lista_ids = list(OBRAS.keys())
 if not OBRAS and auth["role"] != "jefe":
     st.warning("No hay obras creadas.")
     st.stop()
@@ -135,37 +151,50 @@ st.caption(f"📍 {obra_data.get('ubicacion')} | 📌 {obra_data.get('estado')}"
 
 # ================= REGISTRAR AVANCE (PASANTE) =================
 if auth["role"] == "pasante":
+
     st.divider()
     st.header("📝 Registrar Avance Diario")
-    
+
     materiales_ref = db.collection("obras").document(obra_id_sel).collection("materiales").stream()
     lista_mats = [m.to_dict() for m in materiales_ref]
 
     with st.form("nuevo_avance", clear_on_submit=True):
         resp = st.text_input("Responsable", value=auth.get("username", ""))
         desc = st.text_area("Descripción del trabajo")
-        
-        st.write("🧱 **Materiales usados hoy:**")
-        mats_usados = []
-        costo_dia = 0.0
-        for mat in av.get("materiales_usados", []):
-            nombre_mat = mat.get("nombre")
-            # Buscamos el precio en el diccionario de materiales de la obra
-            precio = precios_materiales.get(nombre_mat, 0)
-            costo_dia += float(mat.get("cantidad", 0)) * precio
+
+    # ================= CARGAR AVANCES PARA GRÁFICOS =================
+    avances_lista = cargar_avances(obra_id_sel)
+
+    registros = []
+
+    for av in avances_lista:
+
+        fecha = av.get("timestamp") or av.get("fecha")
+
+        if not fecha:
+            continue
+
+        if hasattr(fecha, "to_datetime"):
+            fecha = fecha.to_datetime()
+
+        if isinstance(fecha, datetime):
+            fecha = fecha.replace(tzinfo=None)
 
         registros.append({
             "fecha": fecha,
             "semana": fecha.isocalendar()[1],
             "mes": fecha.month,
-            "costo": costo_dia,
             "avance": av
         })
 
-
     df = pd.DataFrame(registros)
 
-    col1, col2 = st.columns(2)
+    if df.empty:
+        st.info("No hay avances registrados aún.")
+        st.stop()
+
+    else:
+        col1, col2 = st.columns(2)
 
     # ---------- SELECT SEMANA ----------
     semanas = sorted(df["semana"].unique())
@@ -204,7 +233,10 @@ if auth["role"] == "pasante":
 
         gastos_por_dia = {dia: 0.0 for dia in dias_en}
 
-avances_lista = cargar_avances(obra_id_sel)
+        for _, r in df_sem.iterrows():
+
+            fecha = r["fecha"]
+            dia_en = fecha.strftime("%A")
 
             if dia_en in gastos_por_dia:
 
@@ -254,6 +286,7 @@ avances_lista = cargar_avances(obra_id_sel)
 
         st.bar_chart(chart_df, height=320)
 # ================= HISTORIAL DE AVANCES =================
+avances_lista = cargar_avances(obra_id_sel)
 st.divider()
 st.header("📚 Historial de Avances")
 
@@ -264,8 +297,17 @@ else:
     
     for av in avances_mostrar:
         # Usamos la fecha corregida que procesamos en el bloque anterior
-        f_dt = av.get("_dt_local")
-        f_txt = f_dt.strftime("%d/%m/%Y %H:%M") if f_dt else "Fecha N/D"
+        f_dt = av.get("timestamp") or av.get("fecha")
+
+        if hasattr(f_dt, "to_datetime"):
+            f_dt = f_dt.to_datetime()
+
+        if isinstance(f_dt, datetime):
+            f_txt = f_dt.strftime("%d/%m/%Y %H:%M")
+        else:
+            f_txt = "Fecha N/D"
+
+        
 
         seccion = av.get("seccion_nombre", "Sin sección")
         with st.expander(f"📅 {f_txt} — {av.get('responsable', 'N/D')} | 🧱 {seccion}"):
